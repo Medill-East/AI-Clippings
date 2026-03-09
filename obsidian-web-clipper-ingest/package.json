@@ -1,0 +1,15 @@
+{
+  "name": "obsidian-web-clipper-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Codex skill assets for fully automatic link ingestion into Obsidian through the Obsidian Web Clipper Chrome extension.",
+  "scripts": {
+    "setup": "node ./scripts/setup.js",
+    "clip": "node ./scripts/clip-links.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

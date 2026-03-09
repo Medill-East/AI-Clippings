@@ -1,0 +1,7 @@
+interface:
+  display_name: "Obsidian Web Clipper Ingest"
+  short_description: "Auto-ingest links into Obsidian via Chrome Web Clipper."
+  default_prompt: "Use $obsidian-web-clipper-ingest to ingest these links into my Obsidian vault."
+
+policy:
+  allow_implicit_invocation: true
