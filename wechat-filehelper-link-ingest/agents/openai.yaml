@@ -1,0 +1,7 @@
+interface:
+  display_name: "WeChat FileHelper Link Ingest"
+  short_description: "Pull and index File Transfer Assistant links from WeChat on Windows."
+  default_prompt: "Use $wechat-filehelper-link-ingest to extract and summarize the links I sent to 文件传输助手 in a time range."
+
+policy:
+  allow_implicit_invocation: true
