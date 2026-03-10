@@ -57,6 +57,18 @@ $script:UnresolvedReasons = [ordered]@{}
 $script:UnresolvedTotal = 0
 $script:FatalReason = $null
 $script:AllowLatestAnchorInference = (([DateTimeOffset]::Now - $untilValue).Duration().TotalHours -le 12)
+$script:ProcessedCandidateKeys = $null
+$script:ResolvedUrlSet = $null
+$script:ResolvedRecords = $null
+$script:UiShortDelayMs = 120
+$script:UiFocusDelayMs = 120
+$script:UiSelectionDelayMs = 80
+$script:ViewerWaitPollMs = 150
+$script:ViewerAppearedTimeoutMs = 2500
+$script:ViewerForegroundableTimeoutMs = 1200
+$script:ViewerMenuReadyTimeoutMs = 2500
+$script:ViewerCloseTimeoutMs = 1500
+$script:MainWindowRecoveryTimeoutMs = 2000
 
 function Write-ScanLog {
   param([string]$Message)
@@ -107,7 +119,12 @@ function Get-Descendants {
     [System.Windows.Automation.AutomationElement]$Root
   )
 
-  return @($Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
+  try {
+    return @($Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
+  } catch {
+    Write-ScanLog ("Get-Descendants returned no elements because the UIA root became unavailable: {0}" -f $_.Exception.Message)
+    return @()
+  }
 }
 
 function Focus-AutomationWindow {
@@ -127,11 +144,11 @@ function Focus-AutomationWindow {
 
   if ([WeChatSingleArticleNative]::IsIconic($handle)) {
     [WeChatSingleArticleNative]::ShowWindowAsync($handle, 9) | Out-Null
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds $script:UiFocusDelayMs
   }
 
   [WeChatSingleArticleNative]::SetForegroundWindow($handle) | Out-Null
-  Start-Sleep -Milliseconds 250
+  Start-Sleep -Milliseconds $script:UiFocusDelayMs
 }
 
 function Send-Keys {
@@ -305,6 +322,30 @@ function Get-ProductionGateState {
   return [PSCustomObject]$state
 }
 
+function Wait-ForStableProductionGate {
+  param(
+    [int]$TimeoutMs = $script:MainWindowRecoveryTimeoutMs,
+    [int]$PollMs = $script:ViewerWaitPollMs
+  )
+
+  $lastGate = $null
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $lastGate = Get-ProductionGateState
+    if ($lastGate.can_enter_single_article_mode) {
+      return $lastGate
+    }
+
+    Start-Sleep -Milliseconds $PollMs
+  }
+
+  if ($null -eq $lastGate) {
+    $lastGate = Get-ProductionGateState
+  }
+
+  return $lastGate
+}
+
 function Assert-ProductionGate {
   param(
     [Parameter(Mandatory = $true)]
@@ -320,8 +361,7 @@ function Assert-ProductionGate {
       }
     }
 
-    Start-Sleep -Milliseconds 600
-    $gate = Get-ProductionGateState
+    $gate = Wait-ForStableProductionGate -TimeoutMs $script:MainWindowRecoveryTimeoutMs -PollMs $script:ViewerWaitPollMs
   }
 
   if (-not $gate.can_enter_single_article_mode) {
@@ -563,6 +603,7 @@ function Move-DiscoveryStartToLatest {
   $seenPageKeys = New-Object 'System.Collections.Generic.HashSet[string]'
   $stablePages = 0
   $seekScrollLimit = [Math]::Max($MaxScrolls, 40)
+  $seenNonEmptyPage = $false
 
   for ($seekIndex = 0; $seekIndex -lt $seekScrollLimit; $seekIndex++) {
     $mainWindow = Assert-ProductionGate -Stage ("seek-latest-{0}" -f $seekIndex)
@@ -572,6 +613,17 @@ function Move-DiscoveryStartToLatest {
     }
 
     $visibleItems = @(Get-ChatMessageListItems -MessageList $messageList)
+    if ($visibleItems.Count -eq 0 -and $seenNonEmptyPage) {
+      Write-ScanLog ("Seek-latest overshot into an empty page at step {0}; paging up once to restore the last non-empty page." -f $seekIndex)
+      Scroll-MessageListPageUp -Window $mainWindow -MessageList $messageList
+      Write-ScanLog 'Seek-latest restored the last non-empty page after empty-page overshoot.'
+      return
+    }
+
+    if ($visibleItems.Count -gt 0) {
+      $seenNonEmptyPage = $true
+    }
+
     $pageSignature = ($visibleItems | ForEach-Object { '{0}|{1}|{2}' -f $_.ClassName, $_.Top, (Get-TextFingerprint -Text $_.Name) }) -join ';'
     if (-not $seenPageKeys.Add($pageSignature)) {
       $stablePages++
@@ -608,20 +660,20 @@ function Select-BubbleForOpen {
 
   try {
     $selectionPattern.Select()
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds $script:UiSelectionDelayMs
   } catch {
     return $false
   }
 
   try {
     $BubbleElement.SetFocus()
-    Start-Sleep -Milliseconds 100
+    Start-Sleep -Milliseconds $script:UiSelectionDelayMs
   } catch {
     Write-ScanLog 'Bubble SetFocus() failed after selection; continuing with main-window Enter activation.'
   }
 
   Focus-AutomationWindow -Window $WeChatWindow
-  Send-Keys -Keys '{ENTER}' -DelayMs 300
+  Send-Keys -Keys '{ENTER}' -DelayMs 220
   return $true
 }
 
@@ -630,10 +682,15 @@ function Wait-ForNewViewerWindow {
     [Parameter(Mandatory = $true)]
     [AllowEmptyCollection()]
     [string[]]$ViewerHandlesBefore,
-    [int]$TimeoutMs = 5000
+    [int]$ViewerAppearedTimeoutMs = $script:ViewerAppearedTimeoutMs,
+    [int]$ViewerForegroundableTimeoutMs = $script:ViewerForegroundableTimeoutMs,
+    [int]$ViewerMenuReadyTimeoutMs = $script:ViewerMenuReadyTimeoutMs,
+    [int]$PollMs = $script:ViewerWaitPollMs
   )
 
-  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  $viewerWindow = $null
+  $viewerAppearedStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($ViewerAppearedTimeoutMs)
   while ([DateTime]::UtcNow -lt $deadline) {
     $gate = Get-ProductionGateState
     if ($gate.main_window_count -ne 1) {
@@ -644,14 +701,120 @@ function Wait-ForNewViewerWindow {
     foreach ($viewerWindow in $currentViewerWindows) {
       $handle = [string]$viewerWindow.Current.NativeWindowHandle
       if ($handle -notin $ViewerHandlesBefore) {
-        return [PSCustomObject]@{ Status = 'ok'; Viewer = $viewerWindow; Reason = $null }
+        $viewerAppearedStopwatch.Stop()
+        $candidateViewer = $viewerWindow
+        $viewerWindow = $candidateViewer
+        break
       }
     }
 
-    Start-Sleep -Milliseconds 250
+    if ($null -ne $viewerWindow) {
+      break
+    }
+
+    Start-Sleep -Milliseconds $PollMs
   }
 
-  return [PSCustomObject]@{ Status = 'fatal'; Viewer = $null; Reason = 'A new independent WeChat article viewer window did not appear after opening the share card.' }
+  if ($null -eq $viewerWindow) {
+    return [PSCustomObject]@{
+      Status = 'no_viewer'
+      Viewer = $null
+      Reason = 'A new independent WeChat article viewer window did not appear after opening the share card.'
+      ViewerAppearedMs = $viewerAppearedStopwatch.ElapsedMilliseconds
+      ViewerForegroundableMs = 0
+      ViewerMenuReadyMs = 0
+      MenuReady = $false
+    }
+  }
+
+  $viewerForegroundStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($ViewerForegroundableTimeoutMs)
+  $viewerForegroundable = $false
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $gate = Get-ProductionGateState
+    if ($gate.main_window_count -ne 1) {
+      return [PSCustomObject]@{ Status = 'fatal'; Viewer = $null; Reason = 'WeChat main window count changed while preparing the article viewer.' }
+    }
+
+    try {
+      Focus-AutomationWindow -Window $viewerWindow
+      $viewerWindow.SetFocus()
+      $viewerForegroundable = $true
+      break
+    } catch {
+    }
+
+    Start-Sleep -Milliseconds $PollMs
+  }
+  $viewerForegroundStopwatch.Stop()
+
+  if (-not $viewerForegroundable) {
+    return [PSCustomObject]@{
+      Status = 'fatal'
+      Viewer = $null
+      Reason = 'The new WeChat article viewer could not be foregrounded safely.'
+      ViewerAppearedMs = $viewerAppearedStopwatch.ElapsedMilliseconds
+      ViewerForegroundableMs = $viewerForegroundStopwatch.ElapsedMilliseconds
+      ViewerMenuReadyMs = 0
+      MenuReady = $false
+    }
+  }
+
+  $viewerMenuReadyStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($ViewerMenuReadyTimeoutMs)
+  $menuReady = $false
+  while ([DateTime]::UtcNow -lt $deadline) {
+    if ($null -ne (Find-ViewerMenuButton -ViewerWindow $viewerWindow)) {
+      $menuReady = $true
+      break
+    }
+
+    Start-Sleep -Milliseconds $PollMs
+  }
+  $viewerMenuReadyStopwatch.Stop()
+
+  return [PSCustomObject]@{
+    Status = 'ok'
+    Viewer = $viewerWindow
+    Reason = $null
+    ViewerAppearedMs = $viewerAppearedStopwatch.ElapsedMilliseconds
+    ViewerForegroundableMs = $viewerForegroundStopwatch.ElapsedMilliseconds
+    ViewerMenuReadyMs = $viewerMenuReadyStopwatch.ElapsedMilliseconds
+    MenuReady = $menuReady
+  }
+}
+
+function Find-ViewerMenuButton {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Windows.Automation.AutomationElement]$ViewerWindow
+  )
+
+  $candidates = @(
+    Get-Descendants -Root $ViewerWindow |
+      Where-Object {
+        $type = [string]$_.Current.ControlType.ProgrammaticName
+        if ($type -notin @('ControlType.Button', 'ControlType.SplitButton', 'ControlType.MenuItem')) {
+          return $false
+        }
+
+        $rect = Get-ElementRectangle -Element $_
+        if ($null -eq $rect) {
+          return $false
+        }
+
+        $name = [string]$_.Current.Name
+        $isTopRight = ($rect.Top -lt 220 -and $rect.Left -gt 700)
+        $looksLikeMenu = ($name -eq '...' -or $name -eq '.' -or $name -like '*menu*')
+        return $isTopRight -or $looksLikeMenu
+      }
+  )
+
+  if ($candidates.Count -eq 0) {
+    return $null
+  }
+
+  return @($candidates | Sort-Object { (Get-ElementRectangle -Element $_).Top }, { (Get-ElementRectangle -Element $_).Left })[0]
 }
 
 function Find-ViewerCloseButton {
@@ -698,7 +861,7 @@ function Try-InvokeUiElement {
   try {
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
       $invokePattern.Invoke()
-      Start-Sleep -Milliseconds 250
+      Start-Sleep -Milliseconds $script:UiShortDelayMs
       return $true
     }
   } catch {
@@ -708,7 +871,7 @@ function Try-InvokeUiElement {
   try {
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyPattern)) {
       $legacyPattern.DoDefaultAction()
-      Start-Sleep -Milliseconds 250
+      Start-Sleep -Milliseconds $script:UiShortDelayMs
       return $true
     }
   } catch {
@@ -729,7 +892,6 @@ function Close-ViewerWindowGracefully {
   try {
     if ($ViewerWindow.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$windowPattern)) {
       $windowPattern.Close()
-      Start-Sleep -Milliseconds 500
       return $true
     }
   } catch {
@@ -738,9 +900,32 @@ function Close-ViewerWindowGracefully {
   $closeButton = Find-ViewerCloseButton -ViewerWindow $ViewerWindow
   if ($null -ne $closeButton) {
     if (Try-InvokeUiElement -Element $closeButton) {
-      Start-Sleep -Milliseconds 500
       return $true
     }
+  }
+
+  return $false
+}
+
+function Wait-ForViewerWindowClosed {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ViewerHandle,
+    [int]$TimeoutMs = $script:ViewerCloseTimeoutMs,
+    [int]$PollMs = $script:ViewerWaitPollMs
+  )
+
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $stillOpen = @(
+      Get-WeChatViewerWindows |
+        Where-Object { [string]$_.Current.NativeWindowHandle -eq $ViewerHandle }
+    )
+    if ($stillOpen.Count -eq 0) {
+      return $true
+    }
+
+    Start-Sleep -Milliseconds $PollMs
   }
 
   return $false
@@ -862,6 +1047,7 @@ function Build-CandidateFromBubble {
     scroll_index = $ScrollIndex
     message_time = $MessageTime
     kind = $kind
+    message_key = $null
     title = $title
     source_text = $Item.Name
     bubble_name_fingerprint = Get-TextFingerprint -Text $Item.Name
@@ -870,97 +1056,162 @@ function Build-CandidateFromBubble {
   }
 }
 
-function Discover-SingleArticleCandidates {
-  Move-DiscoveryStartToLatest
-  $mainWindow = Assert-ProductionGate -Stage 'discovery-precheck'
-  $candidateMap = [ordered]@{}
-  $seenPageKeys = New-Object 'System.Collections.Generic.HashSet[string]'
-  $consecutiveNoNewPages = 0
-  $currentDayAnchor = $null
-  $lastScrollIndex = 0
+function Get-CandidateMessageKey {
+  param(
+    [Parameter(Mandatory = $true)]
+    [psobject]$Candidate
+  )
 
-  for ($scrollIndex = 0; $scrollIndex -lt $MaxScrolls; $scrollIndex++) {
-    $lastScrollIndex = $scrollIndex
-    $mainWindow = Assert-ProductionGate -Stage ("discovery-scroll-{0}" -f $scrollIndex)
-    $messageList = Get-ChatMessageList -Window $mainWindow
-    if ($null -eq $messageList) {
-      throw 'chat_message_list disappeared during discovery.'
-    }
+  $minuteAnchor = $Candidate.message_time.ToString('yyyy-MM-ddTHH:mm')
+  return '{0}|{1}|{2}' -f $Candidate.kind, $minuteAnchor, $Candidate.bubble_name_fingerprint
+}
 
-    Write-ScanLog ("Collecting visible message items at discovery scroll {0}" -f $scrollIndex)
-    $visibleItems = @(Get-ChatMessageListItems -MessageList $messageList)
-    $pageSignature = ($visibleItems | ForEach-Object { '{0}|{1}|{2}' -f $_.ClassName, $_.Top, (Get-TextFingerprint -Text $_.Name) }) -join ';'
-    $isNewPage = $seenPageKeys.Add($pageSignature)
-    if (-not $isNewPage) {
-      $consecutiveNoNewPages++
-      Write-ScanLog ("No new visible message items were discovered at discovery scroll {0}." -f $scrollIndex)
-    } else {
-      $consecutiveNoNewPages = 0
-    }
+function Get-CandidateFingerprintKey {
+  param(
+    [Parameter(Mandatory = $true)]
+    [psobject]$Candidate
+  )
 
-    $pendingWithoutAnchor = 0
-    $visibleEarliest = $null
-    foreach ($item in $visibleItems) {
-      if ($item.ClassName -eq 'mmui::ChatItemView') {
-        $resolvedAnchor = Resolve-WeChatTimestamp -RawText $item.Name -Fallback ([DateTimeOffset]::Now) -CurrentDayAnchor $currentDayAnchor
-        $currentDayAnchor = $resolvedAnchor
-        if ($null -eq $visibleEarliest -or $resolvedAnchor -lt $visibleEarliest) {
-          $visibleEarliest = $resolvedAnchor
+  return '{0}|{1}' -f $Candidate.kind, $Candidate.bubble_name_fingerprint
+}
+
+function Register-Candidate {
+  param(
+    [Parameter(Mandatory = $true)]
+    [psobject]$Candidate,
+    [Parameter(Mandatory = $true)]
+    [hashtable]$CandidateMap,
+    [Parameter(Mandatory = $true)]
+    [hashtable]$FingerprintIndex
+  )
+
+  $candidateKey = Get-CandidateMessageKey -Candidate $Candidate
+  $fingerprintKey = Get-CandidateFingerprintKey -Candidate $Candidate
+
+  if ($CandidateMap.Contains($candidateKey)) {
+    return $CandidateMap[$candidateKey]
+  }
+
+  if ($FingerprintIndex.Contains($fingerprintKey)) {
+    $existingKey = [string]$FingerprintIndex[$fingerprintKey]
+    if ($CandidateMap.Contains($existingKey)) {
+      $existing = $CandidateMap[$existingKey]
+      if ($existing.time_inferred -and -not $Candidate.time_inferred) {
+        $Candidate.message_key = $candidateKey
+        $CandidateMap.Remove($existingKey)
+        $CandidateMap[$candidateKey] = $Candidate
+        $FingerprintIndex[$fingerprintKey] = $candidateKey
+        if ($script:ProcessedCandidateKeys.Contains($existingKey)) {
+          $script:ProcessedCandidateKeys.Add($candidateKey) | Out-Null
         }
-        continue
+        return $Candidate
       }
 
-      if ($null -eq $currentDayAnchor) {
-        if ($script:AllowLatestAnchorInference) {
-          $candidate = Build-CandidateFromBubble -Item $item -MessageTime $untilValue -ScrollIndex $scrollIndex -TimeInferred $true
-          if ($null -ne $candidate) {
-            $candidateKey = '{0}|inferred|{1}|{2}|{3}' -f $candidate.kind, $candidate.scroll_index, $candidate.top, $candidate.bubble_name_fingerprint
-            if (-not $candidateMap.Contains($candidateKey)) {
-              $candidateMap[$candidateKey] = $candidate
-            }
-          }
-        } else {
-          $pendingWithoutAnchor++
-        }
-        continue
-      }
-
-      $candidate = Build-CandidateFromBubble -Item $item -MessageTime $currentDayAnchor -ScrollIndex $scrollIndex
-      if ($null -eq $candidate) {
-        continue
-      }
-
-      $candidateKey = '{0}|{1}|{2}' -f $candidate.kind, $candidate.message_time.ToString('o'), $candidate.bubble_name_fingerprint
-      if (-not $candidateMap.Contains($candidateKey)) {
-        $candidateMap[$candidateKey] = $candidate
-      }
-    }
-
-    if ($null -ne $visibleEarliest -and $visibleEarliest -le $sinceValue) {
-      if ($pendingWithoutAnchor -gt 0 -and $scrollIndex -lt ($MaxScrolls - 1)) {
-        Write-ScanLog 'Visible lower bound reached, but top-of-page bubbles still lack anchors; scrolling once more to recover those anchors.'
-      } else {
-        Write-ScanLog ("Stopping discovery because visible earliest anchor {0} is older than Since." -f $visibleEarliest.ToString('o'))
-        break
-      }
-    }
-
-    if ($consecutiveNoNewPages -ge 2) {
-      Write-ScanLog 'Stopping discovery because no new visible message items were discovered twice in a row.'
-      break
-    }
-
-    if ($scrollIndex -lt ($MaxScrolls - 1)) {
-      Scroll-MessageListPageUp -Window $mainWindow -MessageList $messageList
+      return $existing
     }
   }
 
-  $candidates = @($candidateMap.Values | Sort-Object scroll_index, { $_.message_time }, top)
-  $candidates | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+  $Candidate.message_key = $candidateKey
+  $CandidateMap[$candidateKey] = $Candidate
+  $FingerprintIndex[$fingerprintKey] = $candidateKey
+  return $Candidate
+}
+
+function Add-RecordIfNewUrl {
+  param(
+    [Parameter(Mandatory = $true)]
+    [AllowNull()]
+    [psobject]$Record
+  )
+
+  if ($null -eq $Record) {
+    return
+  }
+
+  if ($script:ResolvedUrlSet.Add([string]$Record.url)) {
+    $script:ResolvedRecords.Add($Record) | Out-Null
+    return
+  }
+
+  Write-ScanLog ("Skipping duplicate canonical URL in current run: {0}" -f [string]$Record.url)
+}
+
+function Process-VisiblePageCandidates {
+  param(
+    [Parameter(Mandatory = $true)]
+    [int]$ScrollIndex,
+    [Parameter(Mandatory = $true)]
+    [System.Windows.Automation.AutomationElement]$WeChatWindow,
+    [Parameter(Mandatory = $true)]
+    [System.Windows.Automation.AutomationElement]$MessageList,
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [psobject[]]$VisibleItems,
+    [Parameter(Mandatory = $true)]
+    [ref]$CurrentDayAnchor,
+    [Parameter(Mandatory = $true)]
+    [hashtable]$CandidateMap,
+    [Parameter(Mandatory = $true)]
+    [hashtable]$FingerprintIndex
+  )
+
+  $pendingWithoutAnchor = 0
+  $visibleEarliest = $null
+
+  foreach ($item in $VisibleItems) {
+    if ($item.ClassName -eq 'mmui::ChatItemView') {
+      $resolvedAnchor = Resolve-WeChatTimestamp -RawText $item.Name -Fallback ([DateTimeOffset]::Now) -CurrentDayAnchor $CurrentDayAnchor.Value
+      $CurrentDayAnchor.Value = $resolvedAnchor
+      if ($null -eq $visibleEarliest -or $resolvedAnchor -lt $visibleEarliest) {
+        $visibleEarliest = $resolvedAnchor
+      }
+      continue
+    }
+
+    if ($null -eq $CurrentDayAnchor.Value) {
+      if ($script:AllowLatestAnchorInference) {
+        $candidate = Build-CandidateFromBubble -Item $item -MessageTime $untilValue -ScrollIndex $ScrollIndex -TimeInferred $true
+      } else {
+        $pendingWithoutAnchor++
+        continue
+      }
+    } else {
+      $candidate = Build-CandidateFromBubble -Item $item -MessageTime $CurrentDayAnchor.Value -ScrollIndex $ScrollIndex
+    }
+
+    if ($null -eq $candidate) {
+      continue
+    }
+
+    $registeredCandidate = Register-Candidate -Candidate $candidate -CandidateMap $CandidateMap -FingerprintIndex $FingerprintIndex
+    $candidateKey = Get-CandidateMessageKey -Candidate $registeredCandidate
+    $registeredCandidate.message_key = $candidateKey
+    if ($script:ProcessedCandidateKeys.Contains($candidateKey)) {
+      continue
+    }
+
+    if ($registeredCandidate.kind -eq 'text_url') {
+      foreach ($record in @(Convert-TextUrlCandidateToRecords -Candidate $registeredCandidate)) {
+        Add-RecordIfNewUrl -Record $record
+      }
+      $script:ProcessedCandidateKeys.Add($candidateKey) | Out-Null
+      continue
+    }
+
+    $currentWindow = Assert-ProductionGate -Stage ("process-share-card-scroll-{0}" -f $ScrollIndex)
+    $currentMessageList = Get-ChatMessageList -Window $currentWindow
+    if ($null -eq $currentMessageList) {
+      throw 'chat_message_list is no longer visible before processing a share card candidate on the current page.'
+    }
+
+    $record = Process-ShareCardCandidate -Candidate $registeredCandidate -WeChatWindow $currentWindow -MessageList $currentMessageList
+    Add-RecordIfNewUrl -Record $record
+    $script:ProcessedCandidateKeys.Add($candidateKey) | Out-Null
+  }
 
   return [PSCustomObject]@{
-    Candidates = $candidates
-    LastScrollIndex = $lastScrollIndex
+    PendingWithoutAnchor = $pendingWithoutAnchor
+    VisibleEarliest = $visibleEarliest
   }
 }
 
@@ -1006,6 +1257,7 @@ function Process-ShareCardCandidate {
   }
 
   $viewerHandlesBefore = @(Get-WeChatViewerWindows | ForEach-Object { [string]$_.Current.NativeWindowHandle })
+  $openStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
   if (-not (Select-BubbleForOpen -BubbleElement $visibleBubble.Element -WeChatWindow $WeChatWindow)) {
     Set-FatalReason -Reason ("Failed to select and open share card: {0}" -f $Candidate.title)
     throw $script:FatalReason
@@ -1013,9 +1265,17 @@ function Process-ShareCardCandidate {
 
   $viewerWait = Wait-ForNewViewerWindow -ViewerHandlesBefore $viewerHandlesBefore
   if ($viewerWait.Status -ne 'ok' -or $null -eq $viewerWait.Viewer) {
+    if ($viewerWait.Status -eq 'no_viewer') {
+      Add-UnresolvedReason -Reason 'share_card_viewer_not_opened' -Detail ("No independent viewer appeared for share card: {0}" -f $Candidate.title)
+      return $null
+    }
+
     Set-FatalReason -Reason $viewerWait.Reason
     throw $script:FatalReason
   }
+  $openStopwatch.Stop()
+  Write-ScanLog ("open_to_viewer_ms={0}" -f $viewerWait.ViewerAppearedMs)
+  Write-ScanLog ("viewer_to_menu_ready_ms={0}" -f ($viewerWait.ViewerForegroundableMs + $viewerWait.ViewerMenuReadyMs))
 
   $mainGate = Get-ProductionGateState
   if ($mainGate.main_window_count -ne 1 -or $mainGate.current_chat_name -ne $script:FileHelperName -or -not $mainGate.message_list_present) {
@@ -1036,22 +1296,23 @@ function Process-ShareCardCandidate {
     Add-UnresolvedReason -Reason 'share_card_extractor_failed' -Detail ("Failed to extract URL for share card: {0}. {1}" -f $Candidate.title, $extractResult.Error)
   }
 
+  $closeStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
   if (-not (Close-ViewerWindowGracefully -ViewerWindow $viewerWait.Viewer)) {
     Set-FatalReason -Reason 'Failed to close the newly opened WeChat article viewer using a safe UIA-only method.'
     throw $script:FatalReason
   }
 
-  Start-Sleep -Milliseconds 350
-  $viewerStillOpen = @(
-    Get-WeChatViewerWindows |
-      Where-Object { [string]$_.Current.NativeWindowHandle -eq [string]$viewerWait.Viewer.Current.NativeWindowHandle }
-  )
-  if ($viewerStillOpen.Count -gt 0) {
+  if (-not (Wait-ForViewerWindowClosed -ViewerHandle ([string]$viewerWait.Viewer.Current.NativeWindowHandle))) {
     Set-FatalReason -Reason 'The newly opened WeChat article viewer remained open after a safe close attempt.'
     throw $script:FatalReason
   }
+  $closeStopwatch.Stop()
+  Write-ScanLog ("close_viewer_ms={0}" -f $closeStopwatch.ElapsedMilliseconds)
 
-  $postGate = Get-ProductionGateState
+  $postGateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $postGate = Wait-ForStableProductionGate -TimeoutMs $script:MainWindowRecoveryTimeoutMs -PollMs $script:ViewerWaitPollMs
+  $postGateStopwatch.Stop()
+  Write-ScanLog ("main_window_recovery_ms={0}" -f $postGateStopwatch.ElapsedMilliseconds)
   if (-not $postGate.can_enter_single_article_mode) {
     Set-FatalReason -Reason ('WeChat main window did not recover to a stable File Transfer Assistant state after closing the viewer. ' + ($postGate.reasons -join ' '))
     throw $script:FatalReason
@@ -1062,48 +1323,67 @@ function Process-ShareCardCandidate {
 
 try {
   Write-ScanLog ("Starting single-article scan with Since={0}, Until={1}, MaxScrolls={2}, Reindex={3}" -f $sinceValue.ToString('o'), $untilValue.ToString('o'), $MaxScrolls, $Reindex.IsPresent)
-  $discovery = Discover-SingleArticleCandidates
-  $candidates = @($discovery.Candidates)
-  $lastScrollIndex = [int]$discovery.LastScrollIndex
-  Write-ScanLog ("Discovery finished with {0} candidate(s)." -f $candidates.Count)
+  Move-DiscoveryStartToLatest
+  $candidateMap = [ordered]@{}
+  $fingerprintIndex = @{}
+  $script:ProcessedCandidateKeys = New-Object 'System.Collections.Generic.HashSet[string]'
+  $script:ResolvedUrlSet = New-Object 'System.Collections.Generic.HashSet[string]'
+  $seenPageKeys = New-Object 'System.Collections.Generic.HashSet[string]'
+  $consecutiveNoNewPages = 0
+  $currentDayAnchor = $null
+  $script:ResolvedRecords = New-Object System.Collections.Generic.List[object]
+  $lastScrollIndex = 0
 
-  $records = New-Object System.Collections.Generic.List[object]
-  foreach ($candidate in @($candidates | Sort-Object @{ Expression = 'scroll_index'; Descending = $true }, top)) {
+  for ($scrollIndex = 0; $scrollIndex -lt $MaxScrolls; $scrollIndex++) {
+    $lastScrollIndex = $scrollIndex
     if ($script:FatalReason) {
       break
     }
 
-    if ($candidate.kind -eq 'text_url') {
-      foreach ($record in @(Convert-TextUrlCandidateToRecords -Candidate $candidate)) {
-        $records.Add($record) | Out-Null
-      }
-      continue
-    }
-
-    while ($lastScrollIndex -gt [int]$candidate.scroll_index) {
-      $mainWindow = Assert-ProductionGate -Stage 'navigate-page-down'
-      $messageList = Get-ChatMessageList -Window $mainWindow
-      if ($null -eq $messageList) {
-        throw 'chat_message_list disappeared while navigating back down to a candidate page.'
-      }
-      Scroll-MessageListPageDown -Window $mainWindow -MessageList $messageList
-      $lastScrollIndex--
-    }
-
-    $mainWindow = Assert-ProductionGate -Stage 'pre-share-card-extraction'
+    $mainWindow = Assert-ProductionGate -Stage ("stream-scroll-{0}" -f $scrollIndex)
     $messageList = Get-ChatMessageList -Window $mainWindow
     if ($null -eq $messageList) {
-      throw 'chat_message_list is no longer visible before processing a share card candidate.'
+      throw 'chat_message_list disappeared during streaming scan.'
     }
 
-    $record = Process-ShareCardCandidate -Candidate $candidate -WeChatWindow $mainWindow -MessageList $messageList
-    if ($null -ne $record) {
-      $records.Add($record) | Out-Null
+    Write-ScanLog ("Collecting and processing visible message items at stream scroll {0}" -f $scrollIndex)
+    $visibleItems = @(Get-ChatMessageListItems -MessageList $messageList)
+    $pageSignature = ($visibleItems | ForEach-Object { '{0}|{1}|{2}' -f $_.ClassName, $_.Top, (Get-TextFingerprint -Text $_.Name) }) -join ';'
+    $isNewPage = $seenPageKeys.Add($pageSignature)
+    if (-not $isNewPage) {
+      $consecutiveNoNewPages++
+      Write-ScanLog ("No new visible message items were discovered at stream scroll {0}." -f $scrollIndex)
+    } else {
+      $consecutiveNoNewPages = 0
+    }
+
+    $pageResult = Process-VisiblePageCandidates -ScrollIndex $scrollIndex -WeChatWindow $mainWindow -MessageList $messageList -VisibleItems $visibleItems -CurrentDayAnchor ([ref]$currentDayAnchor) -CandidateMap $candidateMap -FingerprintIndex $fingerprintIndex
+
+    if ($null -ne $pageResult.VisibleEarliest -and $pageResult.VisibleEarliest -le $sinceValue) {
+      if ($pageResult.PendingWithoutAnchor -gt 0 -and $scrollIndex -lt ($MaxScrolls - 1)) {
+        Write-ScanLog 'Visible lower bound reached, but top-of-page bubbles still lack anchors; scrolling once more to recover those anchors.'
+      } else {
+        Write-ScanLog ("Stopping stream scan because visible earliest anchor {0} is older than Since." -f $pageResult.VisibleEarliest.ToString('o'))
+        break
+      }
+    }
+
+    if ($consecutiveNoNewPages -ge 2) {
+      Write-ScanLog 'Stopping stream scan because no new visible message items were discovered twice in a row.'
+      break
+    }
+
+    if ($scrollIndex -lt ($MaxScrolls - 1)) {
+      Scroll-MessageListPageUp -Window $mainWindow -MessageList $messageList
     }
   }
 
-  $merge = if ($records.Count -gt 0) {
-    Merge-IndexRecords -IndexPath $resolvedIndexPath -IncomingRecords @($records.ToArray()) -Reindex:$Reindex
+  $candidates = @($candidateMap.Values | Sort-Object { $_.message_time }, top)
+  $candidates | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+  Write-ScanLog ("Stream scan finished with {0} unique candidate(s) and {1} processed candidate(s)." -f $candidates.Count, $script:ProcessedCandidateKeys.Count)
+
+  $merge = if ($script:ResolvedRecords.Count -gt 0) {
+    Merge-IndexRecords -IndexPath $resolvedIndexPath -IncomingRecords @($script:ResolvedRecords.ToArray()) -Reindex:$Reindex
   } else {
     [PSCustomObject]@{ total = @(Read-JsonLinesFile -Path $resolvedIndexPath).Count; added = 0; skipped = 0 }
   }
@@ -1117,7 +1397,8 @@ try {
     index_path = $resolvedIndexPath
     candidates_path = $candidatePath
     candidates_seen = $candidates.Count
-    records_resolved = $records.Count
+    processed_candidates = $script:ProcessedCandidateKeys.Count
+    records_resolved = $script:ResolvedRecords.Count
     records_added = $merge.added
     records_skipped = $merge.skipped
     index_total = $merge.total
@@ -1133,7 +1414,8 @@ try {
 
   Write-Output 'Scan complete.'
   Write-Output ("Candidates seen: {0}" -f $candidates.Count)
-  Write-Output ("Records resolved: {0}" -f $records.Count)
+  Write-Output ("Processed candidates: {0}" -f $script:ProcessedCandidateKeys.Count)
+  Write-Output ("Records resolved: {0}" -f $script:ResolvedRecords.Count)
   Write-Output ("Added to index: {0}" -f $merge.added)
   Write-Output ("Index total: {0}" -f $merge.total)
   Write-Output ("Manifest: {0}" -f $run.ManifestPath)

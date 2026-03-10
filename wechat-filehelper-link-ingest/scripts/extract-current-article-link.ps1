@@ -34,6 +34,17 @@ $script:MenuNavigationIndex = @{
   $script:OpenInBrowserLabel = 4
   $script:CopyLinkLabel = 6
 }
+$script:UiShortDelayMs = 120
+$script:UiFocusDelayMs = 120
+$script:UiSelectionDelayMs = 70
+$script:UiActivationDelayMs = 120
+$script:UiMenuStepDelayMs = 90
+$script:UiEnterDelayMs = 180
+$script:ClipboardPollDelayMs = 120
+$script:ClipboardPollTimeoutMs = 1500
+$script:ViewerMenuReadyPollMs = 150
+$script:ViewerMenuReadyTimeoutMs = 2500
+$script:PostEnterFallbackDelayMs = 300
 
 function Write-ExtractorLog {
   param([string]$Message)
@@ -79,7 +90,7 @@ function Send-Keys {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Keys,
-    [int]$DelayMs = 220
+    [int]$DelayMs = $script:UiEnterDelayMs
   )
 
   [System.Windows.Forms.SendKeys]::SendWait($Keys)
@@ -117,11 +128,11 @@ function Focus-Window {
 
   if ([WeChatArticleNative]::IsIconic($handle)) {
     [WeChatArticleNative]::ShowWindowAsync($handle, 9) | Out-Null
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds $script:UiFocusDelayMs
   }
 
   [WeChatArticleNative]::SetForegroundWindow($handle) | Out-Null
-  Start-Sleep -Milliseconds 250
+  Start-Sleep -Milliseconds $script:UiFocusDelayMs
 }
 
 function Get-ElementRectangleObject {
@@ -183,7 +194,7 @@ function Try-InvokeUiElement {
   try {
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
       $invokePattern.Invoke()
-      Start-Sleep -Milliseconds 250
+      Start-Sleep -Milliseconds $script:UiActivationDelayMs
       return $true
     }
   } catch {
@@ -193,7 +204,7 @@ function Try-InvokeUiElement {
   try {
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyPattern)) {
       $legacyPattern.DoDefaultAction()
-      Start-Sleep -Milliseconds 250
+      Start-Sleep -Milliseconds $script:UiActivationDelayMs
       return $true
     }
   } catch {
@@ -202,7 +213,7 @@ function Try-InvokeUiElement {
   try {
     $point = $Element.GetClickablePoint()
     Click-Point -X ([int][Math]::Round($point.X, 0)) -Y ([int][Math]::Round($point.Y, 0))
-    Start-Sleep -Milliseconds 250
+    Start-Sleep -Milliseconds $script:UiActivationDelayMs
     return $true
   } catch {
   }
@@ -226,20 +237,19 @@ function Try-ActivateMenuActionWithEnter {
   try {
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)) {
       $selectionPattern.Select()
-      Start-Sleep -Milliseconds 120
+      Start-Sleep -Milliseconds $script:UiSelectionDelayMs
     }
   } catch {
   }
 
   try {
     $Element.SetFocus()
-    Start-Sleep -Milliseconds 120
+    Start-Sleep -Milliseconds $script:UiSelectionDelayMs
   } catch {
   }
 
-  Send-Keys -Keys '{ENTER}' -DelayMs 260
-  Start-Sleep -Milliseconds 600
-  $candidate = & $ValidateResult
+  Send-Keys -Keys '{ENTER}' -DelayMs $script:UiEnterDelayMs
+  $candidate = Wait-ForValidationResult -ValidateResult $ValidateResult -TimeoutMs $script:ClipboardPollTimeoutMs -PollMs $script:ClipboardPollDelayMs -FinalRetryMs $script:PostEnterFallbackDelayMs
   if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
     return [string]$candidate
   }
@@ -261,15 +271,18 @@ function Try-ActivateMenuActionByKeyboardNavigation {
 
   $targetIndex = [int]$script:MenuNavigationIndex[$ActionLabel]
   Write-ExtractorLog ("Using direct-down keyboard navigation for menu action: {0} (downCount={1})" -f $ActionLabel, $targetIndex)
+  $navigationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
   for ($i = 0; $i -lt $targetIndex; $i++) {
-    Send-Keys -Keys '{DOWN}' -DelayMs 90
+    Send-Keys -Keys '{DOWN}' -DelayMs $script:UiMenuStepDelayMs
   }
 
-  Start-Sleep -Milliseconds 120
-  Send-Keys -Keys '{ENTER}' -DelayMs 260
-  Start-Sleep -Milliseconds 700
-  $candidate = & $ValidateResult
+  Send-Keys -Keys '{ENTER}' -DelayMs $script:UiEnterDelayMs
+  $candidate = Wait-ForValidationResult -ValidateResult $ValidateResult -TimeoutMs $script:ClipboardPollTimeoutMs -PollMs $script:ClipboardPollDelayMs -FinalRetryMs $script:PostEnterFallbackDelayMs
+  $navigationStopwatch.Stop()
+  if ($ActionLabel -eq $script:CopyLinkLabel) {
+    Write-ExtractorLog ("menu_to_clipboard_ms={0}" -f $navigationStopwatch.ElapsedMilliseconds)
+  }
   if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
     return [string]$candidate
   }
@@ -339,6 +352,57 @@ function Find-ViewerMenuButton {
   return @($candidates | Sort-Object { (Get-ElementRectangleObject -Element $_).Top }, { (Get-ElementRectangleObject -Element $_).Left })[0]
 }
 
+function Wait-ForValidationResult {
+  param(
+    [Parameter(Mandatory = $true)]
+    [scriptblock]$ValidateResult,
+    [int]$TimeoutMs = 1500,
+    [int]$PollMs = 120,
+    [int]$FinalRetryMs = 0
+  )
+
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $candidate = & $ValidateResult
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      return [string]$candidate
+    }
+
+    Start-Sleep -Milliseconds $PollMs
+  }
+
+  if ($FinalRetryMs -gt 0) {
+    Start-Sleep -Milliseconds $FinalRetryMs
+    $candidate = & $ValidateResult
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      return [string]$candidate
+    }
+  }
+
+  return $null
+}
+
+function Wait-ForViewerMenuButton {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Windows.Automation.AutomationElement]$ArticleWindow,
+    [int]$TimeoutMs = 2500,
+    [int]$PollMs = 150
+  )
+
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $candidate = Find-ViewerMenuButton -ArticleWindow $ArticleWindow
+    if ($null -ne $candidate) {
+      return $candidate
+    }
+
+    Start-Sleep -Milliseconds $PollMs
+  }
+
+  return $null
+}
+
 function Find-ViewerMenuAction {
   param(
     [Parameter(Mandatory = $true)]
@@ -378,7 +442,10 @@ function Try-InvokeMenuActionByUiAutomation {
   )
 
   Focus-Window -Window $ArticleWindow
-  $menuButton = Find-ViewerMenuButton -ArticleWindow $ArticleWindow
+  $menuReadyStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $menuButton = Wait-ForViewerMenuButton -ArticleWindow $ArticleWindow -TimeoutMs $script:ViewerMenuReadyTimeoutMs -PollMs $script:ViewerMenuReadyPollMs
+  $menuReadyStopwatch.Stop()
+  Write-ExtractorLog ("viewer_to_menu_ready_ms={0}" -f $menuReadyStopwatch.ElapsedMilliseconds)
   if ($null -eq $menuButton) {
     Write-ExtractorLog ("UIA menu button not found for action: {0}" -f $ActionLabel)
     return $null
@@ -389,7 +456,7 @@ function Try-InvokeMenuActionByUiAutomation {
     return $null
   }
 
-  Start-Sleep -Milliseconds 350
+  Start-Sleep -Milliseconds $script:UiShortDelayMs
   if ($script:MenuNavigationIndex.ContainsKey($ActionLabel)) {
     $keyboardResult = Try-ActivateMenuActionByKeyboardNavigation -ActionLabel $ActionLabel -ValidateResult $ValidateResult
     if (-not [string]::IsNullOrWhiteSpace($keyboardResult)) {
@@ -419,8 +486,7 @@ function Try-InvokeMenuActionByUiAutomation {
     return $null
   }
 
-  Start-Sleep -Milliseconds 800
-  $candidate = & $ValidateResult
+  $candidate = Wait-ForValidationResult -ValidateResult $ValidateResult -TimeoutMs $script:ClipboardPollTimeoutMs -PollMs $script:ClipboardPollDelayMs -FinalRetryMs $script:PostEnterFallbackDelayMs
   if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
     return [string]$candidate
   }
