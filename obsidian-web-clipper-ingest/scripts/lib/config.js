@@ -24,10 +24,24 @@ export function makeDefaultConfig() {
     openShortcut: "Ctrl+Shift+O",
     summaryTimeoutMs: 240000,
     postAddTimeoutMs: 7000,
-    maxConcurrentSummaries: 3,
+    maxConcurrentSummaries: 18,
     scrollStepPx: 900,
     scrollPauseMs: 250,
   };
+}
+
+export function applyEnvOverrides(config) {
+  const overrides = { ...config };
+  const maxConcurrencyOverride = process.env.OBSIDIAN_CLIPPER_MAX_CONCURRENCY;
+
+  if (maxConcurrencyOverride) {
+    const parsed = Number.parseInt(maxConcurrencyOverride, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      overrides.maxConcurrentSummaries = parsed;
+    }
+  }
+
+  return overrides;
 }
 
 export function validateConfig(config) {
@@ -69,10 +83,10 @@ export async function hasConfig() {
 }
 
 export async function loadConfig() {
-  const config = {
+  const config = applyEnvOverrides({
     ...makeDefaultConfig(),
     ...(await readJson(configPath)),
-  };
+  });
   validateConfig(config);
   return config;
 }

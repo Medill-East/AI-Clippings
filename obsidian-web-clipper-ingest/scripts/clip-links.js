@@ -79,7 +79,9 @@ async function stageClipTask({ artifacts, config, context, worker, index, url })
     return {
       frame,
       page,
-      readyPromise: waitForReadyToAdd(frame, config.summaryTimeoutMs),
+      readyPromise: waitForReadyToAdd(frame, config.summaryTimeoutMs)
+        .then((readyState) => ({ ok: true, readyState }))
+        .catch((error) => ({ ok: false, error })),
       result,
       screenshotPath,
       tabId,
@@ -237,12 +239,8 @@ async function main() {
     await stageNextTasks();
 
     while (activeTasks.length > 0) {
-      const { task, waitOutcome, waitError } = await Promise.race(
-        activeTasks.map((task) =>
-          task.readyPromise
-            .then((readyState) => ({ task, waitOutcome: readyState, waitError: null }))
-            .catch((error) => ({ task, waitOutcome: null, waitError: error })),
-        ),
+      const { task, readiness } = await Promise.race(
+        activeTasks.map((task) => task.readyPromise.then((readiness) => ({ task, readiness }))),
       );
 
       const taskIndex = activeTasks.indexOf(task);
@@ -250,9 +248,9 @@ async function main() {
         activeTasks.splice(taskIndex, 1);
       }
 
-      if (waitError) {
+      if (!readiness.ok) {
         task.result.status = "failed";
-        task.result.error = waitError instanceof Error ? waitError.message : String(waitError);
+        task.result.error = readiness.error instanceof Error ? readiness.error.message : String(readiness.error);
         await task.page.screenshot({ path: task.screenshotPath, fullPage: true }).catch(() => {});
         await closeClipperIframe(worker, task.tabId).catch(() => {});
         await task.page.close().catch(() => {});
@@ -265,7 +263,7 @@ async function main() {
           manifestPath: artifacts.manifestPath,
           task,
           vaultInfo,
-          waitOutcome,
+          waitOutcome: readiness.readyState,
           worker,
         });
       }
