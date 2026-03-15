@@ -650,31 +650,168 @@ function Select-BubbleForOpen {
     [Parameter(Mandatory = $true)]
     [System.Windows.Automation.AutomationElement]$BubbleElement,
     [Parameter(Mandatory = $true)]
-    [System.Windows.Automation.AutomationElement]$WeChatWindow
+    [System.Windows.Automation.AutomationElement]$WeChatWindow,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('clickable_point', 'invoke', 'legacy', 'enter_fallback')]
+    [string]$Method
   )
 
+  $openTriggerStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
   $selectionPattern = $null
   if (-not $BubbleElement.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)) {
-    return $false
+    return [PSCustomObject]@{
+      Status = 'failed'
+      Method = $null
+      OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+      Reason = 'SelectionItemPattern is not available on the target share card bubble.'
+    }
   }
 
   try {
     $selectionPattern.Select()
     Start-Sleep -Milliseconds $script:UiSelectionDelayMs
   } catch {
-    return $false
+    return [PSCustomObject]@{
+      Status = 'failed'
+      Method = $null
+      OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+      Reason = ('SelectionItemPattern.Select() failed: {0}' -f $_.Exception.Message)
+    }
   }
 
   try {
     $BubbleElement.SetFocus()
     Start-Sleep -Milliseconds $script:UiSelectionDelayMs
   } catch {
-    Write-ScanLog 'Bubble SetFocus() failed after selection; continuing with main-window Enter activation.'
+    Write-ScanLog 'Bubble SetFocus() failed after selection; continuing with alternative bubble activation.'
   }
 
   Focus-AutomationWindow -Window $WeChatWindow
-  Send-Keys -Keys '{ENTER}' -DelayMs 220
-  return $true
+
+  switch ($Method) {
+    'clickable_point' {
+      try {
+        $clickablePoint = $BubbleElement.GetClickablePoint()
+        Click-Point -X ([int][Math]::Round($clickablePoint.X, 0)) -Y ([int][Math]::Round($clickablePoint.Y, 0))
+        $openTriggerStopwatch.Stop()
+        return [PSCustomObject]@{
+          Status = 'ok'
+          Method = 'clickable_point'
+          OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+          Reason = $null
+        }
+      } catch {
+        return [PSCustomObject]@{
+          Status = 'failed'
+          Method = 'clickable_point'
+          OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+          Reason = ('GetClickablePoint() failed: {0}' -f $_.Exception.Message)
+        }
+      }
+    }
+    'invoke' {
+      $invokePattern = $null
+      try {
+        if ($BubbleElement.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
+          $invokePattern.Invoke()
+          Start-Sleep -Milliseconds $script:UiShortDelayMs
+          $openTriggerStopwatch.Stop()
+          return [PSCustomObject]@{
+            Status = 'ok'
+            Method = 'invoke'
+            OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+            Reason = $null
+          }
+        }
+      } catch {
+      }
+
+      return [PSCustomObject]@{
+        Status = 'failed'
+        Method = 'invoke'
+        OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+        Reason = 'InvokePattern is not available or failed for the target share card bubble.'
+      }
+    }
+    'legacy' {
+      if (Test-LegacyPatternSupported) {
+        $legacyPattern = $null
+        try {
+          if ($BubbleElement.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyPattern)) {
+            $legacyPattern.DoDefaultAction()
+            Start-Sleep -Milliseconds $script:UiShortDelayMs
+            $openTriggerStopwatch.Stop()
+            return [PSCustomObject]@{
+              Status = 'ok'
+              Method = 'legacy'
+              OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+              Reason = $null
+            }
+          }
+        } catch {
+        }
+      }
+
+      return [PSCustomObject]@{
+        Status = 'failed'
+        Method = 'legacy'
+        OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+        Reason = 'LegacyIAccessiblePattern is not available or failed for the target share card bubble.'
+      }
+    }
+    'enter_fallback' {
+      Send-Keys -Keys '{ENTER}' -DelayMs 220
+      $openTriggerStopwatch.Stop()
+      Write-ScanLog 'Share card open used enter_fallback after UIA-native activation methods were unavailable.'
+      return [PSCustomObject]@{
+        Status = 'ok'
+        Method = 'enter_fallback'
+        OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+        Reason = $null
+      }
+    }
+  }
+
+  return [PSCustomObject]@{
+    Status = 'failed'
+    Method = $Method
+    OpenTriggerMs = $openTriggerStopwatch.ElapsedMilliseconds
+    Reason = ('Unsupported bubble open method: {0}' -f $Method)
+  }
+}
+
+function Test-LegacyPatternSupported {
+  return ($null -ne ('System.Windows.Automation.LegacyIAccessiblePattern' -as [type]))
+}
+
+function Get-BubbleOpenMethodPlan {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Windows.Automation.AutomationElement]$BubbleElement
+  )
+
+  $methods = New-Object System.Collections.Generic.List[string]
+
+  try {
+    $null = $BubbleElement.GetClickablePoint()
+    $methods.Add('clickable_point') | Out-Null
+  } catch {
+  }
+
+  $invokePattern = $null
+  if ($BubbleElement.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
+    $methods.Add('invoke') | Out-Null
+  }
+
+  if (Test-LegacyPatternSupported) {
+    $legacyPattern = $null
+    if ($BubbleElement.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyPattern)) {
+      $methods.Add('legacy') | Out-Null
+    }
+  }
+
+  $methods.Add('enter_fallback') | Out-Null
+  return @($methods.ToArray() | Select-Object -Unique)
 }
 
 function Wait-ForNewViewerWindow {
@@ -1257,24 +1394,43 @@ function Process-ShareCardCandidate {
   }
 
   $viewerHandlesBefore = @(Get-WeChatViewerWindows | ForEach-Object { [string]$_.Current.NativeWindowHandle })
-  $openStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-  if (-not (Select-BubbleForOpen -BubbleElement $visibleBubble.Element -WeChatWindow $WeChatWindow)) {
-    Set-FatalReason -Reason ("Failed to select and open share card: {0}" -f $Candidate.title)
-    throw $script:FatalReason
-  }
-
-  $viewerWait = Wait-ForNewViewerWindow -ViewerHandlesBefore $viewerHandlesBefore
-  if ($viewerWait.Status -ne 'ok' -or $null -eq $viewerWait.Viewer) {
-    if ($viewerWait.Status -eq 'no_viewer') {
-      Add-UnresolvedReason -Reason 'share_card_viewer_not_opened' -Detail ("No independent viewer appeared for share card: {0}" -f $Candidate.title)
-      return $null
+  $openMethods = @(Get-BubbleOpenMethodPlan -BubbleElement $visibleBubble.Element)
+  $openResult = $null
+  $viewerWait = $null
+  foreach ($openMethod in $openMethods) {
+    $attemptViewerHandlesBefore = @(Get-WeChatViewerWindows | ForEach-Object { [string]$_.Current.NativeWindowHandle })
+    $attemptResult = Select-BubbleForOpen -BubbleElement $visibleBubble.Element -WeChatWindow $WeChatWindow -Method $openMethod
+    if ($attemptResult.Status -ne 'ok') {
+      Write-ScanLog ("open_method={0}" -f [string]$attemptResult.Method)
+      Write-ScanLog ("select_to_open_trigger_ms={0}" -f [int]$attemptResult.OpenTriggerMs)
+      Write-ScanLog ("open_method_failed={0}: {1}" -f [string]$attemptResult.Method, [string]$attemptResult.Reason)
+      continue
     }
 
-    Set-FatalReason -Reason $viewerWait.Reason
-    throw $script:FatalReason
+    Write-ScanLog ("open_method={0}" -f [string]$attemptResult.Method)
+    Write-ScanLog ("select_to_open_trigger_ms={0}" -f [int]$attemptResult.OpenTriggerMs)
+
+    $attemptViewerWait = Wait-ForNewViewerWindow -ViewerHandlesBefore $attemptViewerHandlesBefore
+    if ($attemptViewerWait.Status -eq 'ok' -and $null -ne $attemptViewerWait.Viewer) {
+      $openResult = $attemptResult
+      $viewerWait = $attemptViewerWait
+      break
+    }
+
+    if ($attemptViewerWait.Status -eq 'fatal') {
+      Set-FatalReason -Reason $attemptViewerWait.Reason
+      throw $script:FatalReason
+    }
+
+    Write-ScanLog ("open_method_no_viewer={0}" -f [string]$attemptResult.Method)
   }
-  $openStopwatch.Stop()
-  Write-ScanLog ("open_to_viewer_ms={0}" -f $viewerWait.ViewerAppearedMs)
+
+  if ($null -eq $viewerWait -or $viewerWait.Status -ne 'ok' -or $null -eq $viewerWait.Viewer) {
+    Add-UnresolvedReason -Reason 'share_card_viewer_not_opened' -Detail ("No independent viewer appeared for share card: {0} (methods={1})" -f $Candidate.title, ($openMethods -join ',')) 
+    return $null
+  }
+  Write-ScanLog ("open_trigger_to_viewer_ms={0}" -f $viewerWait.ViewerAppearedMs)
+  Write-ScanLog ("viewer_open_total_ms={0}" -f ([int]$openResult.OpenTriggerMs + [int]$viewerWait.ViewerAppearedMs))
   Write-ScanLog ("viewer_to_menu_ready_ms={0}" -f ($viewerWait.ViewerForegroundableMs + $viewerWait.ViewerMenuReadyMs))
 
   $mainGate = Get-ProductionGateState

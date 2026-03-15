@@ -26,8 +26,13 @@ $expectations = @(
   @{ Label = 'scan script can skip bilibili-like messages'; Text = $scanText; Pattern = 'Test-IsBilibiliLikeMessage' }
   @{ Label = 'scan script records bilibili skips'; Text = $scanText; Pattern = 'bilibili_message_skipped' }
   @{ Label = 'scan script waits for independent viewer'; Text = $scanText; Pattern = 'Wait-ForNewViewerWindow' }
+  @{ Label = 'scan script logs open method'; Text = $scanText; Pattern = 'open_method=' }
+  @{ Label = 'scan script logs select-to-trigger timing'; Text = $scanText; Pattern = 'select_to_open_trigger_ms=' }
+  @{ Label = 'scan script logs trigger-to-viewer timing'; Text = $scanText; Pattern = 'open_trigger_to_viewer_ms=' }
+  @{ Label = 'scan script logs total viewer-open timing'; Text = $scanText; Pattern = 'viewer_open_total_ms=' }
+  @{ Label = 'scan script prefers clickable point for bubble open'; Text = $scanText; Pattern = 'Method = ''clickable_point''' }
+  @{ Label = 'scan script keeps enter fallback only as last resort'; Text = $scanText; Pattern = 'enter_fallback' }
   @{ Label = 'scan script detects viewer menu readiness'; Text = $scanText; Pattern = 'Find-ViewerMenuButton' }
-  @{ Label = 'scan script logs open-to-viewer timing'; Text = $scanText; Pattern = 'open_to_viewer_ms=' }
   @{ Label = 'scan script logs viewer-to-menu timing'; Text = $scanText; Pattern = 'viewer_to_menu_ready_ms=' }
   @{ Label = 'scan script waits for viewer close by polling'; Text = $scanText; Pattern = 'Wait-ForViewerWindowClosed' }
   @{ Label = 'scan script logs close-viewer timing'; Text = $scanText; Pattern = 'close_viewer_ms=' }
