@@ -27,6 +27,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 - Treat the clip as ready only when the iframe shows `Add to Obsidian` and the button is enabled.
 - Scroll the page from top to bottom before opening the clipper iframe so lazy content loads on long articles.
 - Stage multiple pages in parallel for AI summarization. Open, scroll, and start clipping each page one by one, then let the summary phase overlap across up to `maxConcurrentSummaries` pages.
+- If a URL fails in the main batch, automatically retry only the failed URLs in narrower follow-up passes. The built-in fallback sequence is: original batch concurrency, then retry with concurrency `2`, then a final single-page retry.
 - Before saving, pre-authorize the automation profile for the `obsidian://` protocol and force the extension's automation profile to use `silentOpen: true` so the run is not blocked by external-app prompts.
 - Treat a clip as truly successful only when the expected note is detected in the target Obsidian vault after clicking `Add to Obsidian`.
 

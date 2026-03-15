@@ -25,6 +25,7 @@ import {
   waitForReadyToAdd,
 } from "./lib/clipper.js";
 import { resolveObsidianVault, waitForImportedNote } from "./lib/obsidian.js";
+import { getRetryConcurrencyPlan, mergeAttemptResult } from "./lib/retries.js";
 import { createRunArtifacts, writeManifest } from "./lib/run-log.js";
 import { parseInputUrls } from "./lib/urls.js";
 
@@ -47,12 +48,17 @@ async function preflight(config) {
   return { extensionVersion };
 }
 
-async function stageClipTask({ artifacts, config, context, worker, index, url }) {
+async function stageClipTask({ artifacts, attempt, config, context, passConcurrency, worker, index, url }) {
   const page = await context.newPage();
-  const screenshotPath = path.join(artifacts.screenshotsDir, `${String(index + 1).padStart(2, "0")}.png`);
+  const screenshotPath = path.join(
+    artifacts.screenshotsDir,
+    `a${String(attempt).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}.png`,
+  );
   const result = {
     url,
     status: "pending",
+    attempt,
+    attemptConcurrency: passConcurrency,
     startedAt: new Date().toISOString(),
     screenshotPath,
   };
@@ -98,8 +104,6 @@ async function stageClipTask({ artifacts, config, context, worker, index, url })
 async function finalizeTask({
   config,
   dryRunEnabled,
-  manifest,
-  manifestPath,
   task,
   vaultInfo,
   waitOutcome,
@@ -155,17 +159,140 @@ async function finalizeTask({
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
   } finally {
     result.finishedAt = new Date().toISOString();
-    manifest.results.push(result);
-    await writeManifest(manifestPath, manifest);
     await closeClipperIframe(worker, tabId).catch(() => {});
     await page.close().catch(() => {});
   }
 }
 
-async function recordResult(manifest, manifestPath, result) {
+async function recordResult(manifest, manifestPath, resultsByUrl, result) {
   result.finishedAt ??= new Date().toISOString();
-  manifest.results.push(result);
+  const previousResult = resultsByUrl.get(result.url);
+  const mergedResult = mergeAttemptResult(previousResult, result);
+
+  resultsByUrl.set(result.url, mergedResult);
+  manifest.results = Array.from(resultsByUrl.values());
   await writeManifest(manifestPath, manifest);
+}
+
+function summarizeResults(results) {
+  return {
+    success: results.filter((result) => result.status === "success").length,
+    failed: results.filter((result) => result.status === "failed").length,
+    dryRun: results.filter((result) => result.status === "dry-run").length,
+  };
+}
+
+async function runPass({
+  artifacts,
+  attempt,
+  config,
+  context,
+  dryRunEnabled,
+  manifest,
+  urls,
+  vaultInfo,
+  worker,
+  passConcurrency,
+  resultsByUrl,
+}) {
+  const pass = {
+    attempt,
+    maxConcurrentSummaries: passConcurrency,
+    startedAt: new Date().toISOString(),
+    urls,
+    results: [],
+  };
+  manifest.passes.push(pass);
+  await writeManifest(artifacts.manifestPath, manifest);
+
+  const activeTasks = [];
+  let nextIndex = 0;
+
+  async function persistResult(result) {
+    pass.results.push({
+      url: result.url,
+      status: result.status,
+      attempt: result.attempt,
+      attemptConcurrency: result.attemptConcurrency,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      error: result.error,
+    });
+    await recordResult(manifest, artifacts.manifestPath, resultsByUrl, result);
+  }
+
+  async function stageNextTasks() {
+    while (nextIndex < urls.length && activeTasks.length < passConcurrency) {
+      const stagedTask = await stageClipTask({
+        attempt,
+        artifacts,
+        config,
+        context,
+        index: nextIndex,
+        passConcurrency,
+        url: urls[nextIndex],
+        worker,
+      });
+
+      nextIndex += 1;
+
+      if (stagedTask.completed) {
+        await persistResult(stagedTask.result);
+        continue;
+      }
+
+      activeTasks.push(stagedTask);
+    }
+  }
+
+  await stageNextTasks();
+
+  while (activeTasks.length > 0) {
+    const { task, readiness } = await Promise.race(
+      activeTasks.map((task) => task.readyPromise.then((readyState) => ({ task, readiness: readyState }))),
+    );
+
+    const taskIndex = activeTasks.indexOf(task);
+    if (taskIndex >= 0) {
+      activeTasks.splice(taskIndex, 1);
+    }
+
+    if (!readiness.ok) {
+      task.result.status = "failed";
+      task.result.error = readiness.error instanceof Error ? readiness.error.message : String(readiness.error);
+      await task.page.screenshot({ path: task.screenshotPath, fullPage: true }).catch(() => {});
+      await closeClipperIframe(worker, task.tabId).catch(() => {});
+      await task.page.close().catch(() => {});
+      await persistResult(task.result);
+    } else {
+      await finalizeTask({
+        config,
+        dryRunEnabled,
+        task,
+        vaultInfo,
+        waitOutcome: readiness.readyState,
+        worker,
+      });
+      pass.results.push({
+        url: task.result.url,
+        status: task.result.status,
+        attempt: task.result.attempt,
+        attemptConcurrency: task.result.attemptConcurrency,
+        startedAt: task.result.startedAt,
+        finishedAt: task.result.finishedAt,
+        error: task.result.error,
+      });
+      await recordResult(manifest, artifacts.manifestPath, resultsByUrl, task.result);
+    }
+
+    await stageNextTasks();
+  }
+
+  pass.finishedAt = new Date().toISOString();
+  pass.summary = summarizeResults(pass.results);
+  await writeManifest(artifacts.manifestPath, manifest);
+
+  return pass.results.filter((result) => result.status === "failed").map((result) => result.url);
 }
 
 async function main() {
@@ -192,11 +319,22 @@ async function main() {
       scrollStepPx: config.scrollStepPx,
       scrollPauseMs: config.scrollPauseMs,
     },
+    retryPolicy: dryRun
+      ? {
+          enabled: false,
+          retries: [],
+        }
+      : {
+          enabled: true,
+          retries: getRetryConcurrencyPlan(config.maxConcurrentSummaries),
+        },
+    passes: [],
     results: [],
   };
 
   let context;
   let session;
+  const resultsByUrl = new Map();
 
   try {
     session = await launchChromeContext(config);
@@ -211,64 +349,46 @@ async function main() {
     };
     await writeManifest(artifacts.manifestPath, manifest);
 
-    const activeTasks = [];
-    let nextIndex = 0;
+    let pendingUrls = urls;
+    let attempt = 1;
+    let passConcurrency = config.maxConcurrentSummaries;
 
-    async function stageNextTasks() {
-      while (nextIndex < urls.length && activeTasks.length < config.maxConcurrentSummaries) {
-        const stagedTask = await stageClipTask({
-          artifacts,
-          config,
-          context,
-          index: nextIndex,
-          url: urls[nextIndex],
-          worker,
-        });
+    pendingUrls = await runPass({
+      artifacts,
+      attempt,
+      config,
+      context,
+      dryRunEnabled: dryRun,
+      manifest,
+      urls: pendingUrls,
+      vaultInfo,
+      worker,
+      passConcurrency,
+      resultsByUrl,
+    });
 
-        nextIndex += 1;
-
-        if (stagedTask.completed) {
-          await recordResult(manifest, artifacts.manifestPath, stagedTask.result);
-          continue;
+    if (!dryRun) {
+      for (const retryConcurrency of getRetryConcurrencyPlan(config.maxConcurrentSummaries)) {
+        if (pendingUrls.length === 0) {
+          break;
         }
 
-        activeTasks.push(stagedTask);
-      }
-    }
-
-    await stageNextTasks();
-
-    while (activeTasks.length > 0) {
-      const { task, readiness } = await Promise.race(
-        activeTasks.map((task) => task.readyPromise.then((readiness) => ({ task, readiness }))),
-      );
-
-      const taskIndex = activeTasks.indexOf(task);
-      if (taskIndex >= 0) {
-        activeTasks.splice(taskIndex, 1);
-      }
-
-      if (!readiness.ok) {
-        task.result.status = "failed";
-        task.result.error = readiness.error instanceof Error ? readiness.error.message : String(readiness.error);
-        await task.page.screenshot({ path: task.screenshotPath, fullPage: true }).catch(() => {});
-        await closeClipperIframe(worker, task.tabId).catch(() => {});
-        await task.page.close().catch(() => {});
-        await recordResult(manifest, artifacts.manifestPath, task.result);
-      } else {
-        await finalizeTask({
+        attempt += 1;
+        passConcurrency = retryConcurrency;
+        pendingUrls = await runPass({
+          artifacts,
+          attempt,
           config,
+          context,
           dryRunEnabled: dryRun,
           manifest,
-          manifestPath: artifacts.manifestPath,
-          task,
+          urls: pendingUrls,
           vaultInfo,
-          waitOutcome: readiness.readyState,
           worker,
+          passConcurrency,
+          resultsByUrl,
         });
       }
-
-      await stageNextTasks();
     }
   } finally {
     manifest.finishedAt = new Date().toISOString();
@@ -276,9 +396,7 @@ async function main() {
     await session?.close().catch(() => {});
   }
 
-  const successCount = manifest.results.filter((result) => result.status === "success").length;
-  const failureCount = manifest.results.filter((result) => result.status === "failed").length;
-  const dryRunCount = manifest.results.filter((result) => result.status === "dry-run").length;
+  const { dryRun: dryRunCount, failed: failureCount, success: successCount } = summarizeResults(manifest.results);
 
   console.log(`Run manifest: ${artifacts.manifestPath}`);
   console.log(`Success: ${successCount}  Failed: ${failureCount}  Dry-run: ${dryRunCount}`);
