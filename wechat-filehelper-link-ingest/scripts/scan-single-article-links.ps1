@@ -538,7 +538,7 @@ function New-LinkRecord {
     title = $Title
     url = $canonical
     source_text = $SourceText
-    dedupe_key = New-DedupeKey -ChatName $script:FileHelperName -MessageTime $MessageTime.ToString('o') -CanonicalUrl $canonical -Title $Title
+    dedupe_key = New-DedupeKey -ChatName $script:FileHelperName -MessageTime $MessageTime.ToString('o') -CanonicalUrl $canonical
     capture_session_id = $SessionId
   }
 }
@@ -1175,7 +1175,11 @@ function Build-CandidateFromBubble {
     return $null
   }
 
-  $title = if ($kind -eq 'share_card') { Get-TitleFragment -Text $Item.Name } else { Get-TitleFragment -Text $Item.Name }
+  $title = if ($kind -eq 'share_card') {
+    Get-TitleFragment -Text $Item.Name
+  } else {
+    ($Item.Name -split '\r?\n')[0].Trim()
+  }
   if ([string]::IsNullOrWhiteSpace($title)) {
     $title = $Item.Name
   }

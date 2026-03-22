@@ -791,7 +791,7 @@ function New-LinkRecord {
     title = $Title
     url = $canonical
     source_text = $SourceText
-    dedupe_key = New-DedupeKey -ChatName $script:FileHelperName -MessageTime $MessageTime.ToString('o') -CanonicalUrl $canonical -Title $Title
+    dedupe_key = New-DedupeKey -ChatName $script:FileHelperName -MessageTime $MessageTime.ToString('o') -CanonicalUrl $canonical
     capture_session_id = $SessionId
   }
 }

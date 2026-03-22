@@ -104,14 +104,11 @@ function New-DedupeKey {
     [AllowNull()]
     [string]$MessageTime,
     [Parameter(Mandatory = $true)]
-    [string]$CanonicalUrl,
-    [AllowNull()]
-    [string]$Title
+    [string]$CanonicalUrl
   )
 
   $safeMessageTime = if ($null -eq $MessageTime) { '' } else { [string]$MessageTime }
-  $safeTitle = if ($null -eq $Title) { '' } else { [string]$Title }
-  $seed = '{0}|{1}|{2}|{3}' -f $ChatName.Trim(), $safeMessageTime, $CanonicalUrl.Trim(), $safeTitle.Trim()
+  $seed = '{0}|{1}|{2}' -f $ChatName.Trim(), $safeMessageTime, $CanonicalUrl.Trim()
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try {
     $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($seed))
@@ -325,7 +322,11 @@ function Resolve-WeChatTimestamp {
 
   if ($text -match '^(?<h>\d{1,2}):(?<m>\d{2})$') {
     $anchor = if ($null -ne $CurrentDayAnchor) { $CurrentDayAnchor } else { $Fallback }
-    return [DateTimeOffset]::new($anchor.Year, $anchor.Month, $anchor.Day, [int]$Matches.h, [int]$Matches.m, 0, $anchor.Offset)
+    try {
+      return [DateTimeOffset]::new($anchor.Year, $anchor.Month, $anchor.Day, [int]$Matches.h, [int]$Matches.m, 0, $anchor.Offset)
+    } catch {
+      return $Fallback
+    }
   }
 
   if ($text -match '^(?<dayLabel>[^\d\s]{1,4})\s*(?<h>\d{1,2}):(?<m>\d{2})$') {
@@ -337,17 +338,29 @@ function Resolve-WeChatTimestamp {
     } elseif ($null -ne $CurrentDayAnchor) {
       $anchor = $CurrentDayAnchor
     }
-    return [DateTimeOffset]::new($anchor.Year, $anchor.Month, $anchor.Day, [int]$Matches.h, [int]$Matches.m, 0, $anchor.Offset)
+    try {
+      return [DateTimeOffset]::new($anchor.Year, $anchor.Month, $anchor.Day, [int]$Matches.h, [int]$Matches.m, 0, $anchor.Offset)
+    } catch {
+      return $Fallback
+    }
   }
 
   if ($text -match '^(?<month>\d{1,2})\D(?<day>\d{1,2})\D\s*(?<h>\d{1,2}):(?<m>\d{2})$') {
-    return [DateTimeOffset]::new($Fallback.Year, [int]$Matches.month, [int]$Matches.day, [int]$Matches.h, [int]$Matches.m, 0, $Fallback.Offset)
+    try {
+      return [DateTimeOffset]::new($Fallback.Year, [int]$Matches.month, [int]$Matches.day, [int]$Matches.h, [int]$Matches.m, 0, $Fallback.Offset)
+    } catch {
+      return $Fallback
+    }
   }
 
   if ($text -match '^(?<year>\d{4})\D(?<month>\d{1,2})\D(?<day>\d{1,2})\D(?:\s*(?<h>\d{1,2}):(?<m>\d{2}))?$') {
     $hour = if ($Matches.ContainsKey('h') -and $Matches.h) { [int]$Matches.h } else { 0 }
     $minute = if ($Matches.ContainsKey('m') -and $Matches.m) { [int]$Matches.m } else { 0 }
-    return [DateTimeOffset]::new([int]$Matches.year, [int]$Matches.month, [int]$Matches.day, $hour, $minute, 0, $Fallback.Offset)
+    try {
+      return [DateTimeOffset]::new([int]$Matches.year, [int]$Matches.month, [int]$Matches.day, $hour, $minute, 0, $Fallback.Offset)
+    } catch {
+      return $Fallback
+    }
   }
 
   try {
