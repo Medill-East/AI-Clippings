@@ -16,40 +16,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create PR and merge
+      - name: Create and merge PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           BRANCH="${{ github.ref_name }}"
           echo "Branch: $BRANCH"
 
-          # Check for existing open PR
-          PR_NUMBER=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number' || true)
+          # Create PR (will fail if one already exists, that's ok)
+          gh pr create \
+            --title "Auto-merge: $BRANCH" \
+            --body "Automated PR for branch \`$BRANCH\`." \
+            --head "$BRANCH" \
+            --base main 2>&1 || true
 
-          if [ -n "$PR_NUMBER" ]; then
-            echo "Found existing open PR #$PR_NUMBER"
-          else
-            echo "Creating PR: $BRANCH -> main"
-            PR_NUMBER=$(gh pr create \
-              --title "Auto-merge: $BRANCH" \
-              --body "Automated PR for branch \`$BRANCH\`." \
-              --head "$BRANCH" \
-              --base main \
-              | grep -oP 'pull/\K[0-9]+' || true)
-
-            # Fallback: get PR number via API if grep failed
-            if [ -z "$PR_NUMBER" ]; then
-              PR_NUMBER=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number')
-            fi
-            echo "Created PR #$PR_NUMBER"
-          fi
-
-          if [ -z "$PR_NUMBER" ]; then
-            echo "Error: Could not find or create PR"
-            exit 1
-          fi
-
-          echo "Merging PR #$PR_NUMBER..."
-          gh pr merge "$PR_NUMBER" --merge --admin
-          echo "Done: PR #$PR_NUMBER merged into main."
+          # Merge the PR for this branch (works with branch name)
+          gh pr merge "$BRANCH" --merge --delete-branch=false
+          echo "Done: $BRANCH merged into main."
