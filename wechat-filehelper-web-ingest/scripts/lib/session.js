@@ -46,7 +46,7 @@ export async function ensureLoggedIn(page) {
   if (unsupportedText) {
     throw new Error(
       "此微信账号不支持网页版（wx.qq.com 显示无法登录）。\n" +
-        "请参考 SKILL.md 中的"账号不支持网页版"说明，或联系技术支持切换到桌面版方案。"
+        "请参考 SKILL.md 中的「账号不支持网页版」说明，或联系技术支持切换到桌面版方案。"
     );
   }
 
