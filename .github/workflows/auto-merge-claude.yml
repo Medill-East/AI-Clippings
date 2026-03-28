@@ -1,52 +1,37 @@
-name: Auto-merge claude branches
+name: Auto-merge claude/* branches into main
 
 on:
   push:
     branches:
       - 'claude/**'
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Create PR and merge via API
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API_URL: ${{ github.api_url }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge claude branch into main
         run: |
-          set -euo pipefail
-          echo "Branch : $BRANCH"
-          echo "Repo   : $REPO"
-          EXISTING=$(curl -sf \
-            -H "Authorization: token ${TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${API_URL}/repos/${REPO}/pulls?state=open&per_page=100&base=main" \
-            | jq -r '.[] | select(.head.ref == "'"$BRANCH"'") | .number' | head -1 || true)
-          if [ -n "$EXISTING" ]; then
-            echo "Existing open PR #$EXISTING found."
-            PR_NUMBER="$EXISTING"
-          else
-            echo "Creating PR: $BRANCH -> main"
-            RESPONSE=$(curl -sf -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/vnd.github+json" \
-              "${API_URL}/repos/${REPO}/pulls" \
-              -d '{"title":"Auto-merge: '"$BRANCH"'","body":"Automated PR for branch `'"$BRANCH"'`.","head":"'"$BRANCH"'","base":"main"}')
-            PR_NUMBER=$(echo "$RESPONSE" | jq -r '.number')
-            echo "Created PR #$PR_NUMBER"
-          fi
-          echo "Merging PR #$PR_NUMBER..."
-          curl -sf -X PUT \
-            -H "Authorization: token ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/vnd.github+json" \
-            "${API_URL}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
-            -d '{"merge_method":"merge","commit_message":"Auto-merge '"$BRANCH"' into main"}'
-          echo "Done: PR #$PR_NUMBER merged into main."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Retry loop: re-fetch latest main and re-merge on each push failure
+          for i in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            git merge --no-ff -X theirs origin/${{ github.ref_name }} -m "Auto-merge ${{ github.ref_name }} into main"
+            git push origin main && break
+            if [ $i -lt 4 ]; then
+              echo "Push attempt $i failed (concurrent update), retrying in $((i * 2))s..."
+              sleep $((i * 2))
+            else
+              echo "All push attempts failed"
+              exit 1
+            fi
+          done
