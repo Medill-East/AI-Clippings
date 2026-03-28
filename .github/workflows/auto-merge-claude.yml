@@ -21,25 +21,13 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-
           echo "Branch : $BRANCH"
           echo "Repo   : $REPO"
-          echo "API URL: $API_URL"
-
-          # ── Find or create PR ──────────────────────────────────────────────
           EXISTING=$(curl -sf \
             -H "Authorization: token ${TOKEN}" \
-            -H "Accept: application/json" \
-            "${API_URL}/repos/${REPO}/pulls?state=open&limit=50&base=main" \
-            | python3 -c "
-import sys, json
-pulls = json.load(sys.stdin)
-for p in pulls:
-    if p.get('head', {}).get('ref', '') == '$BRANCH':
-        print(p['number'])
-        break
-" 2>/dev/null || true)
-
+            -H "Accept: application/vnd.github+json" \
+            "${API_URL}/repos/${REPO}/pulls?state=open&per_page=100&base=main" \
+            | jq -r '.[] | select(.head.ref == "'"$BRANCH"'") | .number' | head -1 || true)
           if [ -n "$EXISTING" ]; then
             echo "Existing open PR #$EXISTING found."
             PR_NUMBER="$EXISTING"
@@ -48,29 +36,17 @@ for p in pulls:
             RESPONSE=$(curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
+              -H "Accept: application/vnd.github+json" \
               "${API_URL}/repos/${REPO}/pulls" \
-              -d "{
-                \"title\": \"Auto-merge: ${BRANCH}\",
-                \"body\": \"Automated PR created by CI for branch \`${BRANCH}\`.\",
-                \"head\": \"${BRANCH}\",
-                \"base\": \"main\"
-              }")
-            PR_NUMBER=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['number'])")
+              -d '{"title":"Auto-merge: '"$BRANCH"'","body":"Automated PR for branch `'"$BRANCH"'`.","head":"'"$BRANCH"'","base":"main"}')
+            PR_NUMBER=$(echo "$RESPONSE" | jq -r '.number')
             echo "Created PR #$PR_NUMBER"
           fi
-
-          # ── Merge PR ──────────────────────────────────────────────────────
           echo "Merging PR #$PR_NUMBER..."
-          curl -sf -X POST \
+          curl -sf -X PUT \
             -H "Authorization: token ${TOKEN}" \
             -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
+            -H "Accept: application/vnd.github+json" \
             "${API_URL}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
-            -d "{
-              \"Do\": \"merge\",
-              \"MergeMessageField\": \"Auto-merge ${BRANCH} into main\",
-              \"force_merge\": true
-            }"
-
+            -d '{"merge_method":"merge","commit_message":"Auto-merge '"$BRANCH"' into main"}'
           echo "Done: PR #$PR_NUMBER merged into main."
