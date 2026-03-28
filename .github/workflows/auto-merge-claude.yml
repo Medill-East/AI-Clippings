@@ -23,30 +23,46 @@ jobs:
           set -euo pipefail
           echo "Branch : $BRANCH"
           echo "Repo   : $REPO"
-          EXISTING=$(curl -sf \
+
+          # Find existing open PR for this branch
+          EXISTING=$(curl -s \
             -H "Authorization: token ${TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "${API_URL}/repos/${REPO}/pulls?state=open&per_page=100&base=main" \
             | jq -r '.[] | select(.head.ref == "'"$BRANCH"'") | .number' | head -1 || true)
+
           if [ -n "$EXISTING" ]; then
             echo "Existing open PR #$EXISTING found."
             PR_NUMBER="$EXISTING"
           else
             echo "Creating PR: $BRANCH -> main"
-            RESPONSE=$(curl -sf -X POST \
+            RESPONSE=$(curl -s -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/json" \
               -H "Accept: application/vnd.github+json" \
               "${API_URL}/repos/${REPO}/pulls" \
               -d '{"title":"Auto-merge: '"$BRANCH"'","body":"Automated PR for branch `'"$BRANCH"'`.","head":"'"$BRANCH"'","base":"main"}')
             PR_NUMBER=$(echo "$RESPONSE" | jq -r '.number')
+            if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+              echo "Failed to create PR. Response:"
+              echo "$RESPONSE"
+              exit 1
+            fi
             echo "Created PR #$PR_NUMBER"
           fi
+
           echo "Merging PR #$PR_NUMBER..."
-          curl -sf -X PUT \
+          HTTP_CODE=$(curl -s -o /tmp/merge_response.json -w '%{http_code}' -X PUT \
             -H "Authorization: token ${TOKEN}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/vnd.github+json" \
             "${API_URL}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
-            -d '{"merge_method":"merge","commit_message":"Auto-merge '"$BRANCH"' into main"}'
-          echo "Done: PR #$PR_NUMBER merged into main."
+            -d '{"merge_method":"merge","commit_message":"Auto-merge '"$BRANCH"' into main"}')
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Done: PR #$PR_NUMBER merged into main. (HTTP $HTTP_CODE)"
+          else
+            echo "Merge failed with HTTP $HTTP_CODE:"
+            cat /tmp/merge_response.json
+            exit 1
+          fi
