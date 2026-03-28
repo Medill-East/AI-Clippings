@@ -1,0 +1,7 @@
+interface:
+  display_name: "WeChat FileHelper Web Ingest"
+  short_description: "Extract WeChat article links from File Transfer Assistant via WeChat Web (wx.qq.com) on macOS."
+  default_prompt: "Use $wechat-filehelper-web-ingest to extract and summarize the links I sent to 文件传输助手 between <since> and <until>."
+
+policy:
+  allow_implicit_invocation: true
