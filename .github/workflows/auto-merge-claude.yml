@@ -13,34 +13,64 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create PR and merge
+      - name: Create PR and merge via API
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
         run: |
-          BRANCH="${GITHUB_REF#refs/heads/}"
+          set -euo pipefail
 
-          # Check if a PR already exists for this branch
-          EXISTING_PR=$(gh pr list --head "$BRANCH" --base main --state open --json number -q '.[0].number')
+          echo "Branch : $BRANCH"
+          echo "Repo   : $REPO"
+          echo "API URL: $API_URL"
 
-          if [ -n "$EXISTING_PR" ]; then
-            echo "PR #$EXISTING_PR already exists, merging..."
-            PR_NUMBER="$EXISTING_PR"
+          # ── Find or create PR ──────────────────────────────────────────────
+          EXISTING=$(curl -sf \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Accept: application/json" \
+            "${API_URL}/repos/${REPO}/pulls?state=open&limit=50&base=main" \
+            | python3 -c "
+import sys, json
+pulls = json.load(sys.stdin)
+for p in pulls:
+    if p.get('head', {}).get('ref', '') == '$BRANCH':
+        print(p['number'])
+        break
+" 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Existing open PR #$EXISTING found."
+            PR_NUMBER="$EXISTING"
           else
-            echo "Creating PR for $BRANCH -> main"
-            PR_URL=$(gh pr create \
-              --title "Auto-merge: ${BRANCH}" \
-              --body "Automated PR created by GitHub Actions for branch \`${BRANCH}\`." \
-              --head "$BRANCH" \
-              --base main)
-            PR_NUMBER=$(echo "$PR_URL" | grep -oP '\d+$')
+            echo "Creating PR: $BRANCH -> main"
+            RESPONSE=$(curl -sf -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              "${API_URL}/repos/${REPO}/pulls" \
+              -d "{
+                \"title\": \"Auto-merge: ${BRANCH}\",
+                \"body\": \"Automated PR created by CI for branch \`${BRANCH}\`.\",
+                \"head\": \"${BRANCH}\",
+                \"base\": \"main\"
+              }")
+            PR_NUMBER=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['number'])")
             echo "Created PR #$PR_NUMBER"
           fi
 
-          # Merge the PR
-          gh pr merge "$PR_NUMBER" --merge --admin
-          echo "Merged PR #$PR_NUMBER"
+          # ── Merge PR ──────────────────────────────────────────────────────
+          echo "Merging PR #$PR_NUMBER..."
+          curl -sf -X POST \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            "${API_URL}/repos/${REPO}/pulls/${PR_NUMBER}/merge" \
+            -d "{
+              \"Do\": \"merge\",
+              \"MergeMessageField\": \"Auto-merge ${BRANCH} into main\",
+              \"force_merge\": true
+            }"
+
+          echo "Done: PR #$PR_NUMBER merged into main."
