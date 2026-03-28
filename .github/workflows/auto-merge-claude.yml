@@ -1,36 +1,37 @@
-name: Auto-merge claude branches
+name: Auto-merge claude/* branches into main
 
 on:
   push:
     branches:
       - 'claude/**'
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
-      - name: Create and merge PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge claude branch into main
         run: |
-          set -uo pipefail
-          BRANCH="${{ github.ref_name }}"
-          echo "Branch: $BRANCH"
-
-          # Create PR (will fail if one already exists, that's ok)
-          gh pr create \
-            --title "Auto-merge: $BRANCH" \
-            --body "Automated PR for branch \`$BRANCH\`." \
-            --head "$BRANCH" \
-            --base main 2>&1 || true
-
-          # Merge the PR for this branch (works with branch name)
-          gh pr merge "$BRANCH" --merge --delete-branch=false
-          echo "Done: $BRANCH merged into main."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Retry loop: re-fetch latest main and re-merge on each push failure
+          for i in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            git merge --no-ff -X theirs origin/${{ github.ref_name }} -m "Auto-merge ${{ github.ref_name }} into main"
+            git push origin main && break
+            if [ $i -lt 4 ]; then
+              echo "Push attempt $i failed (concurrent update), retrying in $((i * 2))s..."
+              sleep $((i * 2))
+            else
+              echo "All push attempts failed"
+              exit 1
+            fi
+          done
