@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Codex skill assets for extracting WeChat article links from File Transfer Assistant via macOS desktop app Accessibility API.",
+  "description": "Codex skill assets for extracting WeChat article links from File Transfer Assistant via macOS desktop WeChat using UI-first scanning with clipboard fallback.",
   "scripts": {
     "setup": "node ./scripts/setup.js",
+    "diagnose": "node ./scripts/diagnose-filehelper.js",
+    "probe-store": "node ./scripts/probe-store.js",
+    "collect": "node ./scripts/collect-links.js",
     "scan": "node ./scripts/scan-links.js",
     "query": "node ./scripts/query-links.js",
     "inspect": "node ./scripts/inspect-accessibility.js",

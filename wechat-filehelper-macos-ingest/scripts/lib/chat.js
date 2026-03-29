@@ -1,34 +1,54 @@
 /**
- * chat.js — WeChat macOS desktop message extraction via clipboard.
+ * chat.js — Clipboard-based fallback extraction for macOS WeChat desktop.
  *
- * WeChat uses a Qt-based rendering engine with a near-empty Accessibility tree.
- * Instead of AX tree traversal, we use:
- *   1. Cmd+A to select all visible messages in the current chat
- *   2. Cmd+C to copy to clipboard
- *   3. Parse the clipboard text for timestamps and URLs
- *   4. Page Up to scroll up and repeat
- *
- * The user must manually open 文件传输助手 before running scan-links.js.
+ * WeChat's Accessibility tree is nearly empty on current macOS builds, so this
+ * module only serves as a fallback data source for visible plain-text URLs.
  */
 
+import readline from "node:readline";
+
 import {
-  runJxa,
   activateWeChat,
-  sendKeystroke,
-  sendKeyCode,
+  clearClipboardText,
+  getFrontmostApplicationName,
+  readClipboardText,
+  runJxa,
+  scrollAtPoint,
+  sendSystemKeystroke,
+  sendSystemKeyCode,
   sleepMs,
   isWeChatRunning,
 } from "./applescript.js";
 
 import {
   canonicalizeUrl,
-  shouldSkipUrl,
+  classifySkipReason,
   dedupeKey,
-  parseWeChatTimestamp,
+  extractUrlsFromText,
+  incrementCount,
   newCaptureSessionId,
+  parseWeChatTimestamp,
 } from "./common.js";
 
 const CHAT_NAME = "文件传输助手";
+export const FILE_HELPER_CHAT_NAME = CHAT_NAME;
+const CHAT_ACTIVATE_SETTLE_MS = 450;
+const CHAT_FOCUS_SETTLE_MS = 220;
+const CHAT_CLICK_SETTLE_MS = 140;
+const CHAT_COPY_SELECT_SETTLE_MS = 180;
+const CHAT_COPY_CLIPBOARD_SETTLE_MS = 260;
+const CHAT_SCROLL_SETTLE_MS = 220;
+
+export function waitForUserReady() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    console.log("\n请在微信中打开「文件传输助手」聊天，然后按 Enter 继续...");
+    rl.question("", () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
 
 /**
  * Activate WeChat and bring it to the foreground.
@@ -40,26 +60,17 @@ export async function navigateToFileHelper(debug = false) {
   }
   if (debug) console.log("[debug] Activating WeChat...");
   activateWeChat();
-  sleepMs(800);
+  sleepMs(CHAT_ACTIVATE_SETTLE_MS);
 }
 
-/**
- * Read the current clipboard content as a string.
- */
-function readClipboard() {
-  return runJxa(`
-    ObjC.import("AppKit");
-    const pb = $.NSPasteboard.generalPasteboard;
-    ObjC.unwrap(pb.stringForType($.NSPasteboardTypeString)) || "";
-  `, { timeout: 5_000 });
-}
-
-/**
- * Click in the WeChat chat message area to ensure keyboard focus is there.
- * Calculates a point in the right ~60% of the window, upper-middle height.
- */
 function clickChatArea(debug = false) {
-  const result = runJxa(`
+  const result = focusWeChatChatArea(debug);
+  if (debug) console.log(`[debug] Clicked chat area at ${result.clickPoint}`);
+  return result;
+}
+
+function activateAndClickChatArea() {
+  return runJxa(`
     const se = Application("System Events");
     const wechat = se.processes.byName("WeChat");
     const wins = wechat.windows();
@@ -69,58 +80,105 @@ function clickChatArea(debug = false) {
       let pos = [0, 0], sz = [800, 600];
       try { pos = win.position(); } catch(e) {}
       try { sz = win.size(); } catch(e) {}
-      // Click in the chat message area: 60% from left, 40% from top
       const x = Math.round(pos[0] + sz[0] * 0.62);
       const y = Math.round(pos[1] + sz[1] * 0.40);
       wechat.click({ at: [x, y] });
       x + "," + y;
     }
   `);
-  if (debug) console.log(`[debug] Clicked chat area at ${result}`);
-  sleepMs(300);
 }
 
-/**
- * Select all visible chat messages and copy to clipboard.
- * Clicks the chat area first to ensure focus, then Cmd+A, Cmd+C.
- */
+export function focusWeChatChatArea(
+  debug = false,
+  {
+    activateWeChatFn = activateWeChat,
+    activateAndClickChatAreaFn = activateAndClickChatArea,
+    getFrontmostApplicationNameFn = getFrontmostApplicationName,
+    sleepMsFn = sleepMs,
+  } = {}
+) {
+  let clickPoint = "unknown";
+  let frontmostApp = "";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    activateWeChatFn();
+    sleepMsFn(CHAT_FOCUS_SETTLE_MS);
+    clickPoint = activateAndClickChatAreaFn();
+    sleepMsFn(CHAT_CLICK_SETTLE_MS);
+    frontmostApp = getFrontmostApplicationNameFn();
+    if (!frontmostApp || /wechat/i.test(frontmostApp)) {
+      break;
+    }
+  }
+
+  if (debug && frontmostApp) {
+    console.log(`[debug] Frontmost app after focus: ${frontmostApp}`);
+  }
+
+  return { clickPoint, frontmostApp };
+}
+
 function copyVisibleMessages(debug = false) {
   if (debug) console.log("[debug] Click chat area, Cmd+A, Cmd+C...");
+  clearClipboardText();
   clickChatArea(debug);
-  sendKeystroke("a", ["command down"]);
-  sleepMs(400);
-  sendKeystroke("c", ["command down"]);
-  sleepMs(600);
+  sendSystemKeystroke("a", ["command down"]);
+  sleepMs(CHAT_COPY_SELECT_SETTLE_MS);
+  sendSystemKeystroke("c", ["command down"]);
+  sleepMs(CHAT_COPY_CLIPBOARD_SETTLE_MS);
 }
 
-/**
- * Scroll the chat view up by one page.
- * Clicks the chat area first so Page Up scrolls the messages, not the sidebar.
- */
-export function scrollUpOnce(debug = false) {
-  if (debug) console.log("[debug] Page Up...");
-  clickChatArea(debug);
-  sendKeyCode(116); // Page Up
-  sleepMs(700);
+function parseClickPoint(value) {
+  const [x, y] = String(value ?? "")
+    .split(",")
+    .map((part) => Number(part.trim()));
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
 }
 
-/**
- * Parse clipboard text for WeChat timestamps and URLs.
- *
- * WeChat's copied text format (typical):
- *   10:30
- *   Some message text https://example.com
- *   昨天 15:45
- *   [链接] Article title
- *   https://mp.weixin.qq.com/s/...
- *
- * Returns array of { timestampText, links: [{url, type, title}] }
- */
-function parseClipboardText(text, debug = false) {
-  if (!text || !text.trim()) return [];
+export function scrollUpOnce(
+  debug = false,
+  {
+    focusWeChatChatAreaFn = focusWeChatChatArea,
+    scrollAtPointFn = scrollAtPoint,
+    sendSystemKeyCodeFn = sendSystemKeyCode,
+    sleepMsFn = sleepMs,
+  } = {}
+) {
+  if (debug) console.log("[debug] Scroll Up...");
+  const { clickPoint } = focusWeChatChatAreaFn(debug);
+  const parsedPoint = parseClickPoint(clickPoint);
 
-  const URL_REGEX = /https?:\/\/[^\s\u4e00-\u9fff<>"'`）】\]]+/g;
-  const TS_PATTERNS = [
+  if (parsedPoint) {
+    scrollAtPointFn(parsedPoint.x, parsedPoint.y, { lineDelta: 4, repeat: 3 });
+    sleepMsFn(CHAT_SCROLL_SETTLE_MS);
+    return;
+  }
+
+  for (let i = 0; i < 6; i += 1) {
+    sendSystemKeyCodeFn(126); // Up Arrow
+  }
+  sleepMsFn(CHAT_SCROLL_SETTLE_MS);
+}
+
+export function extractShareCardTitle(line) {
+  return String(line ?? "")
+    .replace(/^\[(?:链接|link)\]\s*/i, "")
+    .trim();
+}
+
+export function parseClipboardSnapshot(text, debug = false) {
+  const stats = {
+    share_cards_seen: 0,
+    share_cards_unresolved: 0,
+    skipped_by_rule: {},
+  };
+
+  if (!text || !text.trim()) {
+    return { items: [], messages: [], stats };
+  }
+
+  const timestampPatterns = [
     /^(\d{4}年\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
     /^(\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
     /^(昨天\s+\d{1,2}:\d{2})/,
@@ -128,85 +186,146 @@ function parseClipboardText(text, debug = false) {
     /^(\d{1,2}:\d{2})$/,
   ];
 
-  const lines = text.split(/\r?\n/);
-  const groups = [];
+  const messages = [];
+  const items = [];
   let currentTs = null;
+  const lines = text.split(/\r?\n/);
+  let itemIndex = 0;
 
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
 
-    // Check for timestamp
-    let matched = false;
-    for (const pat of TS_PATTERNS) {
-      const m = line.match(pat);
-      if (m) {
-        currentTs = m[1];
-        matched = true;
-        break;
-      }
+    let matchedTimestamp = false;
+    for (const pattern of timestampPatterns) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      currentTs = match[1];
+      matchedTimestamp = true;
+      break;
     }
-    if (matched) continue;
+    if (matchedTimestamp) continue;
 
-    // Extract URLs from the line
-    const urls = [...(line.matchAll(URL_REGEX) || [])].map(m => {
-      // Clean trailing punctuation artifacts
-      return m[0].replace(/[.,;:!?)\]>'"。，；：！？）】]+$/, "");
-    }).filter(u => u.length > 10);
-
-    if (urls.length > 0) {
-      groups.push({
+    if (looksLikeChatRecordBundle(line)) {
+      incrementCount(stats.skipped_by_rule, "chat_record_bundle");
+      items.push({
+        kind: "chat_record_bundle",
+        itemKey: `item-${itemIndex++}`,
         timestampText: currentTs,
-        links: urls.map(u => ({ url: u, type: "text_url", title: "" })),
+        rawText: line,
+        skipReason: "chat_record_bundle",
       });
+      continue;
     }
+
+    if (looksLikeShareCard(line)) {
+      stats.share_cards_seen += 1;
+      const title = extractShareCardTitle(line);
+      let skipReason = null;
+
+      if (looksLikeVideoCard(line)) {
+        skipReason = "video_channel";
+      } else if (looksLikeBilibiliCard(line)) {
+        skipReason = "bilibili_video";
+      } else if (looksLikeMultiArticleCard(line)) {
+        skipReason = "multi_article_card";
+      }
+
+      if (skipReason) {
+        incrementCount(stats.skipped_by_rule, skipReason);
+      } else {
+        stats.share_cards_unresolved += 1;
+      }
+
+      items.push({
+        kind: "share_card",
+        itemKey: `item-${itemIndex++}`,
+        timestampText: currentTs,
+        rawText: line,
+        title,
+        skipReason,
+      });
+      continue;
+    }
+
+    const urls = extractUrlsFromText(line);
+    if (urls.length === 0) {
+      continue;
+    }
+
+    const item = {
+      kind: "text_url",
+      itemKey: `item-${itemIndex++}`,
+      timestampText: currentTs,
+      links: urls.map((url) => ({ url, type: "text_url", title: "" })),
+      rawText: line,
+    };
+    messages.push(item);
+    items.push(item);
   }
 
-  if (debug) console.log(`[debug] Parsed ${groups.length} URL groups from ${lines.length} lines`);
-  return groups;
+  if (debug) {
+    console.log(
+      `[debug] Parsed ${messages.length} clipboard URL groups from ${lines.length} lines`
+    );
+  }
+
+  return { items, messages, stats };
 }
 
-/**
- * Extract visible messages from the current WeChat chat view via clipboard.
- */
-export function extractVisibleMessages(debug = false) {
+export function readVisibleClipboardSnapshot(debug = false) {
   copyVisibleMessages(debug);
-  const text = readClipboard();
+  const text = readClipboardText();
   if (debug && text) console.log(`[debug] Clipboard: ${text.length} chars`);
-  return parseClipboardText(text, debug);
+  const parsed = parseClipboardSnapshot(text, debug);
+  parsed.rawText = text;
+  return parsed;
 }
 
-/**
- * Main collection loop: scroll through chat history and collect links in [since, until].
- *
- * @param {Date} since
- * @param {Date} until
- * @param {number} maxScrolls
- * @param {boolean} debug
- * @returns {Array} Link records for the JSONL index
- */
-export async function scrollAndCollect(since, until, maxScrolls, debug = false) {
+export function parseClipboardText(text, debug = false) {
+  return parseClipboardSnapshot(text, debug);
+}
+
+export async function scanClipboardLinks(
+  since,
+  until,
+  maxScrolls,
+  debug = false,
+  { getSnapshot = readVisibleClipboardSnapshot, scrollPage = scrollUpOnce } = {}
+) {
   const sessionId = newCaptureSessionId();
   const now = new Date();
-  const allRecords = [];
+  const records = [];
   const seenKeys = new Set();
-  const seenUrls = new Set(); // for dedup within a run
+  const seenUrls = new Set();
+  const stats = {
+    source: "clipboard",
+    share_cards_seen: 0,
+    share_cards_unresolved: 0,
+    skipped_by_rule: {},
+  };
 
   let scrollCount = 0;
   let consecutiveNoNew = 0;
   let lastClipboardHash = "";
 
   if (debug) {
-    console.log(`[debug] since=${since.toISOString()} until=${until.toISOString()}`);
+    console.log(`[debug] clipboard since=${since.toISOString()} until=${until.toISOString()}`);
   }
 
   while (scrollCount <= maxScrolls) {
-    const messages = extractVisibleMessages(debug);
+    const snapshot = getSnapshot(debug);
+    stats.share_cards_seen += snapshot.stats.share_cards_seen;
+    stats.share_cards_unresolved += snapshot.stats.share_cards_unresolved;
+    for (const [reason, count] of Object.entries(snapshot.stats.skipped_by_rule)) {
+      incrementCount(stats.skipped_by_rule, reason, count);
+    }
 
-    // Detect no new content (clipboard unchanged)
-    const clipHash = messages.map(m => m.links.map(l => l.url).join()).join("|");
+    const clipHash = snapshot.messages
+      .map((message) => message.links.map((link) => link.url).join("|"))
+      .join("||");
     if (clipHash === lastClipboardHash) {
-      consecutiveNoNew++;
+      consecutiveNoNew += 1;
       if (consecutiveNoNew >= 3) {
         if (debug) console.log("[debug] Clipboard unchanged 3x, reached top or stuck.");
         break;
@@ -217,14 +336,13 @@ export async function scrollAndCollect(since, until, maxScrolls, debug = false) 
     }
 
     let reachedBeforeRange = false;
-
-    for (const msg of messages) {
+    for (const message of snapshot.messages) {
       let messageTime = null;
-      if (msg.timestampText) {
+      if (message.timestampText) {
         try {
-          messageTime = parseWeChatTimestamp(msg.timestampText, now);
+          messageTime = parseWeChatTimestamp(message.timestampText, now);
         } catch {
-          // ignore parse errors
+          messageTime = null;
         }
       }
 
@@ -235,45 +353,35 @@ export async function scrollAndCollect(since, until, maxScrolls, debug = false) 
         }
         if (messageTime > until) continue;
       }
-      // If messageTime is null (unparseable timestamp), include the message —
-      // we don't know when it was sent, so assume it's in range.
 
-      for (const link of msg.links) {
-        const rawUrl = link.url;
-        if (!rawUrl) continue;
-
-        let canonical;
-        try {
-          canonical = canonicalizeUrl(rawUrl);
-        } catch {
+      for (const link of message.links) {
+        const canonicalUrl = canonicalizeUrl(link.url);
+        const skipReason = classifySkipReason(canonicalUrl);
+        if (skipReason) {
+          incrementCount(stats.skipped_by_rule, skipReason);
+          if (debug) console.log(`[debug] Skip: ${canonicalUrl} (${skipReason})`);
           continue;
         }
 
-        if (shouldSkipUrl(canonical)) {
-          if (debug) console.log(`[debug] Skip: ${canonical}`);
-          continue;
-        }
+        if (seenUrls.has(canonicalUrl)) continue;
+        seenUrls.add(canonicalUrl);
 
-        if (seenUrls.has(canonical)) continue;
-        seenUrls.add(canonical);
-
-        const msgTimeStr = messageTime ? messageTime.toISOString() : now.toISOString();
-        const key = dedupeKey(CHAT_NAME, msgTimeStr, canonical);
+        const messageTimeIso = (messageTime ?? now).toISOString();
+        const key = dedupeKey(CHAT_NAME, messageTimeIso, canonicalUrl);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
 
-        allRecords.push({
-          captured_at: now.toISOString(),
-          message_time: msgTimeStr,
+        records.push({
+          captured_at: new Date().toISOString(),
+          message_time: messageTimeIso,
           chat_name: CHAT_NAME,
           message_type: "text_url",
           title: "",
-          url: canonical,
+          url: canonicalUrl,
           dedupe_key: key,
           capture_session_id: sessionId,
+          source: "clipboard",
         });
-
-        if (debug) console.log(`[debug] +URL: ${canonical}`);
       }
     }
 
@@ -282,12 +390,41 @@ export async function scrollAndCollect(since, until, maxScrolls, debug = false) 
       break;
     }
 
-    scrollCount++;
+    scrollCount += 1;
     if (scrollCount <= maxScrolls) {
-      scrollUpOnce(debug);
+      scrollPage(debug);
     }
   }
 
-  console.log(`Scrolled ${scrollCount} time(s), found ${allRecords.length} unique link(s).`);
-  return allRecords;
+  console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
+  return { records, stats };
+}
+
+function looksLikeShareCard(line) {
+  return /^\[(?:链接|link)\]/i.test(line) || line.includes("[链接]") || /\[link\]/i.test(line);
+}
+
+function looksLikeChatRecordBundle(line) {
+  return line.startsWith("聊天记录") || /^chat\s+(record|history)/i.test(line);
+}
+
+function looksLikeVideoCard(line) {
+  return (
+    line.includes("视频号") ||
+    /video\s+channel/i.test(line) ||
+    line.includes("channels.weixin.qq.com")
+  );
+}
+
+function looksLikeBilibiliCard(line) {
+  return line.includes("哔哩哔哩") || /bilibili|b23\.tv/i.test(line);
+}
+
+function looksLikeMultiArticleCard(line) {
+  return (
+    /共\s*\d+\s*篇/.test(line) ||
+    line.includes("多图文") ||
+    /\b\d+\s+articles?\b/i.test(line) ||
+    /multiple\s+articles?/i.test(line)
+  );
 }

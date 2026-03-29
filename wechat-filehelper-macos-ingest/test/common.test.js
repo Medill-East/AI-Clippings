@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   canonicalizeUrl,
+  classifySkipReason,
   shouldSkipUrl,
   dedupeKey,
   parseWeChatTimestamp,
@@ -67,6 +68,10 @@ describe("shouldSkipUrl", () => {
     assert.ok(shouldSkipUrl("https://b23.tv/abc123"));
   });
 
+  it("skips wx.qq.com internal pages", () => {
+    assert.ok(shouldSkipUrl("https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxnewloginpage"));
+  });
+
   it("keeps bilibili column/article links", () => {
     assert.ok(!shouldSkipUrl("https://www.bilibili.com/read/cv12345"));
   });
@@ -77,6 +82,19 @@ describe("shouldSkipUrl", () => {
 
   it("keeps arbitrary HTTPS links", () => {
     assert.ok(!shouldSkipUrl("https://example.com/article"));
+  });
+});
+
+describe("classifySkipReason", () => {
+  it("classifies wx.qq.com login pages as wechat_internal_login", () => {
+    assert.equal(
+      classifySkipReason("https://wx2.qq.com/cgi-bin/mmwebwx-bin/webwxnewloginpage?ticket=abc"),
+      "wechat_internal_login"
+    );
+  });
+
+  it("classifies b23 shortlinks separately", () => {
+    assert.equal(classifySkipReason("https://b23.tv/abc123"), "bilibili_shortlink");
   });
 });
 
@@ -119,6 +137,21 @@ describe("parseWeChatTimestamp", () => {
     const result = parseWeChatTimestamp("昨天 09:00", ref);
     // 2026-03-27 09:00 CST = 2026-03-27 01:00 UTC
     assert.equal(result?.toISOString(), "2026-03-27T01:00:00.000Z");
+  });
+
+  it('parses "今天 HH:MM"', () => {
+    const result = parseWeChatTimestamp("今天 09:00", ref);
+    assert.equal(result?.toISOString(), "2026-03-28T01:00:00.000Z");
+  });
+
+  it('parses "Yesterday HH:MM"', () => {
+    const result = parseWeChatTimestamp("Yesterday 09:00", ref);
+    assert.equal(result?.toISOString(), "2026-03-27T01:00:00.000Z");
+  });
+
+  it('parses "Today HH:MM"', () => {
+    const result = parseWeChatTimestamp("Today 09:00", ref);
+    assert.equal(result?.toISOString(), "2026-03-28T01:00:00.000Z");
   });
 
   it('parses "M月D日 HH:MM"', () => {

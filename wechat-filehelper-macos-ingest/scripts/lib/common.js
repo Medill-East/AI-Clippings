@@ -39,33 +39,50 @@ export function canonicalizeUrl(rawUrl) {
   return result;
 }
 
-/** Return true if the URL should be skipped (video cards, internal WeChat URLs, etc.). */
-export function shouldSkipUrl(url) {
+/** Extract absolute http(s) URLs from free-form text. */
+export function extractUrlsFromText(text) {
+  if (!text || !text.trim()) return [];
+
+  const matches = text.match(/https?:\/\/[^\s\u4e00-\u9fff<>"'`）】\]]+/g) ?? [];
+  return matches
+    .map((match) => match.replace(/[.,;:!?)\]>'"。，；：！？）】]+$/, ""))
+    .filter((url) => url.length > 10);
+}
+
+/** Return a stable skip-reason string for URLs we do not want to index. */
+export function classifySkipReason(url) {
   try {
     const parsed = new URL(url);
     const host = parsed.host.toLowerCase();
     const pathname = parsed.pathname;
 
     // WeChat video channel (视频号)
-    if (host.includes("channels.weixin.qq.com")) return true;
-    if (host === "mp.weixin.qq.com" && pathname.startsWith("/mp/wma")) return true;
+    if (host.includes("channels.weixin.qq.com")) return "video_channel";
+    if (host === "mp.weixin.qq.com" && pathname.startsWith("/mp/wma")) return "video_channel";
 
     // WeChat internal / login URLs (wx.qq.com, wx2.qq.com, etc.)
-    if (/^wx\d*\.qq\.com$/.test(host)) return true;
-    if (host === "weixin110.qq.com") return true;
+    if (/^wx\d*\.qq\.com$/.test(host)) {
+      if (pathname.includes("webwxnewloginpage")) return "wechat_internal_login";
+      return "wechat_internal";
+    }
+    if (host === "weixin110.qq.com") return "wechat_internal";
 
     // Bilibili video URLs (not article/column links)
     if (host === "www.bilibili.com" || host === "bilibili.com" || host === "m.bilibili.com") {
-      if (pathname.startsWith("/video/")) return true;
-      if (pathname.startsWith("/bangumi/")) return true;
+      if (pathname.startsWith("/video/")) return "bilibili_video";
+      if (pathname.startsWith("/bangumi/")) return "bilibili_video";
     }
     // Short bilibili links
-    if (host === "b23.tv") return true;
+    if (host === "b23.tv") return "bilibili_shortlink";
   } catch {
-    // not a valid URL, skip
-    return true;
+    return "invalid_url";
   }
-  return false;
+  return null;
+}
+
+/** Return true if the URL should be skipped (video cards, internal WeChat URLs, etc.). */
+export function shouldSkipUrl(url) {
+  return classifySkipReason(url) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +158,8 @@ export function filterByTimeRange(records, since, until) {
  * Formats observed on wx.qq.com (China time, UTC+8):
  *   "10:30"              → today HH:MM
  *   "昨天 10:30"         → yesterday HH:MM
+ *   "Yesterday 10:30"    → yesterday HH:MM
+ *   "Today 10:30"        → today HH:MM
  *   "3月22日 15:00"      → this year M月D日 HH:MM
  *   "2026年3月22日 15:00" → YYYY年M月D日 HH:MM
  *
@@ -176,6 +195,27 @@ export function parseWeChatTimestamp(text, referenceDate) {
     return buildCstDate(yc.year, yc.month, yc.day, +m[1], +m[2]);
   }
 
+  // Today: "今天 10:30"
+  m = text.match(/^今天\s+(\d{1,2}):(\d{2})$/);
+  if (m) {
+    return buildCstDate(refCst.year, refCst.month, refCst.day, +m[1], +m[2]);
+  }
+
+  // Yesterday: "Yesterday 10:30"
+  m = text.match(/^yesterday\s+(\d{1,2}):(\d{2})$/i);
+  if (m) {
+    const yesterday = new Date(ref);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yc = toCST(yesterday);
+    return buildCstDate(yc.year, yc.month, yc.day, +m[1], +m[2]);
+  }
+
+  // Today: "Today 10:30"
+  m = text.match(/^today\s+(\d{1,2}):(\d{2})$/i);
+  if (m) {
+    return buildCstDate(refCst.year, refCst.month, refCst.day, +m[1], +m[2]);
+  }
+
   // Today: "10:30"
   m = text.match(/^(\d{1,2}):(\d{2})$/);
   if (m) {
@@ -208,4 +248,10 @@ export function newCaptureSessionId() {
 
 export function newRunTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+}
+
+export function incrementCount(map, key, amount = 1) {
+  if (!key) return map;
+  map[key] = (map[key] ?? 0) + amount;
+  return map;
 }
