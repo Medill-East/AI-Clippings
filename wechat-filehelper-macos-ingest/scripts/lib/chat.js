@@ -32,12 +32,12 @@ import {
 
 const CHAT_NAME = "文件传输助手";
 export const FILE_HELPER_CHAT_NAME = CHAT_NAME;
-const CHAT_ACTIVATE_SETTLE_MS = 450;
-const CHAT_FOCUS_SETTLE_MS = 220;
-const CHAT_CLICK_SETTLE_MS = 140;
-const CHAT_COPY_SELECT_SETTLE_MS = 180;
-const CHAT_COPY_CLIPBOARD_SETTLE_MS = 260;
-const CHAT_SCROLL_SETTLE_MS = 220;
+const CHAT_ACTIVATE_SETTLE_MS = 320;
+const CHAT_FOCUS_SETTLE_MS = 160;
+const CHAT_CLICK_SETTLE_MS = 100;
+const CHAT_COPY_SELECT_SETTLE_MS = 130;
+const CHAT_COPY_CLIPBOARD_SETTLE_MS = 180;
+const CHAT_SCROLL_SETTLE_MS = 160;
 
 export function waitForUserReady() {
   return new Promise((resolve) => {

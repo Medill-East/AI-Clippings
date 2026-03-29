@@ -57,17 +57,17 @@ const VIEWER_MENU_PROBE_POINTS = [
 const OCR_RIGHT_PANE_RATIO = 0.58;
 const OCR_TOP_CONTENT_RATIO = 0.15;
 const OCR_CLUSTER_GAP_PX = 54;
-const VIEWER_OPEN_SETTLE_MS = 520;
-const VIEWER_DETECT_TIMEOUT_MS = 1_500;
-const VIEWER_DETECT_POLL_MS = 140;
-const VIEWER_READY_TIMEOUT_MS = 1_200;
-const VIEWER_READY_POLL_MS = 120;
-const VIEWER_MENU_SETTLE_MS = 170;
-const VIEWER_COPY_SETTLE_MS = 120;
-const VIEWER_BROWSER_SETTLE_MS = 900;
-const VIEWER_CLOSE_INITIAL_SETTLE_MS = 80;
-const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 140;
-const VIEWER_CLOSE_CMD_W_SETTLE_MS = 180;
+const VIEWER_OPEN_SETTLE_MS = 380;
+const VIEWER_DETECT_TIMEOUT_MS = 1_200;
+const VIEWER_DETECT_POLL_MS = 100;
+const VIEWER_READY_TIMEOUT_MS = 800;
+const VIEWER_READY_POLL_MS = 90;
+const VIEWER_MENU_SETTLE_MS = 120;
+const VIEWER_COPY_SETTLE_MS = 80;
+const VIEWER_BROWSER_SETTLE_MS = 700;
+const VIEWER_CLOSE_INITIAL_SETTLE_MS = 50;
+const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 100;
+const VIEWER_CLOSE_CMD_W_SETTLE_MS = 140;
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -317,6 +317,7 @@ export async function probeUiEnvironment(
     debug = false,
     artifactDir = null,
     label = "probe",
+    returnCapturedPage = false,
   } = {},
   {
     getFrontWeChatWindowFn = getFrontWeChatWindow,
@@ -390,6 +391,15 @@ export async function probeUiEnvironment(
   probe.ocr_line_count = snapshot.ocrLines.length;
   probe.message_ocr_found =
     snapshot.ocrLines.filter((line) => line.y > (ocrResult.height || window.height) * 0.16).length > 0;
+
+  if (returnCapturedPage) {
+    probe.captured_page = {
+      window,
+      clipboardSnapshot,
+      ocrResult,
+      screenshotPath,
+    };
+  }
 
   if (!snapshot.titleMatched && requireChatReady) {
     probe.ui_probe_status = "chat_not_ready";
@@ -472,7 +482,7 @@ export async function scanUiLinks(
   await navigateToFileHelperFn(debug);
 
   const uiProbe = await probeUiEnvironmentFn(
-    { requireChatReady: true, debug, artifactDir, label: "ui-probe" },
+    { requireChatReady: true, debug, artifactDir, label: "ui-probe", returnCapturedPage: true },
     { readVisibleClipboardSnapshotFn }
   );
   if (uiProbe.ui_probe_status !== "ready") {
@@ -489,6 +499,12 @@ export async function scanUiLinks(
       debug,
       artifactDir,
       readVisibleClipboardSnapshotFn,
+      prefetchedWindow: scrollCount === 0 ? uiProbe.captured_page?.window ?? null : null,
+      prefetchedClipboardSnapshot:
+        scrollCount === 0 ? uiProbe.captured_page?.clipboardSnapshot ?? null : null,
+      prefetchedOcrResult: scrollCount === 0 ? uiProbe.captured_page?.ocrResult ?? null : null,
+      prefetchedScreenshotPath:
+        scrollCount === 0 ? uiProbe.captured_page?.screenshotPath ?? null : null,
     });
 
     const pageSignature = page.clipboardSnapshot.items
@@ -664,26 +680,43 @@ export async function scanUiLinks(
 }
 
 export async function captureVisibleUiPage(
-  { pageIndex = 0, debug = false, artifactDir = null, readVisibleClipboardSnapshotFn = readVisibleClipboardSnapshot } = {},
+  {
+    pageIndex = 0,
+    debug = false,
+    artifactDir = null,
+    readVisibleClipboardSnapshotFn = readVisibleClipboardSnapshot,
+    prefetchedWindow = null,
+    prefetchedClipboardSnapshot = null,
+    prefetchedOcrResult = null,
+    prefetchedScreenshotPath = null,
+  } = {},
   {
     getFrontWeChatWindowFn = getFrontWeChatWindow,
     captureWindowScreenshotFn = captureWindowScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
   } = {}
 ) {
-  const window = getFrontWeChatWindowFn();
+  const window = prefetchedWindow ?? getFrontWeChatWindowFn();
   if (!window) {
     throw new Error("No WeChat window is available for UI page capture.");
   }
 
-  const clipboardSnapshot = readVisibleClipboardSnapshotFn(debug);
+  const clipboardSnapshot = prefetchedClipboardSnapshot ?? readVisibleClipboardSnapshotFn(debug);
   const screenshotPath =
     artifactDir != null
       ? path.join(artifactDir, `page-${pageIndex}.png`)
       : path.join(os.tmpdir(), `wechat-filehelper-page-${Date.now()}-${pageIndex}.png`);
 
-  captureWindowScreenshotFn(window, screenshotPath);
-  const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+  let ocrResult = prefetchedOcrResult;
+  if (prefetchedScreenshotPath && artifactDir != null && prefetchedScreenshotPath !== screenshotPath) {
+    await fs.copyFile(prefetchedScreenshotPath, screenshotPath);
+  } else if (!prefetchedOcrResult) {
+    captureWindowScreenshotFn(window, screenshotPath);
+  }
+
+  if (!ocrResult) {
+    ocrResult = await recognizeTextFromImageFn(screenshotPath);
+  }
   const uiSnapshot = buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds: window });
   const mergedClipboardSnapshot = {
     ...clipboardSnapshot,
@@ -741,6 +774,8 @@ async function openViewerMenu(
   { debug = false, artifactDir = null } = {},
   {
     clickAtPointFn = clickAtPoint,
+    getWeChatWindowsFn = getWeChatWindows,
+    getFrontWeChatWindowFn = getFrontWeChatWindow,
     captureFullScreenScreenshotFn = captureFullScreenScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
     sleepMsFn = sleepMs,
@@ -791,6 +826,13 @@ async function openViewerMenu(
 
     if (copyLine || browserLine) {
       return { copyLine, browserLine, ocrResult, screenBounds };
+    }
+
+    if (shouldStopViewerMenuProbing(viewerContext, getWeChatWindowsFn(), getFrontWeChatWindowFn())) {
+      if (debug) {
+        console.log("[debug] viewer no longer active, stopping menu probes early");
+      }
+      break;
     }
   }
 
@@ -873,6 +915,24 @@ function waitForClipboardMpUrl(
 function viewerLooksLoading(ocrResult) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   return lines.some((line) => /\bloading\b/i.test(line?.text ?? ""));
+}
+
+function shouldStopViewerMenuProbing(viewerContext, currentWindows, frontWindow) {
+  if (!viewerContext?.window || viewerContext.mode === "ocr_detected") {
+    return false;
+  }
+
+  const expectedSignature = windowSignature(viewerContext.window);
+  const stillPresent = currentWindows.some((window) => windowSignature(window) === expectedSignature);
+  if (!stillPresent) {
+    return true;
+  }
+
+  if (!frontWindow) {
+    return false;
+  }
+
+  return windowSignature(frontWindow) !== expectedSignature;
 }
 
 function windowSignature(window) {
@@ -1248,7 +1308,14 @@ export async function extractShareCardUrl(
     const menu = await openViewerMenuFn(
       readyViewerContext,
       { debug, artifactDir },
-      { clickAtPointFn, captureFullScreenScreenshotFn, recognizeTextFromImageFn, sleepMsFn }
+      {
+        clickAtPointFn,
+        getWeChatWindowsFn,
+        getFrontWeChatWindowFn,
+        captureFullScreenScreenshotFn,
+        recognizeTextFromImageFn,
+        sleepMsFn,
+      }
     );
 
     if (menu.copyLine) {

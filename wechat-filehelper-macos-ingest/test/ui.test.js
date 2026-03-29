@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildUiSnapshot,
+  captureVisibleUiPage,
   extractShareCardUrl,
   findFileHelperTitleLine,
   findMenuActionLine,
@@ -143,6 +144,62 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 1);
     assert.equal(snapshot.candidates[0].clickX, 695);
     assert.equal(snapshot.candidates[0].clickY, 384);
+  });
+
+  it("reuses a prefetched clipboard snapshot for the first visible page capture", async () => {
+    let clipboardReads = 0;
+    let screenshotCaptures = 0;
+    const prefetchedSnapshot = {
+      rawText: "Yesterday 18:05\n[Link] 第一篇文章",
+      items: [
+        {
+          kind: "share_card",
+          itemKey: "item-1",
+          timestampText: "Yesterday 18:05",
+          rawText: "[Link] 第一篇文章",
+          title: "第一篇文章",
+          skipReason: null,
+        },
+      ],
+      stats: {
+        share_cards_seen: 1,
+        share_cards_unresolved: 1,
+        skipped_by_rule: {},
+      },
+    };
+
+    const page = await captureVisibleUiPage(
+      {
+        pageIndex: 0,
+        prefetchedWindow: { x: 100, y: 200, width: 900, height: 700 },
+        prefetchedClipboardSnapshot: prefetchedSnapshot,
+        prefetchedOcrResult: {
+          width: 900,
+          height: 700,
+          lines: [
+            { text: "File Transfer", x: 240, y: 20, width: 120, height: 24 },
+            { text: "第一篇文章", x: 180, y: 220, width: 180, height: 28 },
+          ],
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => {
+          throw new Error("should not fetch window when prefetched window exists");
+        },
+        captureWindowScreenshotFn: () => {
+          screenshotCaptures += 1;
+        },
+        recognizeTextFromImageFn: async () => {
+          throw new Error("should not OCR again when prefetched OCR exists");
+        },
+      }
+    );
+
+    assert.equal(screenshotCaptures, 0);
+    assert.equal(clipboardReads, 0);
+    assert.deepEqual(page.clipboardSnapshot.items, prefetchedSnapshot.items);
+    assert.equal(page.clipboardSnapshot.rawText, prefetchedSnapshot.rawText);
+    assert.equal(page.candidates.length, 1);
   });
 });
 
@@ -587,5 +644,69 @@ describe("extractShareCardUrl", () => {
 
     assert.equal(result.status, "failed");
     assert.equal(result.reason, "share_card_viewer_not_opened");
+  });
+
+  it("stops menu probing early when the viewer window closes after the first miss", async () => {
+    let windowsCall = 0;
+    let ocrCall = 0;
+    const clicks = [];
+
+    const result = await extractShareCardUrl(
+      { title: "第一篇文章", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: (x, y) => {
+          clicks.push({ x: Math.round(x), y: Math.round(y) });
+        },
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+          if (windowsCall === 2) {
+            return [
+              { name: "main", x: 0, y: 0, width: 800, height: 600 },
+              { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+            ];
+          }
+          return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "main", x: 0, y: 0, width: 800, height: 600 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => {
+          ocrCall += 1;
+          if (ocrCall === 1) {
+            return {
+              width: 2880,
+              height: 1800,
+              lines: [
+                { text: "第一篇文章非常长的标题", x: 120, y: 80, width: 720, height: 42 },
+                { text: "A Summary Provided by yuanbao", x: 960, y: 92, width: 330, height: 26 },
+                { text: "原创", x: 120, y: 148, width: 70, height: 30 },
+                { text: "数字生命卡兹克", x: 220, y: 148, width: 160, height: 30 },
+                { text: "最近一直在聊Agent，聊Vibe Coding。", x: 120, y: 240, width: 620, height: 36 },
+                { text: "但是在给越来越多的朋友安利的时候，发现其实。", x: 120, y: 300, width: 620, height: 36 },
+                { text: "就是，真正卡住大多数人的，是自己没有一个标准的工作流程。", x: 120, y: 360, width: 760, height: 36 },
+                { text: "特别在创造一个你想要的软件或者程序的时候。", x: 120, y: 420, width: 680, height: 36 },
+              ],
+            };
+          }
+          return {
+            width: 2880,
+            height: 1800,
+            lines: [{ text: "File Transfer", x: 200, y: 30, width: 180, height: 30 }],
+          };
+        },
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "viewer_detected_but_menu_not_found");
+    assert.equal(ocrCall, 2);
+    assert.equal(clicks.length, 2);
   });
 });
