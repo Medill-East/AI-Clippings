@@ -1,0 +1,1 @@
+../../wechat-filehelper-web-ingest/test/common.test.js
