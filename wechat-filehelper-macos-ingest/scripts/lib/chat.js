@@ -55,34 +55,51 @@ function readClipboard() {
 }
 
 /**
+ * Click in the WeChat chat message area to ensure keyboard focus is there.
+ * Calculates a point in the right ~60% of the window, upper-middle height.
+ */
+function clickChatArea(debug = false) {
+  const result = runJxa(`
+    const se = Application("System Events");
+    const wechat = se.processes.byName("WeChat");
+    const wins = wechat.windows();
+    if (wins.length === 0) { "no_window"; }
+    else {
+      const win = wins[0];
+      let pos = [0, 0], sz = [800, 600];
+      try { pos = win.position(); } catch(e) {}
+      try { sz = win.size(); } catch(e) {}
+      // Click in the chat message area: 60% from left, 40% from top
+      const x = Math.round(pos[0] + sz[0] * 0.62);
+      const y = Math.round(pos[1] + sz[1] * 0.40);
+      wechat.click({ at: [x, y] });
+      x + "," + y;
+    }
+  `);
+  if (debug) console.log(`[debug] Clicked chat area at ${result}`);
+  sleepMs(300);
+}
+
+/**
  * Select all visible chat messages and copy to clipboard.
- * Sends Cmd+A then Cmd+C to WeChat.
+ * Clicks the chat area first to ensure focus, then Cmd+A, Cmd+C.
  */
 function copyVisibleMessages(debug = false) {
-  if (debug) console.log("[debug] Cmd+A, Cmd+C...");
-  // Click in the chat area first by pressing a neutral key to ensure focus
-  // then select all and copy
+  if (debug) console.log("[debug] Click chat area, Cmd+A, Cmd+C...");
+  clickChatArea(debug);
   sendKeystroke("a", ["command down"]);
-  sleepMs(350);
+  sleepMs(400);
   sendKeystroke("c", ["command down"]);
   sleepMs(600);
 }
 
 /**
  * Scroll the chat view up by one page.
- * Clicks WeChat window first to ensure focus is on WeChat, not the terminal.
+ * Clicks the chat area first so Page Up scrolls the messages, not the sidebar.
  */
 export function scrollUpOnce(debug = false) {
   if (debug) console.log("[debug] Page Up...");
-  // Re-activate WeChat to make sure the chat area has keyboard focus
-  try {
-    runJxa(`
-      const se = Application("System Events");
-      const wechat = se.processes.byName("WeChat");
-      wechat.frontmost = true;
-    `);
-  } catch { /* ignore */ }
-  sleepMs(150);
+  clickChatArea(debug);
   sendKeyCode(116); // Page Up
   sleepMs(700);
 }
@@ -211,11 +228,15 @@ export async function scrollAndCollect(since, until, maxScrolls, debug = false) 
         }
       }
 
-      if (messageTime && messageTime < since) {
-        reachedBeforeRange = true;
-        continue;
+      if (messageTime) {
+        if (messageTime < since) {
+          reachedBeforeRange = true;
+          continue;
+        }
+        if (messageTime > until) continue;
       }
-      if (messageTime && messageTime > until) continue;
+      // If messageTime is null (unparseable timestamp), include the message —
+      // we don't know when it was sent, so assume it's in range.
 
       for (const link of msg.links) {
         const rawUrl = link.url;
