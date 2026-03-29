@@ -70,9 +70,19 @@ function copyVisibleMessages(debug = false) {
 
 /**
  * Scroll the chat view up by one page.
+ * Clicks WeChat window first to ensure focus is on WeChat, not the terminal.
  */
 export function scrollUpOnce(debug = false) {
   if (debug) console.log("[debug] Page Up...");
+  // Re-activate WeChat to make sure the chat area has keyboard focus
+  try {
+    runJxa(`
+      const se = Application("System Events");
+      const wechat = se.processes.byName("WeChat");
+      wechat.frontmost = true;
+    `);
+  } catch { /* ignore */ }
+  sleepMs(150);
   sendKeyCode(116); // Page Up
   sleepMs(700);
 }
