@@ -83,6 +83,16 @@ describe("shouldSkipUrl", () => {
   it("keeps arbitrary HTTPS links", () => {
     assert.ok(!shouldSkipUrl("https://example.com/article"));
   });
+
+  it("keeps YouTube watch links", () => {
+    assert.ok(!shouldSkipUrl("https://www.youtube.com/watch?v=ea81dJjF5ts"));
+  });
+
+  it("keeps arbitrary H5 payment links", () => {
+    assert.ok(
+      !shouldSkipUrl("https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK")
+    );
+  });
 });
 
 describe("classifySkipReason", () => {

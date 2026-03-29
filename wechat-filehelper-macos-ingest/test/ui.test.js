@@ -8,6 +8,8 @@ import {
   findFileHelperTitleLine,
   findMenuActionLine,
   mapOcrRectCenterToScreenPoint,
+  probeUiEnvironment,
+  scanUiLinks,
 } from "../scripts/lib/ui.js";
 
 const MAIN_SCREEN_BOUNDS = { x: 0, y: 0, width: 1440, height: 900 };
@@ -89,11 +91,79 @@ describe("ui helpers", () => {
       windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
     });
 
-    assert.equal(snapshot.ocrFallbackItems.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.effectiveBlocks.length, 1);
     assert.equal(snapshot.effectiveItems.length, 1);
-    assert.equal(snapshot.effectiveItems[0].timestampText, "Yesterday 18:05");
+    assert.equal(snapshot.effectiveBlocks[0].timestampText, "Yesterday 18:05");
     assert.equal(snapshot.candidates.length, 1);
-    assert.equal(snapshot.candidates[0].itemKey, snapshot.effectiveItems[0].itemKey);
+    assert.equal(snapshot.candidates[0].itemKey, snapshot.effectiveBlocks[0].blockId);
+  });
+
+  it("does not turn URL-like OCR text into fallback share cards when clipboard already has a direct URL block", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [
+          {
+            blockId: "block-1",
+            timestampText: "Yesterday 18:05",
+            rawLines: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+            rawText: "https://www.youtube.com/watch?v=ea81dJjF5ts",
+            directUrls: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+            shareCardTitle: null,
+            skipReason: null,
+          },
+        ],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "https://www.youtube.com/watch？ v=ea81dJjF5ts", x: 1016, y: 566, width: 360, height: 32 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 0);
+    assert.equal(snapshot.effectiveBlocks.length, 1);
+    assert.equal(snapshot.candidates.length, 0);
+  });
+
+  it("keeps true OCR-only share cards even when the same page also has direct URL blocks", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [
+          {
+            blockId: "block-1",
+            timestampText: "Yesterday 18:05",
+            rawLines: ["https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK"],
+            rawText: "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+            directUrls: ["https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK"],
+            shareCardTitle: null,
+            skipReason: null,
+          },
+        ],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "https://h5-pay.xywlhlh.com/pages/ index/index?xid=2MHnK", x: 1016, y: 566, width: 360, height: 32 },
+          { text: "Yesterday 18:04", x: 420, y: 690, width: 150, height: 22 },
+          { text: "刚刚，飞书CLI开源，Claude", x: 1016, y: 736, width: 360, height: 32 },
+          { text: "Code 也可以丝滑操控飞书节…", x: 1016, y: 776, width: 360, height: 32 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].shareCardTitle, "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书节…");
+    assert.equal(snapshot.candidates.length, 1);
   });
 
   it("finds copy-link menu actions from OCR output", () => {
@@ -200,6 +270,488 @@ describe("ui helpers", () => {
     assert.deepEqual(page.clipboardSnapshot.items, prefetchedSnapshot.items);
     assert.equal(page.clipboardSnapshot.rawText, prefetchedSnapshot.rawText);
     assert.equal(page.candidates.length, 1);
+  });
+
+  it("uses OCR-only sampling for share-card pages that do not show direct URLs", async () => {
+    let clipboardReads = 0;
+
+    const page = await captureVisibleUiPage(
+      {
+        pageIndex: 1,
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          return {
+            rawText: "should not read",
+            items: [],
+            messages: [],
+            blocks: [],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          };
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ({
+          width: 1560,
+          height: 1846,
+          lines: [
+            { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+            { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+            { text: "刚刚，飞书CLI开源，Claude", x: 1016, y: 566, width: 360, height: 32 },
+            { text: "Code 也可以丝滑操控飞书节…", x: 1016, y: 606, width: 360, height: 32 },
+            { text: "给AI用的飞书", x: 1016, y: 646, width: 160, height: 24 },
+          ],
+        }),
+      }
+    );
+
+    assert.equal(clipboardReads, 0);
+    assert.equal(page.samplingMode, "ocr_only");
+    assert.equal(page.candidates.length, 1);
+  });
+
+  it("reads clipboard on demand when OCR shows URL-like content", async () => {
+    let clipboardReads = 0;
+
+    const page = await captureVisibleUiPage(
+      {
+        pageIndex: 1,
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          return {
+            rawText: "Yesterday 18:05\nhttps://example.com/article",
+            items: [],
+            messages: [],
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["https://example.com/article"],
+                rawText: "https://example.com/article",
+                directUrls: ["https://example.com/article"],
+                shareCardTitle: null,
+                skipReason: null,
+              },
+            ],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          };
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ({
+          width: 1560,
+          height: 1846,
+          lines: [
+            { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+            { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+            { text: "https://example.com/article", x: 1016, y: 566, width: 360, height: 32 },
+          ],
+        }),
+      }
+    );
+
+    assert.equal(clipboardReads, 1);
+    assert.equal(page.samplingMode, "ocr_plus_clipboard");
+    assert.equal(page.clipboardSnapshot.blocks.length, 1);
+  });
+
+  it("keeps the initial UI probe on OCR-only sampling for pure share-card pages", async () => {
+    let clipboardReads = 0;
+
+    const probe = await probeUiEnvironment(
+      { requireChatReady: true, returnCapturedPage: true },
+      {
+        isWeChatRunningFn: () => true,
+        probeVisionAvailabilityFn: async () => true,
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          return {
+            rawText: "should not read",
+            items: [],
+            messages: [],
+            blocks: [],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          };
+        },
+        recognizeTextFromImageFn: async () => ({
+          width: 1560,
+          height: 1846,
+          lines: [
+            { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+            { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+            { text: "刚刚，飞书CLI开源，Claude", x: 1016, y: 566, width: 360, height: 32 },
+            { text: "Code 也可以丝滑操控飞书节…", x: 1016, y: 606, width: 360, height: 32 },
+            { text: "给AI用的飞书", x: 1016, y: 646, width: 160, height: 24 },
+          ],
+        }),
+      }
+    );
+
+    assert.equal(clipboardReads, 0);
+    assert.equal(probe.ui_probe_status, "ready");
+    assert.equal(probe.captured_page.samplingMode, "ocr_only");
+    assert.equal(probe.captured_page.clipboardSnapshot.rawText, "");
+  });
+});
+
+describe("scanUiLinks", () => {
+  it("keeps share-like blocks with direct URLs on the fast path without opening the viewer", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          clipboardSnapshot: {
+            rawText: "Yesterday 18:05\n[Link] 直链消息\nhttps://www.youtube.com/watch?v=ea81dJjF5ts",
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: [
+                  "[Link] 直链消息",
+                  "https://www.youtube.com/watch?v=ea81dJjF5ts",
+                ],
+                rawText: "[Link] 直链消息\nhttps://www.youtube.com/watch?v=ea81dJjF5ts",
+                directUrls: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                shareCardTitle: "直链消息",
+                skipReason: null,
+              },
+            ],
+            stats: {
+              share_cards_seen: 1,
+              share_cards_unresolved: 0,
+              skipped_by_rule: {},
+            },
+          },
+          candidateMap: new Map(),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].url, "https://www.youtube.com/watch?v=ea81dJjF5ts");
+    assert.equal(result.records[0].message_type, "share_card");
+    assert.equal(result.records[0].title, "直链消息");
+    assert.equal(result.stats.share_cards_attempted, 0);
+  });
+
+  it("only opens the viewer for blocks that lack a direct URL", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          clipboardSnapshot: {
+            rawText: [
+              "Yesterday 18:05",
+              "[Link] 直链消息",
+              "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+              "Yesterday 18:04",
+              "[Link] 纯卡片消息",
+            ].join("\n"),
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: [
+                  "[Link] 直链消息",
+                  "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+                ],
+                rawText:
+                  "[Link] 直链消息\nhttps://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+                directUrls: ["https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK"],
+                shareCardTitle: "直链消息",
+                skipReason: null,
+              },
+              {
+                blockId: "block-2",
+                timestampText: "Yesterday 18:04",
+                rawLines: ["[Link] 纯卡片消息"],
+                rawText: "[Link] 纯卡片消息",
+                directUrls: [],
+                shareCardTitle: "纯卡片消息",
+                skipReason: null,
+              },
+            ],
+            stats: {
+              share_cards_seen: 2,
+              share_cards_unresolved: 1,
+              skipped_by_rule: {},
+            },
+          },
+          candidateMap: new Map([
+            [
+              "block-2",
+              {
+                itemKey: "block-2",
+                title: "纯卡片消息",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async (candidate) => {
+          extractorCalls += 1;
+          assert.equal(candidate.itemKey, "block-2");
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/pure-card-123",
+            usedBrowserFallback: false,
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 2);
+    assert.deepEqual(
+      result.records.map((record) => record.url).sort(),
+      [
+        "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+        "https://mp.weixin.qq.com/s/pure-card-123",
+      ]
+    );
+    assert.equal(result.stats.share_cards_attempted, 1);
+    assert.equal(result.stats.share_cards_resolved, 1);
+  });
+
+  it("deduplicates the same article across pages even when OCR raw text drifts", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          if (captureCalls === 1) {
+            return {
+              samplingMode: "ocr_only",
+              clipboardSnapshot: {
+                rawText: "",
+                blocks: [
+                  {
+                    blockId: "ocr-item-0",
+                    timestampText: "Yesterday 09:51",
+                    rawLines: ["刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书"],
+                    rawText: "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书",
+                    directUrls: [],
+                    shareCardTitle: "刚刚，飞书CLI开源，Claude",
+                    skipReason: null,
+                  },
+                ],
+                stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+              },
+              candidateMap: new Map([
+                [
+                  "ocr-item-0",
+                  { itemKey: "ocr-item-0", title: "刚刚，飞书CLI开源，Claude", clickX: 500, clickY: 400 },
+                ],
+              ]),
+            };
+          }
+
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: "ocr-item-3",
+                  timestampText: "Yesterday 09:51",
+                  rawLines: ["刚刚，飞书CLI开源， Claude Code也可以丝滑操控飞书.. 给AI用的飞书"],
+                  rawText: "刚刚，飞书CLI开源， Claude Code也可以丝滑操控飞书.. 给AI用的飞书",
+                  directUrls: [],
+                  shareCardTitle: "刚刚，飞书CLI开源， Claude",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([
+              [
+                "ocr-item-3",
+                { itemKey: "ocr-item-3", title: "刚刚，飞书CLI开源， Claude", clickX: 520, clickY: 420 },
+              ],
+            ]),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/duplicate-article-123",
+            usedBrowserFallback: false,
+          };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.stats.share_cards_attempted, 1);
+    assert.equal(result.stats.duplicate_skipped, 1);
+  });
+
+  it("does not deduplicate different timestamps that share a similar title", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: `ocr-item-${captureCalls}`,
+                  timestampText: captureCalls === 1 ? "Yesterday 09:51" : "Yesterday 09:40",
+                  rawLines: ["刚刚，飞书CLI开源，Claude"],
+                  rawText: "刚刚，飞书CLI开源，Claude",
+                  directUrls: [],
+                  shareCardTitle: "刚刚，飞书CLI开源，Claude",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([
+              [
+                `ocr-item-${captureCalls}`,
+                { itemKey: `ocr-item-${captureCalls}`, title: "刚刚，飞书CLI开源，Claude", clickX: 500, clickY: 400 },
+              ],
+            ]),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: `https://mp.weixin.qq.com/s/title-similar-${extractorCalls}`,
+            usedBrowserFallback: false,
+          };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 2);
+    assert.equal(result.records.length, 2);
+  });
+
+  it("does not retry the same article after a failed extraction in the same run", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: `ocr-item-${captureCalls}`,
+                  timestampText: "Yesterday 09:51",
+                  rawLines: ["刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书"],
+                  rawText: "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书",
+                  directUrls: [],
+                  shareCardTitle: "刚刚，飞书CLI开源，Claude",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([
+              [
+                `ocr-item-${captureCalls}`,
+                { itemKey: `ocr-item-${captureCalls}`, title: "刚刚，飞书CLI开源，Claude", clickX: 500, clickY: 400 },
+              ],
+            ]),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "failed",
+            reason: "copy_link_failed",
+          };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.stats.share_cards_attempted, 1);
+    assert.equal(result.stats.share_cards_unresolved, 1);
+    assert.equal(result.stats.duplicate_skipped, 1);
   });
 });
 
@@ -443,6 +995,53 @@ describe("extractShareCardUrl", () => {
 
     assert.equal(result.status, "failed");
     assert.equal(result.reason, "viewer_not_closed");
+  });
+
+  it("retries chat recovery by navigating back to 文件传输助手 before failing", async () => {
+    let windowsCall = 0;
+    let verifyCalls = 0;
+    let recoverCalls = 0;
+
+    const result = await extractShareCardUrl(
+      { title: "第一篇文章", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "main", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({ width: 2880, height: 1800, lines: [] }),
+        openViewerMenuFn: async () => ({
+          copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+          browserLine: null,
+          ocrResult: { lines: [] },
+        }),
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/recover-123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => {
+          verifyCalls += 1;
+          return verifyCalls >= 2;
+        },
+        recoverChatFn: async () => {
+          recoverCalls += 1;
+        },
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/recover-123");
+    assert.equal(recoverCalls, 1);
+    assert.equal(verifyCalls, 2);
   });
 
   it("clicks copy-link using full-screen OCR coordinates", async () => {

@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { focusWeChatChatArea, scrollUpOnce } from "../scripts/lib/chat.js";
+import {
+  focusWeChatChatArea,
+  parseClipboardText,
+  readVisibleClipboardSnapshot,
+  scrollUpOnce,
+} from "../scripts/lib/chat.js";
 
 describe("chat helpers", () => {
   it("retries focus until WeChat is frontmost", () => {
@@ -92,5 +97,65 @@ describe("chat helpers", () => {
       { kind: "key", keyCode: 126 },
       { kind: "sleep" },
     ]);
+  });
+});
+
+describe("parseClipboardText", () => {
+  it("groups a share-card label and direct URL into one resolved block", () => {
+    const snapshot = parseClipboardText(`
+Yesterday 18:05
+[Link] 刚刚，飞书CLI开源，Claude
+https://www.youtube.com/watch?v=ea81dJjF5ts
+    `);
+
+    assert.equal(snapshot.blocks.length, 1);
+    assert.equal(snapshot.blocks[0].timestampText, "Yesterday 18:05");
+    assert.equal(snapshot.blocks[0].shareCardTitle, "刚刚，飞书CLI开源，Claude");
+    assert.deepEqual(snapshot.blocks[0].directUrls, ["https://www.youtube.com/watch?v=ea81dJjF5ts"]);
+    assert.equal(snapshot.items.length, 1);
+    assert.equal(snapshot.items[0].kind, "text_url");
+    assert.equal(snapshot.items[0].title, "刚刚，飞书CLI开源，Claude");
+    assert.equal(snapshot.stats.share_cards_seen, 1);
+    assert.equal(snapshot.stats.share_cards_unresolved, 0);
+  });
+
+  it("keeps arbitrary H5 links on the same message block as a direct URL path", () => {
+    const snapshot = parseClipboardText(`
+10:30
+[Link] 某个 H5 页面
+https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK
+    `);
+
+    assert.equal(snapshot.blocks.length, 1);
+    assert.equal(snapshot.blocks[0].shareCardTitle, "某个 H5 页面");
+    assert.deepEqual(snapshot.blocks[0].directUrls, [
+      "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+    ]);
+    assert.equal(snapshot.items.length, 1);
+    assert.equal(snapshot.items[0].kind, "text_url");
+    assert.equal(snapshot.stats.share_cards_seen, 1);
+    assert.equal(snapshot.stats.share_cards_unresolved, 0);
+  });
+});
+
+describe("readVisibleClipboardSnapshot", () => {
+  it("retries once when the clipboard is empty after copying visible messages", () => {
+    let copies = 0;
+    let reads = 0;
+
+    const snapshot = readVisibleClipboardSnapshot(false, {
+      copyVisibleMessagesFn: () => {
+        copies += 1;
+      },
+      readClipboardTextFn: () => {
+        reads += 1;
+        return reads === 1 ? "" : "10:30\nhttps://example.com/article";
+      },
+    });
+
+    assert.equal(copies, 2);
+    assert.equal(snapshot.rawText, "10:30\nhttps://example.com/article");
+    assert.equal(snapshot.blocks.length, 1);
+    assert.deepEqual(snapshot.blocks[0].directUrls, ["https://example.com/article"]);
   });
 });

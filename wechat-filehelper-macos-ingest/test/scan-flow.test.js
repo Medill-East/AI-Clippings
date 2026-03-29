@@ -203,20 +203,21 @@ describe("scan flow", () => {
 [链接] 视频号卡片
 昨天 09:00
 https://example.com/visible
+昨天 08:59
 [链接] B站卡片 bilibili
       `),
       parseClipboardText(`
-10:29
+昨天 10:29
 https://wx2.qq.com/cgi-bin/mmwebwx-bin/webwxnewloginpage?ticket=abc
-10:28
+昨天 10:28
 https://example.com/visible
       `),
       parseClipboardText(`
-10:28
+昨天 10:28
 https://example.com/visible
       `),
       parseClipboardText(`
-10:28
+昨天 10:28
 https://example.com/visible
       `),
     ];

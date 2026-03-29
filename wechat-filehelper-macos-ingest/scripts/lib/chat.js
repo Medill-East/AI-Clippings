@@ -167,6 +167,131 @@ export function extractShareCardTitle(line) {
     .trim();
 }
 
+function matchClipboardTimestamp(line) {
+  const timestampPatterns = [
+    /^(\d{4}年\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
+    /^(\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
+    /^(昨天\s+\d{1,2}:\d{2})/,
+    /^(今天\s+\d{1,2}:\d{2})/,
+    /^(yesterday\s+\d{1,2}:\d{2})/i,
+    /^(today\s+\d{1,2}:\d{2})/i,
+    /^(\d{1,2}:\d{2})$/,
+  ];
+
+  for (const pattern of timestampPatterns) {
+    const match = String(line ?? "").match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
+function classifyStructuralShareCardSkipReason(text) {
+  if (looksLikeVideoCard(text)) return "video_channel";
+  if (looksLikeBilibiliCard(text)) return "bilibili_video";
+  if (looksLikeMultiArticleCard(text)) return "multi_article_card";
+  return null;
+}
+
+function uniqueUrls(urls) {
+  const seen = new Set();
+  const result = [];
+  for (const url of urls) {
+    const value = String(url ?? "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function buildClipboardBlock({ blockId, timestampText, rawLines, stats }) {
+  const normalizedLines = rawLines.map((line) => String(line ?? "").trim()).filter(Boolean);
+  if (normalizedLines.length === 0) return null;
+
+  const rawText = normalizedLines.join("\n");
+  const shareCardLine = normalizedLines.find((line) => looksLikeShareCard(line)) ?? null;
+  const shareCardTitle = shareCardLine ? extractShareCardTitle(shareCardLine) : null;
+  const directUrls = uniqueUrls(normalizedLines.flatMap((line) => extractUrlsFromText(line)));
+
+  let skipReason = null;
+  if (normalizedLines.some((line) => looksLikeChatRecordBundle(line))) {
+    skipReason = "chat_record_bundle";
+    incrementCount(stats.skipped_by_rule, skipReason);
+  } else if (shareCardTitle) {
+    stats.share_cards_seen += 1;
+    const structuralSkipReason = classifyStructuralShareCardSkipReason(rawText);
+    if (structuralSkipReason && directUrls.length === 0) {
+      skipReason = structuralSkipReason;
+      incrementCount(stats.skipped_by_rule, skipReason);
+    } else if (!structuralSkipReason && directUrls.length === 0) {
+      stats.share_cards_unresolved += 1;
+    }
+  }
+
+  return {
+    blockId,
+    timestampText,
+    rawLines: normalizedLines,
+    rawText,
+    directUrls,
+    shareCardTitle,
+    skipReason,
+  };
+}
+
+function buildSnapshotItemsFromBlocks(blocks) {
+  const items = [];
+  const messages = [];
+
+  for (const block of blocks) {
+    if (!block) continue;
+
+    if (block.skipReason === "chat_record_bundle") {
+      items.push({
+        kind: "chat_record_bundle",
+        itemKey: block.blockId,
+        timestampText: block.timestampText,
+        rawText: block.rawText,
+        skipReason: block.skipReason,
+      });
+      continue;
+    }
+
+    if ((block.directUrls?.length ?? 0) > 0) {
+      const item = {
+        kind: "text_url",
+        itemKey: block.blockId,
+        timestampText: block.timestampText,
+        links: block.directUrls.map((url) => ({
+          url,
+          type: "text_url",
+          title: block.shareCardTitle ?? "",
+        })),
+        rawText: block.rawText,
+        title: block.shareCardTitle ?? "",
+      };
+      items.push(item);
+      messages.push(item);
+      continue;
+    }
+
+    if (block.shareCardTitle) {
+      items.push({
+        kind: "share_card",
+        itemKey: block.blockId,
+        timestampText: block.timestampText,
+        rawText: block.rawText,
+        title: block.shareCardTitle,
+        skipReason: block.skipReason,
+      });
+    }
+  }
+
+  return { items, messages };
+}
+
 export function parseClipboardSnapshot(text, debug = false) {
   const stats = {
     share_cards_seen: 0,
@@ -175,109 +300,79 @@ export function parseClipboardSnapshot(text, debug = false) {
   };
 
   if (!text || !text.trim()) {
-    return { items: [], messages: [], stats };
+    return { items: [], messages: [], blocks: [], stats };
   }
 
-  const timestampPatterns = [
-    /^(\d{4}年\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
-    /^(\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)/,
-    /^(昨天\s+\d{1,2}:\d{2})/,
-    /^(今天\s+\d{1,2}:\d{2})/,
-    /^(\d{1,2}:\d{2})$/,
-  ];
-
-  const messages = [];
-  const items = [];
+  const blocks = [];
   let currentTs = null;
+  let currentLines = [];
   const lines = text.split(/\r?\n/);
-  let itemIndex = 0;
+  let blockIndex = 0;
+
+  const flushBlock = () => {
+    if (currentLines.length === 0) return;
+    const block = buildClipboardBlock({
+      blockId: `block-${blockIndex++}`,
+      timestampText: currentTs,
+      rawLines: currentLines,
+      stats,
+    });
+    if (block) {
+      blocks.push(block);
+    }
+    currentLines = [];
+  };
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line) continue;
-
-    let matchedTimestamp = false;
-    for (const pattern of timestampPatterns) {
-      const match = line.match(pattern);
-      if (!match) continue;
-      currentTs = match[1];
-      matchedTimestamp = true;
-      break;
-    }
-    if (matchedTimestamp) continue;
-
-    if (looksLikeChatRecordBundle(line)) {
-      incrementCount(stats.skipped_by_rule, "chat_record_bundle");
-      items.push({
-        kind: "chat_record_bundle",
-        itemKey: `item-${itemIndex++}`,
-        timestampText: currentTs,
-        rawText: line,
-        skipReason: "chat_record_bundle",
-      });
+    if (!line) {
+      flushBlock();
       continue;
     }
 
-    if (looksLikeShareCard(line)) {
-      stats.share_cards_seen += 1;
-      const title = extractShareCardTitle(line);
-      let skipReason = null;
-
-      if (looksLikeVideoCard(line)) {
-        skipReason = "video_channel";
-      } else if (looksLikeBilibiliCard(line)) {
-        skipReason = "bilibili_video";
-      } else if (looksLikeMultiArticleCard(line)) {
-        skipReason = "multi_article_card";
-      }
-
-      if (skipReason) {
-        incrementCount(stats.skipped_by_rule, skipReason);
-      } else {
-        stats.share_cards_unresolved += 1;
-      }
-
-      items.push({
-        kind: "share_card",
-        itemKey: `item-${itemIndex++}`,
-        timestampText: currentTs,
-        rawText: line,
-        title,
-        skipReason,
-      });
+    const matchedTimestamp = matchClipboardTimestamp(line);
+    if (matchedTimestamp) {
+      flushBlock();
+      currentTs = matchedTimestamp;
       continue;
     }
 
-    const urls = extractUrlsFromText(line);
-    if (urls.length === 0) {
-      continue;
-    }
-
-    const item = {
-      kind: "text_url",
-      itemKey: `item-${itemIndex++}`,
-      timestampText: currentTs,
-      links: urls.map((url) => ({ url, type: "text_url", title: "" })),
-      rawText: line,
-    };
-    messages.push(item);
-    items.push(item);
+    currentLines.push(line);
   }
+  flushBlock();
+
+  const { items, messages } = buildSnapshotItemsFromBlocks(blocks);
 
   if (debug) {
     console.log(
-      `[debug] Parsed ${messages.length} clipboard URL groups from ${lines.length} lines`
+      `[debug] Parsed ${blocks.length} clipboard block(s), ${messages.length} direct URL group(s) from ${lines.length} lines`
     );
   }
 
-  return { items, messages, stats };
+  return { items, messages, blocks, stats };
 }
 
-export function readVisibleClipboardSnapshot(debug = false) {
-  copyVisibleMessages(debug);
-  const text = readClipboardText();
-  if (debug && text) console.log(`[debug] Clipboard: ${text.length} chars`);
-  const parsed = parseClipboardSnapshot(text, debug);
+export function readVisibleClipboardSnapshot(
+  debug = false,
+  {
+    copyVisibleMessagesFn = copyVisibleMessages,
+    readClipboardTextFn = readClipboardText,
+    parseClipboardSnapshotFn = parseClipboardSnapshot,
+  } = {}
+) {
+  let text = "";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    copyVisibleMessagesFn(debug);
+    text = readClipboardTextFn();
+    if (debug && text) console.log(`[debug] Clipboard: ${text.length} chars`);
+    if (text?.trim()) break;
+    if (debug && attempt === 0) {
+      console.log("[debug] Clipboard empty after copy, retrying once...");
+    }
+  }
+
+  const parsed = parseClipboardSnapshotFn(text, debug);
   parsed.rawText = text;
   return parsed;
 }
@@ -321,8 +416,8 @@ export async function scanClipboardLinks(
       incrementCount(stats.skipped_by_rule, reason, count);
     }
 
-    const clipHash = snapshot.messages
-      .map((message) => message.links.map((link) => link.url).join("|"))
+    const clipHash = (snapshot.blocks ?? [])
+      .map((block) => `${block.timestampText ?? ""}|${block.rawText}|${(block.directUrls ?? []).join("|")}`)
       .join("||");
     if (clipHash === lastClipboardHash) {
       consecutiveNoNew += 1;
@@ -336,11 +431,11 @@ export async function scanClipboardLinks(
     }
 
     let reachedBeforeRange = false;
-    for (const message of snapshot.messages) {
+    for (const block of snapshot.blocks ?? []) {
       let messageTime = null;
-      if (message.timestampText) {
+      if (block.timestampText) {
         try {
-          messageTime = parseWeChatTimestamp(message.timestampText, now);
+          messageTime = parseWeChatTimestamp(block.timestampText, now);
         } catch {
           messageTime = null;
         }
@@ -354,8 +449,8 @@ export async function scanClipboardLinks(
         if (messageTime > until) continue;
       }
 
-      for (const link of message.links) {
-        const canonicalUrl = canonicalizeUrl(link.url);
+      for (const url of block.directUrls ?? []) {
+        const canonicalUrl = canonicalizeUrl(url);
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
           incrementCount(stats.skipped_by_rule, skipReason);
@@ -375,8 +470,8 @@ export async function scanClipboardLinks(
           captured_at: new Date().toISOString(),
           message_time: messageTimeIso,
           chat_name: CHAT_NAME,
-          message_type: "text_url",
-          title: "",
+          message_type: block.shareCardTitle ? "share_card" : "text_url",
+          title: block.shareCardTitle ?? "",
           url: canonicalUrl,
           dedupe_key: key,
           capture_session_id: sessionId,
