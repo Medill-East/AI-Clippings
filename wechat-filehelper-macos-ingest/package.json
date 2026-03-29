@@ -1,0 +1,14 @@
+{
+  "name": "wechat-filehelper-macos-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Codex skill assets for extracting WeChat article links from File Transfer Assistant via macOS desktop app Accessibility API.",
+  "scripts": {
+    "setup": "node ./scripts/setup.js",
+    "scan": "node ./scripts/scan-links.js",
+    "query": "node ./scripts/query-links.js",
+    "inspect": "node ./scripts/inspect-accessibility.js",
+    "test": "node --test test/*.test.js"
+  }
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "WeChat FileHelper macOS Ingest"
+  short_description: "Extract WeChat article links from File Transfer Assistant via macOS desktop app Accessibility API."
+  default_prompt: "Use $wechat-filehelper-macos-ingest to extract and summarize the links I sent to 文件传输助手 between <since> and <until>."
+
+policy:
+  allow_implicit_invocation: true
