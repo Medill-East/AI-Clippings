@@ -10,6 +10,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline";
 
 import { navigateToFileHelper, scrollAndCollect } from "./lib/chat.js";
 import {
@@ -90,6 +91,17 @@ Options:
 `);
 }
 
+function waitForUserReady() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    console.log("\n请在微信中打开「文件传输助手」聊天，然后按 Enter 继续...");
+    rl.question("", () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
+
 async function main() {
   if (process.platform !== "darwin") {
     console.error("Error: 此 skill 仅支持 macOS。当前平台:", process.platform);
@@ -103,7 +115,7 @@ async function main() {
   const runDir = path.join(skillRoot, "local/runs", runTs);
   await fs.mkdir(runDir, { recursive: true });
 
-  console.log("WeChat FileHelper macOS Ingest — Scan");
+  console.log("WeChat FileHelper macOS Ingest — Scan (clipboard mode)");
   console.log(`Since : ${opts.since.toISOString()}`);
   console.log(`Until : ${opts.until.toISOString()}`);
   console.log(`Max scrolls: ${opts.maxScrolls}`);
@@ -117,16 +129,19 @@ async function main() {
 
   let newRecords = [];
 
-  console.log("Navigating to 文件传输助手...");
+  // Prompt user to manually open File Helper before proceeding
+  await waitForUserReady();
+
+  console.log("Activating WeChat window...");
   try {
     await navigateToFileHelper(opts.debug);
   } catch (err) {
-    console.error("\nFatal error during navigation:", err.message);
+    console.error("\nFatal error:", err.message);
     console.error("Tip: Run `node scripts/setup.js` to verify prerequisites.");
     process.exit(1);
   }
 
-  console.log("Scanning messages...");
+  console.log("Scanning messages (using clipboard extraction)...");
   newRecords = await scrollAndCollect(
     opts.since,
     opts.until,
