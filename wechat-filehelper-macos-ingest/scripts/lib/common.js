@@ -39,7 +39,7 @@ export function canonicalizeUrl(rawUrl) {
   return result;
 }
 
-/** Return true if the URL looks like a video-channel or Bilibili video card (skip these). */
+/** Return true if the URL should be skipped (video cards, internal WeChat URLs, etc.). */
 export function shouldSkipUrl(url) {
   try {
     const parsed = new URL(url);
@@ -49,6 +49,10 @@ export function shouldSkipUrl(url) {
     // WeChat video channel (视频号)
     if (host.includes("channels.weixin.qq.com")) return true;
     if (host === "mp.weixin.qq.com" && pathname.startsWith("/mp/wma")) return true;
+
+    // WeChat internal / login URLs (wx.qq.com, wx2.qq.com, etc.)
+    if (/^wx\d*\.qq\.com$/.test(host)) return true;
+    if (host === "weixin110.qq.com") return true;
 
     // Bilibili video URLs (not article/column links)
     if (host === "www.bilibili.com" || host === "bilibili.com" || host === "m.bilibili.com") {
