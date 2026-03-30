@@ -63,17 +63,17 @@ const OCR_TIMESTAMP_MIN_RATIO = 0.60;
 const OCR_TIMESTAMP_MAX_RATIO = 0.82;
 const OCR_TIMESTAMP_BEFORE_MAX_GAP_PX = 180;
 const OCR_TIMESTAMP_AFTER_MAX_GAP_PX = 40;
-const VIEWER_OPEN_SETTLE_MS = 220;
+const VIEWER_OPEN_SETTLE_MS = 160;
 const VIEWER_DETECT_TIMEOUT_MS = 900;
-const VIEWER_DETECT_POLL_MS = 80;
-const VIEWER_READY_TIMEOUT_MS = 500;
-const VIEWER_READY_POLL_MS = 60;
-const VIEWER_MENU_SETTLE_MS = 70;
-const VIEWER_COPY_SETTLE_MS = 20;
+const VIEWER_DETECT_POLL_MS = 60;
+const VIEWER_READY_TIMEOUT_MS = 420;
+const VIEWER_READY_POLL_MS = 40;
+const VIEWER_MENU_SETTLE_MS = 45;
+const VIEWER_COPY_SETTLE_MS = 0;
 const VIEWER_BROWSER_SETTLE_MS = 500;
-const VIEWER_CLOSE_INITIAL_SETTLE_MS = 20;
-const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 60;
-const VIEWER_CLOSE_CMD_W_SETTLE_MS = 90;
+const VIEWER_CLOSE_INITIAL_SETTLE_MS = 10;
+const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 35;
+const VIEWER_CLOSE_CMD_W_SETTLE_MS = 55;
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -363,6 +363,118 @@ function normalizeOcrUrlText(text) {
     .replace(/\s+/g, "");
 }
 
+function addOcrUrlVariant(variants, rawText, score) {
+  const normalized = normalizeOcrUrlText(rawText);
+  if (!normalized) return;
+  variants.push({ text: normalized, score });
+}
+
+function buildOcrUrlVariants(rawLines) {
+  const variants = [];
+  addOcrUrlVariant(variants, rawLines.join(""), 5);
+  addOcrUrlVariant(variants, rawLines.join(" "), 4);
+
+  for (let index = 0; index < rawLines.length; index++) {
+    addOcrUrlVariant(variants, rawLines[index], 2);
+
+    if (index + 1 < rawLines.length) {
+      addOcrUrlVariant(variants, `${rawLines[index]}${rawLines[index + 1]}`, 6);
+      addOcrUrlVariant(variants, `${rawLines[index]} ${rawLines[index + 1]}`, 5);
+    }
+  }
+
+  return variants;
+}
+
+function buildOcrUrlMetadata(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const queryKeys = [...parsed.searchParams.keys()].sort();
+    return {
+      url: rawUrl,
+      origin: parsed.origin,
+      pathname: parsed.pathname,
+      search: parsed.search,
+      queryKeys,
+    };
+  } catch {
+    return {
+      url: rawUrl,
+      origin: "",
+      pathname: "",
+      search: "",
+      queryKeys: [],
+    };
+  }
+}
+
+function isTruncatedUrlPrefix(candidate, preferred) {
+  const candidateMeta = buildOcrUrlMetadata(candidate);
+  const preferredMeta = buildOcrUrlMetadata(preferred);
+  if (!candidateMeta.origin || candidateMeta.origin !== preferredMeta.origin) return false;
+  if (!preferred.startsWith(candidate)) return false;
+
+  const nextChar = preferred.slice(candidate.length, candidate.length + 1);
+  return nextChar === "/" || nextChar === "?" || nextChar === "&" || nextChar === "=";
+}
+
+function countCharDifferences(left, right) {
+  if (left.length !== right.length) return Number.POSITIVE_INFINITY;
+  let diffs = 0;
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) diffs += 1;
+    if (diffs > 1) return diffs;
+  }
+  return diffs;
+}
+
+function areNearDuplicateOcrUrls(left, right) {
+  const leftMeta = buildOcrUrlMetadata(left);
+  const rightMeta = buildOcrUrlMetadata(right);
+  if (!leftMeta.origin || leftMeta.origin !== rightMeta.origin) return false;
+  if (leftMeta.pathname !== rightMeta.pathname) return false;
+  if (leftMeta.queryKeys.join("|") !== rightMeta.queryKeys.join("|")) return false;
+
+  if (!leftMeta.search && !rightMeta.search) {
+    const leftLeaf = leftMeta.pathname.split("/").filter(Boolean).at(-1) ?? "";
+    const rightLeaf = rightMeta.pathname.split("/").filter(Boolean).at(-1) ?? "";
+    return leftLeaf.length > 0 && countCharDifferences(leftLeaf, rightLeaf) <= 1;
+  }
+
+  try {
+    const leftParsed = new URL(left);
+    const rightParsed = new URL(right);
+    for (const key of leftMeta.queryKeys) {
+      const leftValue = leftParsed.searchParams.get(key) ?? "";
+      const rightValue = rightParsed.searchParams.get(key) ?? "";
+      if (leftValue === rightValue) continue;
+      if (countCharDifferences(leftValue, rightValue) > 1) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function choosePreferredOcrUrl(left, right) {
+  if ((left.count ?? 0) !== (right.count ?? 0)) {
+    return (left.count ?? 0) > (right.count ?? 0) ? left : right;
+  }
+  if ((left.score ?? 0) !== (right.score ?? 0)) {
+    return (left.score ?? 0) > (right.score ?? 0) ? left : right;
+  }
+  if (left.url.length !== right.url.length) {
+    return left.url.length > right.url.length ? left : right;
+  }
+  return left.url <= right.url ? left : right;
+}
+
+function isMalformedOcrUrl(url) {
+  return (String(url ?? "").match(/https?:\/\//g) ?? []).length > 1;
+}
+
 function looksLikeBilibiliVideoText(text) {
   const normalized = String(text ?? "").normalize("NFKC");
   const comparable = normalizeComparableText(normalized);
@@ -390,22 +502,48 @@ function extractUrlsFromOcrText(linesOrText) {
 
   if (rawLines.length === 0) return [];
 
-  const candidates = [
-    rawLines.join(""),
-    rawLines.join(" "),
-    ...rawLines,
-  ]
-    .map(normalizeOcrUrlText)
-    .filter(Boolean);
+  const variants = buildOcrUrlVariants(rawLines);
+  const extracted = new Map();
 
-  const urls = new Set();
-  for (const candidate of candidates) {
-    for (const url of extractUrlsFromText(candidate)) {
-      urls.add(url);
+  for (const variant of variants) {
+    for (const rawUrl of extractUrlsFromText(variant.text)) {
+      if (isMalformedOcrUrl(rawUrl)) continue;
+      const url = canonicalizeUrl(rawUrl);
+      const existing = extracted.get(url);
+      if (existing) {
+        existing.count += 1;
+        existing.score = Math.max(existing.score, variant.score);
+      } else {
+        extracted.set(url, { url, score: variant.score, count: 1 });
+      }
     }
   }
 
-  return [...urls];
+  let candidates = [...extracted.values()].sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    if (right.count !== left.count) return right.count - left.count;
+    return right.url.length - left.url.length;
+  });
+
+  candidates = candidates.filter(
+    (candidate, index) =>
+      !candidates.some(
+        (preferred, preferredIndex) =>
+          preferredIndex < index && isTruncatedUrlPrefix(candidate.url, preferred.url)
+      )
+  );
+
+  const deduped = [];
+  for (const candidate of candidates) {
+    const existingIndex = deduped.findIndex((current) => areNearDuplicateOcrUrls(current.url, candidate.url));
+    if (existingIndex === -1) {
+      deduped.push(candidate);
+      continue;
+    }
+    deduped[existingIndex] = choosePreferredOcrUrl(deduped[existingIndex], candidate);
+  }
+
+  return deduped.map((entry) => entry.url);
 }
 
 function hasProtocolLikeHint(normalized) {
@@ -1656,7 +1794,7 @@ function clickOcrLineInScreen(screenBounds, line, ocrResult, clickAtPointFn = cl
 }
 
 function waitForClipboardMpUrl(
-  { timeoutMs = 600, pollMs = 40 } = {},
+  { timeoutMs = 420, pollMs = 25 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -2098,7 +2236,9 @@ export async function extractShareCardUrl(
         menu.ocrResult,
         clickAtPointFn
       );
-      sleepMsFn(VIEWER_COPY_SETTLE_MS);
+      if (VIEWER_COPY_SETTLE_MS > 0) {
+        sleepMsFn(VIEWER_COPY_SETTLE_MS);
+      }
       url = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
       timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (url) {

@@ -165,6 +165,40 @@ describe("ui helpers", () => {
     assert.equal(directBlocks[1].timestampText, "Sunday 19:41");
   });
 
+  it("keeps only the most complete OCR direct URL when fragments also produce truncated prefixes", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Sunday 19:31", x: 999, y: 198, width: 152, height: 28 },
+          { text: "https://www.youtube.com/watch", x: 943, y: 252, width: 380, height: 28 },
+          { text: "https://www.youtube.com/watch？", x: 943, y: 292, width: 445, height: 30 },
+          { text: "v=ea81dJjF5ts", x: 949, y: 332, width: 193, height: 27 },
+          { text: "Sunday 19:41", x: 999, y: 434, width: 155, height: 28 },
+          { text: "https://h5-pay.xywlhlh.com/pages", x: 930, y: 485, width: 410, height: 28 },
+          { text: "https://h5-pay.xywlhlh.com/pages/", x: 930, y: 525, width: 461, height: 32 },
+          { text: "index/index?xid=2MHnK", x: 924, y: 566, width: 324, height: 30 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    const directBlocks = snapshot.effectiveBlocks.filter((block) => (block.directUrls?.length ?? 0) > 0);
+    assert.equal(directBlocks.length, 2);
+    assert.deepEqual(
+      directBlocks.map((block) => block.directUrls),
+      [
+        ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+        ["https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK"],
+      ]
+    );
+  });
+
   it("keeps true OCR-only share cards even when the same page also has direct URL blocks", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
