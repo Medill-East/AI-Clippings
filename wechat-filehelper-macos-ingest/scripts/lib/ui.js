@@ -203,7 +203,7 @@ function findNearestTimestampLine(clusterTopLine, timestampLines) {
 
 function classifyOcrShareCardSkipReason(rawText) {
   if (/视频号|video\s+channel/i.test(rawText)) return "video_channel";
-  if (/哔哩哔哩|bilibili|b23\.tv|UP主|播放[:：]/i.test(rawText)) return "bilibili_video";
+  if (looksLikeBilibiliVideoText(rawText)) return "bilibili_video";
   if (/共\s*\d+\s*篇|\b\d+\s+articles?\b|multiple\s+articles?/i.test(rawText)) {
     return "multi_article_card";
   }
@@ -321,16 +321,58 @@ function normalizeUrlLikeText(text) {
     .normalize("NFKC")
     .toLowerCase()
     .replace(/\s+/g, "")
-    .replace(/[，。、“”"'`]/g, "");
+    .replace(/[，。、“”"'`<>【】（）()\[\]]/g, "");
+}
+
+function looksLikeBilibiliVideoText(text) {
+  const normalized = String(text ?? "").normalize("NFKC");
+  const hasBrand = /哔哩哔哩|bilibili|b23\.tv/i.test(normalized);
+  const hasVideoIndicator =
+    /UP主|播放[:：]|\bBV[0-9A-Za-z]{6,}\b|直播|番剧|投稿|av\d+|视频/i.test(normalized);
+  const normalizedBrandOnly = normalizeComparableText(normalized);
+
+  return (
+    /b23\.tv/i.test(normalized) ||
+    /\bBV[0-9A-Za-z]{6,}\b/.test(normalized) ||
+    (hasBrand && hasVideoIndicator) ||
+    (hasBrand && normalizedBrandOnly.length <= 12)
+  );
+}
+
+function hasProtocolLikeHint(normalized) {
+  return /https?(?::|;|\/)/.test(normalized) || normalized.startsWith("http") || normalized.startsWith("https");
+}
+
+function hasDomainLikeHint(normalized) {
+  return /\b[a-z0-9-]+\.(?:com|cn|tv|net|org|io|cc|me|co|qq|top|vip|app|dev|live|site|link)\b/i.test(
+    normalized
+  );
+}
+
+function hasPathLikeHint(normalized) {
+  return normalized.includes("/") || normalized.includes("?") || normalized.includes("&") || normalized.includes("=");
+}
+
+function extractUrlLikeSignature(text) {
+  const normalized = normalizeUrlLikeText(text);
+  if (!normalized) return "";
+  if (
+    hasProtocolLikeHint(normalized) ||
+    (hasDomainLikeHint(normalized) && (hasPathLikeHint(normalized) || normalized.includes(".")))
+  ) {
+    return normalized;
+  }
+  return "";
 }
 
 function looksLikeUrlLikeText(text) {
-  const normalized = normalizeUrlLikeText(text);
+  const normalized = extractUrlLikeSignature(text);
   if (!normalized) return false;
   if (/^https?:\/\//.test(normalized)) return true;
   if (/^www\./.test(normalized)) return true;
   if (extractUrlsFromText(normalized).length > 0) return true;
-  return /[a-z0-9-]+\.[a-z]{2,}/i.test(normalized) && (normalized.includes("/") || normalized.includes("?"));
+  if (hasProtocolLikeHint(normalized) && hasDomainLikeHint(normalized)) return true;
+  return hasDomainLikeHint(normalized) && hasPathLikeHint(normalized);
 }
 
 function shouldFilterOcrFallbackBlock(block, clipboardBlocks) {
@@ -367,18 +409,67 @@ function hasOcrUrlLikeLines(ocrLines) {
   return ocrLines.some((line) => looksLikeUrlLikeText(line?.text ?? ""));
 }
 
+function buildUrlLikeOcrSignature(ocrLines) {
+  const signatures = [];
+  const seen = new Set();
+
+  for (const line of ocrLines) {
+    const signature = extractUrlLikeSignature(line?.text ?? "");
+    if (!signature || seen.has(signature)) continue;
+    seen.add(signature);
+    signatures.push(signature);
+    if (signatures.length >= 6) break;
+  }
+
+  return signatures.join("|");
+}
+
 function truncateComparableText(text, maxLength) {
   const normalized = normalizeComparableText(text);
   if (!normalized) return "";
   return normalized.slice(0, maxLength);
 }
 
-function buildArticleFingerprint(block) {
-  const timestamp = normalizeComparableText(block?.timestampText ?? "");
-  const title = truncateComparableText(block?.shareCardTitle ?? "", 24);
-  const fallback = truncateComparableText(block?.rawText ?? "", 48);
+function normalizeArticleSignatureLine(text) {
+  const value = String(text ?? "").normalize("NFKC").trim();
+  if (!value) return "";
+  if (looksLikeUrlLikeText(value) || looksLikeTimestampOcrText(value)) return "";
 
-  return [timestamp, title || fallback].filter(Boolean).join("|");
+  const normalized = normalizeComparableText(value);
+  if (!normalized) return "";
+
+  if (/^(原创|链接|link)$/i.test(value)) return "";
+  if (/^(哔哩哔哩|bilibili|b23\.tv)$/i.test(value)) return "";
+  if (/^(UP主|播放[:：]?|直播|番剧|投稿|视频号)/i.test(value)) return "";
+
+  return normalized;
+}
+
+function buildArticleFingerprintAliases(block) {
+  const timestamp = normalizeComparableText(block?.timestampText ?? "");
+  const title = normalizeArticleSignatureLine(block?.shareCardTitle ?? "");
+  const rawLines = Array.isArray(block?.rawLines)
+    ? block.rawLines
+    : String(block?.rawText ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+  const signatureLines = rawLines.map(normalizeArticleSignatureLine).filter(Boolean);
+  const primary = title || signatureLines[0] || truncateComparableText(block?.rawText ?? "", 18);
+  const secondary = signatureLines.find((line) => line !== primary) || "";
+  const aliases = [
+    [timestamp, primary ? primary.slice(0, 18) : ""].filter(Boolean).join("|"),
+    [timestamp, signatureLines[0] ? signatureLines[0].slice(0, 18) : ""].filter(Boolean).join("|"),
+    [timestamp, primary ? primary.slice(0, 14) : "", secondary ? secondary.slice(0, 12) : ""]
+      .filter(Boolean)
+      .join("|"),
+  ].filter(Boolean);
+
+  return [...new Set(aliases)];
+}
+
+function buildArticleFingerprint(block) {
+  return buildArticleFingerprintAliases(block)[0] ?? "";
 }
 
 function buildBlockSignature(block) {
@@ -401,19 +492,34 @@ function buildCandidateYBand(candidate) {
   return Math.max(0, Math.round(y / 120));
 }
 
-function upsertArticleState(articleStates, articleFingerprint, updates) {
-  if (!articleFingerprint) return null;
+function findExistingArticleState(articleStates, articleFingerprints) {
+  for (const fingerprint of articleFingerprints ?? []) {
+    const state = articleStates.get(fingerprint);
+    if (state) {
+      return { fingerprint, state };
+    }
+  }
+  return null;
+}
 
-  const current = articleStates.get(articleFingerprint) ?? {
+function upsertArticleState(articleStates, articleFingerprints, updates) {
+  const fingerprints = (articleFingerprints ?? []).filter(Boolean);
+  if (fingerprints.length === 0) return null;
+
+  const current =
+    findExistingArticleState(articleStates, fingerprints)?.state ?? {
     status: "pending",
     attempted: false,
     resolved: false,
     failed: false,
+    skipped: false,
     lastSeenPage: null,
     lastSeenYBand: null,
   };
   const next = { ...current, ...updates };
-  articleStates.set(articleFingerprint, next);
+  for (const fingerprint of fingerprints) {
+    articleStates.set(fingerprint, next);
+  }
   return next;
 }
 
@@ -615,6 +721,7 @@ export async function probeUiEnvironment(
       ocrResult,
       screenshotPath,
       samplingMode,
+      urlLikeSignature: buildUrlLikeOcrSignature(ocrResult?.lines ?? []),
     };
   }
 
@@ -687,12 +794,37 @@ export async function scanUiLinks(
   };
 
   const records = [];
+  const skippedRecords = [];
   const seenUrls = new Set();
   const seenKeys = new Set();
+  const seenSkippedKeys = new Set();
   const articleStates = new Map();
   const seenPages = new Set();
   const artifactDir = runDir ? path.join(runDir, "artifacts") : null;
   const candidateArtifacts = [];
+
+  function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
+    if (!skipReason) return;
+
+    const messageTimeIso = (messageTime ?? now).toISOString();
+    const dedupeBasis = rawUrl || title || truncateComparableText(rawText, 40) || skipReason;
+    const key = dedupeKey(FILE_HELPER_CHAT_NAME, messageTimeIso, `skip:${skipReason}:${dedupeBasis}`);
+    if (seenSkippedKeys.has(key)) return;
+    seenSkippedKeys.add(key);
+
+    skippedRecords.push({
+      captured_at: new Date().toISOString(),
+      message_time: messageTimeIso,
+      chat_name: FILE_HELPER_CHAT_NAME,
+      record_type: "skipped_card",
+      title: title || rawUrl || "(untitled skipped card)",
+      raw_text: rawText || rawUrl || "",
+      skip_reason: skipReason,
+      dedupe_key: key,
+      capture_session_id: sessionId,
+      source: "ui",
+    });
+  }
 
   if (artifactDir) {
     await fs.mkdir(artifactDir, { recursive: true });
@@ -712,6 +844,7 @@ export async function scanUiLinks(
   let scrollCount = 0;
   let consecutiveDuplicatePages = 0;
   let limitReached = false;
+  let lastUrlLikeSignature = uiProbe.captured_page?.urlLikeSignature ?? null;
 
   while (scrollCount <= maxScrolls && !limitReached) {
     const page = await captureVisibleUiPageFn({
@@ -726,6 +859,8 @@ export async function scanUiLinks(
       prefetchedScreenshotPath:
         scrollCount === 0 ? uiProbe.captured_page?.screenshotPath ?? null : null,
       prefetchedSamplingMode: scrollCount === 0 ? uiProbe.captured_page?.samplingMode ?? null : null,
+      previousUrlLikeSignature:
+        scrollCount === 0 ? null : lastUrlLikeSignature,
     });
 
     const pageBlocks = normalizeSnapshotBlocks(page.clipboardSnapshot);
@@ -743,6 +878,7 @@ export async function scanUiLinks(
       seenPages.add(pageSignature);
       consecutiveDuplicatePages = 0;
     }
+    lastUrlLikeSignature = page.urlLikeSignature ?? null;
 
     stats.share_cards_seen += pageBlocks.filter((block) => Boolean(block.shareCardTitle)).length;
     for (const [reason, count] of Object.entries(page.clipboardSnapshot.stats.skipped_by_rule)) {
@@ -764,18 +900,19 @@ export async function scanUiLinks(
         if (messageTime > until) continue;
       }
 
-      const articleFingerprint = buildArticleFingerprint(block);
-      const existingArticleState = articleFingerprint ? articleStates.get(articleFingerprint) ?? null : null;
+      const articleFingerprints = buildArticleFingerprintAliases(block);
+      const articleFingerprint = articleFingerprints[0] ?? "";
+      const existingArticleState = findExistingArticleState(articleStates, articleFingerprints)?.state ?? null;
 
       const directUrls = Array.isArray(block.directUrls) ? block.directUrls : [];
       const directRecords = [];
-      const directSkipReasons = [];
+      const directSkippedEntries = [];
       const directSeen = new Set();
       for (const rawUrl of directUrls) {
         const canonicalUrl = canonicalizeUrl(rawUrl);
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
-          directSkipReasons.push(skipReason);
+          directSkippedEntries.push({ url: canonicalUrl, reason: skipReason });
           incrementCount(stats.skipped_by_rule, skipReason);
           continue;
         }
@@ -801,8 +938,17 @@ export async function scanUiLinks(
           : null;
 
       if (directRecords.length > 0) {
+        for (const skippedEntry of directSkippedEntries) {
+          pushSkippedRecord({
+            messageTime,
+            title: block.shareCardTitle ?? skippedEntry.url,
+            rawText: block.rawText,
+            skipReason: skippedEntry.reason,
+            rawUrl: skippedEntry.url,
+          });
+        }
+
         for (const canonicalUrl of directRecords) {
-          const skipReason = classifySkipReason(canonicalUrl);
           if (seenUrls.has(canonicalUrl)) continue;
           seenUrls.add(canonicalUrl);
 
@@ -829,29 +975,76 @@ export async function scanUiLinks(
           artifactRecord.url = directRecords[0];
           candidateArtifacts.push(artifactRecord);
         }
-        upsertArticleState(articleStates, articleFingerprint, {
+        upsertArticleState(articleStates, articleFingerprints, {
           status: "resolved",
           attempted: true,
           resolved: true,
           failed: false,
+          skipped: false,
           lastSeenPage: scrollCount,
           lastSeenYBand: null,
         });
         continue;
       }
 
-      if (artifactRecord && directUrls.length > 0) {
-        artifactRecord.status = "skipped";
-        artifactRecord.reason = directSkipReasons[0] ?? "direct_url_skipped";
-        candidateArtifacts.push(artifactRecord);
+      if (directUrls.length > 0) {
+        if (artifactRecord) {
+          artifactRecord.status = "skipped";
+          artifactRecord.reason = directSkippedEntries[0]?.reason ?? "direct_url_skipped";
+          candidateArtifacts.push(artifactRecord);
+        }
+        for (const skippedEntry of directSkippedEntries) {
+          pushSkippedRecord({
+            messageTime,
+            title: block.shareCardTitle ?? skippedEntry.url,
+            rawText: block.rawText,
+            skipReason: skippedEntry.reason,
+            rawUrl: skippedEntry.url,
+          });
+        }
+        upsertArticleState(articleStates, articleFingerprints, {
+          status: "skipped",
+          attempted: true,
+          resolved: false,
+          failed: false,
+          skipped: true,
+          lastSeenPage: scrollCount,
+          lastSeenYBand: null,
+        });
         continue;
       }
 
       if (!block.shareCardTitle || block.skipReason) {
         if (artifactRecord && block.skipReason) {
+          if (existingArticleState) {
+            artifactRecord.status = "duplicate_skipped";
+            artifactRecord.reason = "article_already_skipped";
+            stats.duplicate_skipped += 1;
+            candidateArtifacts.push(artifactRecord);
+            upsertArticleState(articleStates, articleFingerprints, {
+              lastSeenPage: scrollCount,
+              lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
+            });
+            continue;
+          }
           artifactRecord.status = "skipped";
           artifactRecord.reason = block.skipReason;
           candidateArtifacts.push(artifactRecord);
+          pushSkippedRecord({
+            messageTime,
+            title: block.shareCardTitle ?? "",
+            rawText: block.rawText,
+            skipReason: block.skipReason,
+          });
+          upsertArticleState(articleStates, articleFingerprints, {
+            status: "skipped",
+            attempted: true,
+            resolved: false,
+            failed: false,
+            skipped: true,
+            lastSeenPage: scrollCount,
+            lastSeenYBand: null,
+          });
         }
         continue;
       }
@@ -862,11 +1055,13 @@ export async function scanUiLinks(
           artifactRecord.reason =
             existingArticleState.status === "resolved"
               ? "article_already_resolved"
+              : existingArticleState.status === "skipped"
+                ? "article_already_skipped"
               : "article_already_attempted";
           candidateArtifacts.push(artifactRecord);
         }
         stats.duplicate_skipped += 1;
-        upsertArticleState(articleStates, articleFingerprint, {
+        upsertArticleState(articleStates, articleFingerprints, {
           lastSeenPage: scrollCount,
           lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
         });
@@ -888,11 +1083,12 @@ export async function scanUiLinks(
       }
 
       const candidateYBand = buildCandidateYBand(candidate);
-      upsertArticleState(articleStates, articleFingerprint, {
+      upsertArticleState(articleStates, articleFingerprints, {
         status: "attempted",
         attempted: true,
         resolved: false,
         failed: false,
+        skipped: false,
         lastSeenPage: scrollCount,
         lastSeenYBand: candidateYBand,
       });
@@ -917,6 +1113,22 @@ export async function scanUiLinks(
           incrementCount(stats.skipped_by_rule, skipReason);
           artifactRecord.status = "skipped";
           artifactRecord.reason = skipReason;
+          pushSkippedRecord({
+            messageTime,
+            title: candidate.title ?? block.shareCardTitle ?? "",
+            rawText: block.rawText,
+            skipReason,
+            rawUrl: canonicalUrl,
+          });
+          upsertArticleState(articleStates, articleFingerprints, {
+            status: "skipped",
+            attempted: true,
+            resolved: false,
+            failed: false,
+            skipped: true,
+            lastSeenPage: scrollCount,
+            lastSeenYBand: candidateYBand,
+          });
           continue;
         }
 
@@ -942,11 +1154,12 @@ export async function scanUiLinks(
         artifactRecord.url = canonicalUrl;
         artifactRecord.used_browser_fallback = Boolean(extraction.usedBrowserFallback);
         stats.share_cards_resolved += 1;
-        upsertArticleState(articleStates, articleFingerprint, {
+        upsertArticleState(articleStates, articleFingerprints, {
           status: "resolved",
           attempted: true,
           resolved: true,
           failed: false,
+          skipped: false,
           lastSeenPage: scrollCount,
           lastSeenYBand: candidateYBand,
         });
@@ -957,11 +1170,12 @@ export async function scanUiLinks(
         artifactRecord.status = "unresolved";
         artifactRecord.reason = extraction.reason ?? "share_card_extractor_failed";
         stats.share_cards_unresolved += 1;
-        upsertArticleState(articleStates, articleFingerprint, {
+        upsertArticleState(articleStates, articleFingerprints, {
           status: "failed",
           attempted: true,
           resolved: false,
           failed: true,
+          skipped: false,
           lastSeenPage: scrollCount,
           lastSeenYBand: candidateYBand,
         });
@@ -994,7 +1208,7 @@ export async function scanUiLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, stats };
+  return { records, skippedRecords, stats };
 }
 
 export async function captureVisibleUiPage(
@@ -1008,6 +1222,7 @@ export async function captureVisibleUiPage(
     prefetchedOcrResult = null,
     prefetchedScreenshotPath = null,
     prefetchedSamplingMode = null,
+    previousUrlLikeSignature = null,
   } = {},
   {
     getFrontWeChatWindowFn = getFrontWeChatWindow,
@@ -1039,12 +1254,15 @@ export async function captureVisibleUiPage(
     imageWidth: ocrResult?.width ?? window?.width ?? 0,
     imageHeight: ocrResult?.height ?? window?.height ?? 0,
   });
+  const urlLikeSignature = buildUrlLikeOcrSignature(ocrResult?.lines ?? []);
+  const hasUrlLikeContent = Boolean(urlLikeSignature);
+  const shouldReadForUrlLikeContent =
+    hasUrlLikeContent && urlLikeSignature !== previousUrlLikeSignature;
+  const shouldReadForSemanticGap = !hasUrlLikeContent && inferredShareCards.length === 0;
 
   let clipboardSnapshot = prefetchedClipboardSnapshot ?? null;
   let samplingMode = prefetchedSamplingMode ?? (prefetchedClipboardSnapshot ? "prefetched" : "ocr_only");
-  const needsClipboardSnapshot =
-    clipboardSnapshot == null &&
-    (hasOcrUrlLikeLines(ocrResult?.lines ?? []) || inferredShareCards.length === 0);
+  const needsClipboardSnapshot = clipboardSnapshot == null && (shouldReadForUrlLikeContent || shouldReadForSemanticGap);
 
   if (needsClipboardSnapshot) {
     clipboardSnapshot = readVisibleClipboardSnapshotFn(debug);
@@ -1103,6 +1321,7 @@ export async function captureVisibleUiPage(
     ocrResult,
     clipboardSnapshot: mergedClipboardSnapshot,
     samplingMode,
+    urlLikeSignature,
     titleMatched: uiSnapshot.titleMatched,
     candidates: uiSnapshot.candidates,
     candidateMap: new Map(uiSnapshot.candidates.map((candidate) => [candidate.itemKey, candidate])),

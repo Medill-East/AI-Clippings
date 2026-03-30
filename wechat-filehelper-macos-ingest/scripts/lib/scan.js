@@ -189,13 +189,17 @@ export async function runScan(
   }
 
   const newRecords = scanResult.records;
+  const skippedRecords = scanResult.skippedRecords ?? [];
   console.log(`Collected ${newRecords.length} link(s) from this scan.`);
+  if (skippedRecords.length > 0) {
+    console.log(`Recorded ${skippedRecords.length} skipped card(s).`);
+  }
 
   const existing = await readJsonlines(indexPath);
-  const merged = mergeRecords(existing, newRecords);
+  const merged = mergeRecords(existing, [...newRecords, ...skippedRecords]);
   const addedCount = merged.length - existing.length;
   await writeJsonlines(indexPath, merged);
-  console.log(`Added ${addedCount} new link(s) to index (${merged.length} total).`);
+  console.log(`Added ${addedCount} new record(s) to index (${merged.length} total).`);
 
   const manifest = {
     run_at: new Date().toISOString(),
@@ -210,6 +214,7 @@ export async function runScan(
     max_candidates: Number.isFinite(opts.maxCandidates) ? opts.maxCandidates : null,
     reindex: opts.reindex,
     collected: newRecords.length,
+    skipped_cards_total: skippedRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,
     share_cards_seen: scanResult.stats.share_cards_seen ?? 0,
@@ -238,6 +243,7 @@ export async function runScan(
     manifest,
     merged,
     newRecords,
+    skippedRecords,
     uiProbe,
     storeProbe,
     runDir,

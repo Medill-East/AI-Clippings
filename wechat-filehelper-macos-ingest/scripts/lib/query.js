@@ -53,41 +53,72 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   if (all.length === 0) {
     return {
       records: [],
+      skippedCards: [],
       rendered: "Index is empty. Run scan-links.js first.",
       indexPath: resolvedIndexPath,
     };
   }
 
   const results = filterByTimeRange(all, since, until);
-  const seen = new Set();
-  const deduped = results.filter((record) => {
-    if (!record?.url || shouldSkipUrl(record.url)) return false;
-    if (seen.has(record.url)) return false;
-    seen.add(record.url);
-    return true;
-  });
+  const seenUrls = new Set();
+  const seenSkipped = new Set();
+  const deduped = [];
+  const skippedCards = [];
+
+  for (const record of results) {
+    if (record?.record_type === "skipped_card") {
+      const skippedKey = record.dedupe_key ?? `${record.message_time}|${record.skip_reason}|${record.title ?? ""}`;
+      if (seenSkipped.has(skippedKey)) continue;
+      seenSkipped.add(skippedKey);
+      skippedCards.push(record);
+      continue;
+    }
+
+    if (!record?.url || shouldSkipUrl(record.url)) continue;
+    if (seenUrls.has(record.url)) continue;
+    seenUrls.add(record.url);
+    deduped.push(record);
+  }
 
   return {
     records: deduped,
-    rendered: renderQueryResults(deduped, { since, until, format }),
+    skippedCards,
+    rendered: renderQueryResults({ records: deduped, skippedCards }, { since, until, format }),
     indexPath: resolvedIndexPath,
   };
 }
 
-export function renderQueryResults(records, { since, until, format }) {
-  if (records.length === 0) {
+export function renderQueryResults({ records, skippedCards = [] }, { since, until, format }) {
+  if (records.length === 0 && skippedCards.length === 0) {
     return "No links found in the specified time range.";
   }
 
   switch (format) {
     case "json":
-      return JSON.stringify(records, null, 2);
+      return JSON.stringify({ records, skipped_cards: skippedCards }, null, 2);
     case "md": {
       const lines = [`# 文件传输助手链接（${since.toISOString()} ~ ${until.toISOString()}）`, ""];
-      for (const record of records) {
-        const title = record.title || record.url;
-        lines.push(`- [${title}](${record.url})`);
-        lines.push(`  > ${record.message_time}`);
+      lines.push("## 已收集链接");
+      lines.push("");
+      if (records.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of records) {
+          const title = record.title || record.url;
+          lines.push(`- [${title}](${record.url})`);
+          lines.push(`  > ${record.message_time}`);
+        }
+      }
+
+      if (skippedCards.length > 0) {
+        lines.push("");
+        lines.push("## 已跳过卡片");
+        lines.push("");
+        for (const record of skippedCards) {
+          lines.push(`- ${record.title || "(untitled skipped card)"}`);
+          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${record.skip_reason ?? "skipped"}`);
+        }
       }
       return lines.join("\n");
     }
@@ -98,6 +129,16 @@ export function renderQueryResults(records, { since, until, format }) {
         lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
         lines.push(`  ${record.url}`);
         lines.push("");
+      }
+
+      if (skippedCards.length > 0) {
+        lines.push(`Skipped ${skippedCards.length} card(s):`);
+        lines.push("");
+        for (const record of skippedCards) {
+          lines.push(`[${record.message_time}] ${record.title || "(untitled skipped card)"}`);
+          lines.push(`  skip: ${record.skip_reason ?? "skipped"}`);
+          lines.push("");
+        }
       }
       return lines.join("\n").trimEnd();
     }

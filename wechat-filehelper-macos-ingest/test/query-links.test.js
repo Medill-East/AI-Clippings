@@ -63,9 +63,10 @@ describe("query-links.js", () => {
     );
 
     const parsed = JSON.parse(output);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].source, "clipboard");
-    assert.equal(parsed[0].url, "https://example.com/a");
+    assert.equal(parsed.records.length, 1);
+    assert.equal(parsed.skipped_cards.length, 0);
+    assert.equal(parsed.records[0].source, "clipboard");
+    assert.equal(parsed.records[0].url, "https://example.com/a");
   });
 
   it("filters historical skipped URLs from query results", async () => {
@@ -122,7 +123,68 @@ describe("query-links.js", () => {
     );
 
     const parsed = JSON.parse(output);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].url, "https://example.com/a");
+    assert.equal(parsed.records.length, 1);
+    assert.equal(parsed.records[0].url, "https://example.com/a");
+  });
+
+  it("shows skipped cards in query output as a separate group", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          captured_at: "2026-03-28T07:10:00.000Z",
+          message_time: "2026-03-28T07:10:00.000Z",
+          chat_name: "文件传输助手",
+          message_type: "text_url",
+          title: "Visible Link",
+          url: "https://example.com/a",
+          dedupe_key: "aaa",
+          capture_session_id: "session-1",
+          source: "clipboard",
+        }),
+        JSON.stringify({
+          captured_at: "2026-03-28T07:11:00.000Z",
+          message_time: "2026-03-28T07:11:00.000Z",
+          chat_name: "文件传输助手",
+          record_type: "skipped_card",
+          title: "B站视频卡片",
+          raw_text: "哔哩哔哩 UP主：carryonruby 播放：7483",
+          skip_reason: "bilibili_video",
+          dedupe_key: "skip-1",
+          capture_session_id: "session-1",
+          source: "ui",
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
+    const output = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-03-28T07:00:00.000Z",
+        "--until",
+        "2026-03-28T08:00:00.000Z",
+        "--format",
+        "md",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          WECHAT_FILEHELPER_INDEX_PATH: indexPath,
+        },
+      }
+    );
+
+    assert.match(output, /## 已收集链接/);
+    assert.match(output, /Visible Link/);
+    assert.match(output, /## 已跳过卡片/);
+    assert.match(output, /B站视频卡片/);
+    assert.match(output, /bilibili_video/);
   });
 });

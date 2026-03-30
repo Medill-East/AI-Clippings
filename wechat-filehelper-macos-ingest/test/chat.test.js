@@ -136,6 +136,21 @@ https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK
     assert.equal(snapshot.stats.share_cards_seen, 1);
     assert.equal(snapshot.stats.share_cards_unresolved, 0);
   });
+
+  it("classifies Bilibili video-style share cards before opening the viewer", () => {
+    const snapshot = parseClipboardText(`
+Yesterday 18:05
+[Link] 哔哩哔哩
+UP主：某某
+播放：7483
+    `);
+
+    assert.equal(snapshot.blocks.length, 1);
+    assert.equal(snapshot.blocks[0].skipReason, "bilibili_video");
+    assert.equal(snapshot.items[0].kind, "share_card");
+    assert.equal(snapshot.items[0].skipReason, "bilibili_video");
+    assert.equal(snapshot.stats.skipped_by_rule.bilibili_video, 1);
+  });
 });
 
 describe("readVisibleClipboardSnapshot", () => {

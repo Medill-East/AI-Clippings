@@ -391,14 +391,39 @@ export async function scanClipboardLinks(
   const sessionId = newCaptureSessionId();
   const now = new Date();
   const records = [];
+  const skippedRecords = [];
   const seenKeys = new Set();
   const seenUrls = new Set();
+  const seenSkippedKeys = new Set();
   const stats = {
     source: "clipboard",
     share_cards_seen: 0,
     share_cards_unresolved: 0,
     skipped_by_rule: {},
   };
+
+  function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
+    if (!skipReason) return;
+
+    const messageTimeIso = (messageTime ?? now).toISOString();
+    const dedupeBasis = rawUrl || title || rawText || skipReason;
+    const key = dedupeKey(CHAT_NAME, messageTimeIso, `skip:${skipReason}:${dedupeBasis}`);
+    if (seenSkippedKeys.has(key)) return;
+    seenSkippedKeys.add(key);
+
+    skippedRecords.push({
+      captured_at: new Date().toISOString(),
+      message_time: messageTimeIso,
+      chat_name: CHAT_NAME,
+      record_type: "skipped_card",
+      title: title || rawUrl || "(untitled skipped card)",
+      raw_text: rawText || rawUrl || "",
+      skip_reason: skipReason,
+      dedupe_key: key,
+      capture_session_id: sessionId,
+      source: "clipboard",
+    });
+  }
 
   let scrollCount = 0;
   let consecutiveNoNew = 0;
@@ -454,6 +479,13 @@ export async function scanClipboardLinks(
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
           incrementCount(stats.skipped_by_rule, skipReason);
+          pushSkippedRecord({
+            messageTime,
+            title: block.shareCardTitle ?? canonicalUrl,
+            rawText: block.rawText,
+            skipReason,
+            rawUrl: canonicalUrl,
+          });
           if (debug) console.log(`[debug] Skip: ${canonicalUrl} (${skipReason})`);
           continue;
         }
@@ -478,6 +510,15 @@ export async function scanClipboardLinks(
           source: "clipboard",
         });
       }
+
+      if (block.skipReason) {
+        pushSkippedRecord({
+          messageTime,
+          title: block.shareCardTitle ?? "",
+          rawText: block.rawText,
+          skipReason: block.skipReason,
+        });
+      }
     }
 
     if (reachedBeforeRange) {
@@ -492,7 +533,7 @@ export async function scanClipboardLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, stats };
+  return { records, skippedRecords, stats };
 }
 
 function looksLikeShareCard(line) {
@@ -512,7 +553,12 @@ function looksLikeVideoCard(line) {
 }
 
 function looksLikeBilibiliCard(line) {
-  return line.includes("哔哩哔哩") || /bilibili|b23\.tv/i.test(line);
+  const text = String(line ?? "").normalize("NFKC");
+  const hasBrand = text.includes("哔哩哔哩") || /bilibili|b23\.tv/i.test(text);
+  const hasVideoIndicator =
+    /UP主|播放[:：]|\bBV[0-9A-Za-z]{6,}\b|直播|番剧|投稿|av\d+/i.test(text);
+
+  return /b23\.tv/i.test(text) || /\bBV[0-9A-Za-z]{6,}\b/.test(text) || (hasBrand && hasVideoIndicator);
 }
 
 function looksLikeMultiArticleCard(line) {

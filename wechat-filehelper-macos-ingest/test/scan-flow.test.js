@@ -204,7 +204,9 @@ describe("scan flow", () => {
 昨天 09:00
 https://example.com/visible
 昨天 08:59
-[链接] B站卡片 bilibili
+[链接] B站卡片 哔哩哔哩
+UP主：carryonruby
+播放：7483
       `),
       parseClipboardText(`
 昨天 10:29
@@ -242,6 +244,11 @@ https://example.com/visible
     assert.equal(result.stats.skipped_by_rule.video_channel, 1);
     assert.equal(result.stats.skipped_by_rule.bilibili_video, 1);
     assert.equal(result.stats.skipped_by_rule.wechat_internal_login, 1);
+    assert.equal(result.skippedRecords.length, 2);
+    assert.deepEqual(
+      result.skippedRecords.map((record) => record.skip_reason).sort(),
+      ["bilibili_video", "wechat_internal_login"]
+    );
   });
 
   it("store source errors when the store is unreadable", async () => {

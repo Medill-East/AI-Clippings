@@ -166,6 +166,30 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 1);
   });
 
+  it("marks bilibili-style OCR fallback cards as skipped before viewer extraction", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "哔哩哔哩", x: 1016, y: 566, width: 120, height: 32 },
+          { text: "UP主：carryonruby", x: 1016, y: 606, width: 220, height: 32 },
+          { text: "播放：7483", x: 1016, y: 646, width: 160, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, "bilibili_video");
+    assert.equal(snapshot.candidates.length, 0);
+  });
+
   it("finds copy-link menu actions from OCR output", () => {
     const line = findMenuActionLine(
       [
@@ -358,6 +382,118 @@ describe("ui helpers", () => {
     assert.equal(page.clipboardSnapshot.blocks.length, 1);
   });
 
+  it("reads clipboard when OCR only exposes a broken external URL fragment", async () => {
+    let clipboardReads = 0;
+
+    const page = await captureVisibleUiPage(
+      {
+        pageIndex: 1,
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          return {
+            rawText: "Yesterday 18:05\nhttps://www.youtube.com/watch?v=ea81dJjF5ts",
+            items: [],
+            messages: [],
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                rawText: "https://www.youtube.com/watch?v=ea81dJjF5ts",
+                directUrls: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                shareCardTitle: null,
+                skipReason: null,
+              },
+            ],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          };
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ({
+          width: 1560,
+          height: 1846,
+          lines: [
+            { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+            { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+            { text: "https: //www.youtube.com/watch？ v=ea81dJjF5ts", x: 1016, y: 566, width: 420, height: 32 },
+          ],
+        }),
+      }
+    );
+
+    assert.equal(clipboardReads, 1);
+    assert.equal(page.samplingMode, "ocr_plus_clipboard");
+    assert.equal(page.urlLikeSignature.includes("youtube.com"), true);
+  });
+
+  it("skips repeated clipboard reads when the next page has the same URL-like OCR signature", async () => {
+    let clipboardReads = 0;
+    const ocrResult = {
+      width: 1560,
+      height: 1846,
+      lines: [
+        { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+        { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+        { text: "https: //www.youtube.com/watch？ v=ea81dJjF5ts", x: 1016, y: 566, width: 420, height: 32 },
+      ],
+    };
+
+    const firstPage = await captureVisibleUiPage(
+      {
+        pageIndex: 1,
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          return {
+            rawText: "Yesterday 18:05\nhttps://www.youtube.com/watch?v=ea81dJjF5ts",
+            items: [],
+            messages: [],
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                rawText: "https://www.youtube.com/watch?v=ea81dJjF5ts",
+                directUrls: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                shareCardTitle: null,
+                skipReason: null,
+              },
+            ],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          };
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ocrResult,
+      }
+    );
+
+    const secondPage = await captureVisibleUiPage(
+      {
+        pageIndex: 2,
+        previousUrlLikeSignature: firstPage.urlLikeSignature,
+        readVisibleClipboardSnapshotFn: () => {
+          clipboardReads += 1;
+          throw new Error("clipboard should not be re-read for the same URL-like signature");
+        },
+      },
+      {
+        getFrontWeChatWindowFn: () => ({ x: 100, y: 200, width: 1560, height: 1846 }),
+        captureWindowScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ocrResult,
+      }
+    );
+
+    assert.equal(clipboardReads, 1);
+    assert.equal(firstPage.samplingMode, "ocr_plus_clipboard");
+    assert.equal(secondPage.samplingMode, "ocr_only");
+    assert.equal(secondPage.urlLikeSignature, firstPage.urlLikeSignature);
+  });
+
   it("keeps the initial UI probe on OCR-only sampling for pure share-card pages", async () => {
     let clipboardReads = 0;
 
@@ -544,6 +680,117 @@ describe("scanUiLinks", () => {
     );
     assert.equal(result.stats.share_cards_attempted, 1);
     assert.equal(result.stats.share_cards_resolved, 1);
+  });
+
+  it("skips bilibili video-style cards before opening the viewer", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["哔哩哔哩", "UP主：carryonruby", "播放：7483"],
+                rawText: "哔哩哔哩 UP主：carryonruby 播放：7483",
+                directUrls: [],
+                shareCardTitle: "创伤的根源",
+                skipReason: "bilibili_video",
+              },
+            ],
+            stats: {
+              share_cards_seen: 1,
+              share_cards_unresolved: 0,
+              skipped_by_rule: { bilibili_video: 1 },
+            },
+          },
+          candidateMap: new Map(),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.skippedRecords.length, 1);
+    assert.equal(result.skippedRecords[0].record_type, "skipped_card");
+    assert.equal(result.skippedRecords[0].skip_reason, "bilibili_video");
+    assert.equal(result.stats.skipped_by_rule.bilibili_video, 1);
+    assert.equal(result.stats.share_cards_attempted, 0);
+  });
+
+  it("does not reopen or re-record the same skipped bilibili card across pages", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: `ocr-item-${captureCalls}`,
+                  timestampText: "Yesterday 18:05",
+                  rawLines:
+                    captureCalls === 1
+                      ? ["哔哩哔哩", "UP主：carryonruby", "播放：7483"]
+                      : ["Bolilbi 哔哩哔哩", "播放：7483"],
+                  rawText:
+                    captureCalls === 1
+                      ? "哔哩哔哩 UP主：carryonruby 播放：7483"
+                      : "Bolilbi 哔哩哔哩 播放：7483",
+                  directUrls: [],
+                  shareCardTitle: "创伤的根源",
+                  skipReason: "bilibili_video",
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 0, skipped_by_rule: { bilibili_video: 1 } },
+            },
+            candidateMap: new Map(),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.skippedRecords.length, 1);
+    assert.equal(result.stats.duplicate_skipped, 1);
   });
 
   it("deduplicates the same article across pages even when OCR raw text drifts", async () => {
