@@ -55,20 +55,21 @@ const VIEWER_MENU_PROBE_POINTS = [
   { xRatio: 0.955, yRatio: 0.032 },
   { xRatio: 0.94, yRatio: 0.032 },
 ];
+const BILIBILI_BRAND_TOKENS = ["哔哩哔哩", "bilibili", "b23tv", "bolilbi", "bolibili", "bililbi", "blbl"];
 const OCR_RIGHT_PANE_RATIO = 0.58;
 const OCR_TOP_CONTENT_RATIO = 0.15;
 const OCR_CLUSTER_GAP_PX = 54;
-const VIEWER_OPEN_SETTLE_MS = 380;
-const VIEWER_DETECT_TIMEOUT_MS = 1_200;
-const VIEWER_DETECT_POLL_MS = 100;
-const VIEWER_READY_TIMEOUT_MS = 800;
-const VIEWER_READY_POLL_MS = 90;
-const VIEWER_MENU_SETTLE_MS = 120;
-const VIEWER_COPY_SETTLE_MS = 80;
-const VIEWER_BROWSER_SETTLE_MS = 700;
-const VIEWER_CLOSE_INITIAL_SETTLE_MS = 50;
-const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 100;
-const VIEWER_CLOSE_CMD_W_SETTLE_MS = 140;
+const VIEWER_OPEN_SETTLE_MS = 220;
+const VIEWER_DETECT_TIMEOUT_MS = 900;
+const VIEWER_DETECT_POLL_MS = 80;
+const VIEWER_READY_TIMEOUT_MS = 500;
+const VIEWER_READY_POLL_MS = 60;
+const VIEWER_MENU_SETTLE_MS = 70;
+const VIEWER_COPY_SETTLE_MS = 20;
+const VIEWER_BROWSER_SETTLE_MS = 500;
+const VIEWER_CLOSE_INITIAL_SETTLE_MS = 20;
+const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 60;
+const VIEWER_CLOSE_CMD_W_SETTLE_MS = 90;
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -326,16 +327,18 @@ function normalizeUrlLikeText(text) {
 
 function looksLikeBilibiliVideoText(text) {
   const normalized = String(text ?? "").normalize("NFKC");
-  const hasBrand = /哔哩哔哩|bilibili|b23\.tv/i.test(normalized);
+  const comparable = normalizeComparableText(normalized);
+  const hasBrand =
+    /哔哩哔哩|bilibili|b23\.tv/i.test(normalized) ||
+    BILIBILI_BRAND_TOKENS.some((token) => comparable.includes(token));
   const hasVideoIndicator =
     /UP主|播放[:：]|\bBV[0-9A-Za-z]{6,}\b|直播|番剧|投稿|av\d+|视频/i.test(normalized);
-  const normalizedBrandOnly = normalizeComparableText(normalized);
 
   return (
     /b23\.tv/i.test(normalized) ||
     /\bBV[0-9A-Za-z]{6,}\b/.test(normalized) ||
     (hasBrand && hasVideoIndicator) ||
-    (hasBrand && normalizedBrandOnly.length <= 12)
+    (hasBrand && comparable.length <= 20)
   );
 }
 
@@ -457,10 +460,18 @@ function buildArticleFingerprintAliases(block) {
   const signatureLines = rawLines.map(normalizeArticleSignatureLine).filter(Boolean);
   const primary = title || signatureLines[0] || truncateComparableText(block?.rawText ?? "", 18);
   const secondary = signatureLines.find((line) => line !== primary) || "";
+  const tertiary = signatureLines.find((line) => line !== primary && line !== secondary) || "";
   const aliases = [
     [timestamp, primary ? primary.slice(0, 18) : ""].filter(Boolean).join("|"),
     [timestamp, signatureLines[0] ? signatureLines[0].slice(0, 18) : ""].filter(Boolean).join("|"),
     [timestamp, primary ? primary.slice(0, 14) : "", secondary ? secondary.slice(0, 12) : ""]
+      .filter(Boolean)
+      .join("|"),
+    [timestamp, primary ? primary.slice(0, 10) : ""].filter(Boolean).join("|"),
+    [timestamp, primary ? primary.slice(0, 10) : "", secondary ? secondary.slice(0, 8) : ""]
+      .filter(Boolean)
+      .join("|"),
+    [timestamp, primary ? primary.slice(0, 10) : "", tertiary ? tertiary.slice(0, 8) : ""]
       .filter(Boolean)
       .join("|"),
   ].filter(Boolean);
@@ -791,6 +802,11 @@ export async function scanUiLinks(
     ocr_only_pages: 0,
     duplicate_skipped: 0,
     skipped_by_rule: {},
+    viewer_open_wait_ms_total: 0,
+    viewer_ready_wait_ms_total: 0,
+    viewer_menu_wait_ms_total: 0,
+    viewer_copy_wait_ms_total: 0,
+    viewer_close_wait_ms_total: 0,
   };
 
   const records = [];
@@ -1105,6 +1121,11 @@ export async function scanUiLinks(
       }, {
         recoverChatFn: navigateToFileHelperFn,
       });
+      stats.viewer_open_wait_ms_total += extraction.timings?.viewer_open_wait_ms ?? 0;
+      stats.viewer_ready_wait_ms_total += extraction.timings?.viewer_ready_wait_ms ?? 0;
+      stats.viewer_menu_wait_ms_total += extraction.timings?.viewer_menu_wait_ms ?? 0;
+      stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
+      stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
 
       if (extraction.status === "ok" && extraction.url) {
         const canonicalUrl = canonicalizeUrl(extraction.url);
@@ -1457,7 +1478,7 @@ function clickOcrLineInScreen(screenBounds, line, ocrResult, clickAtPointFn = cl
 }
 
 function waitForClipboardMpUrl(
-  { timeoutMs = 1_000, pollMs = 80 } = {},
+  { timeoutMs = 600, pollMs = 40 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -1812,9 +1833,17 @@ export async function extractShareCardUrl(
     recoverChatFn = null,
   } = {}
 ) {
+  const timings = {
+    viewer_open_wait_ms: 0,
+    viewer_ready_wait_ms: 0,
+    viewer_menu_wait_ms: 0,
+    viewer_copy_wait_ms: 0,
+    viewer_close_wait_ms: 0,
+  };
   const beforeWindows = getWeChatWindowsFn();
   clearClipboardTextFn();
 
+  const openStartedAt = Date.now();
   clickAtPointFn(candidate.clickX, candidate.clickY);
   sleepMsFn(VIEWER_OPEN_SETTLE_MS);
 
@@ -1830,11 +1859,13 @@ export async function extractShareCardUrl(
       sleepMsFn,
     }
   );
+  timings.viewer_open_wait_ms = Date.now() - openStartedAt;
 
   if (!viewerContext) {
-    return { status: "failed", reason: "share_card_viewer_not_opened" };
+    return { status: "failed", reason: "share_card_viewer_not_opened", timings };
   }
 
+  const readyStartedAt = Date.now();
   const readyViewerContext = await waitForViewerReady(
     viewerContext,
     candidate,
@@ -1846,6 +1877,7 @@ export async function extractShareCardUrl(
       sleepMsFn,
     }
   );
+  timings.viewer_ready_wait_ms = Date.now() - readyStartedAt;
 
   if (artifactDir != null) {
     await writeJsonArtifact(path.join(artifactDir, "viewer-context.json"), {
@@ -1865,6 +1897,7 @@ export async function extractShareCardUrl(
   let status = "failed";
 
   try {
+    const menuStartedAt = Date.now();
     const menu = await openViewerMenuFn(
       readyViewerContext,
       { debug, artifactDir },
@@ -1877,8 +1910,10 @@ export async function extractShareCardUrl(
         sleepMsFn,
       }
     );
+    timings.viewer_menu_wait_ms = Date.now() - menuStartedAt;
 
     if (menu.copyLine) {
+      const copyStartedAt = Date.now();
       clickOcrLineInScreen(
         menu.screenBounds ?? readyViewerContext.screenBounds,
         menu.copyLine,
@@ -1887,6 +1922,7 @@ export async function extractShareCardUrl(
       );
       sleepMsFn(VIEWER_COPY_SETTLE_MS);
       url = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
+      timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (url) {
         status = "ok";
       }
@@ -1896,6 +1932,7 @@ export async function extractShareCardUrl(
     }
 
     if (!url && allowBrowserFallback && menu.browserLine) {
+      const copyStartedAt = Date.now();
       clickOcrLineInScreen(
         menu.screenBounds ?? readyViewerContext.screenBounds,
         menu.browserLine,
@@ -1909,11 +1946,13 @@ export async function extractShareCardUrl(
         url = browserUrl;
         status = "ok";
       }
+      timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (!url) {
         reason = "browser_fallback_failed";
       }
     }
   } finally {
+    const closeStartedAt = Date.now();
     const closed = closeViewerWindowFn(beforeWindows, { debug });
     let recovered = await verifyChatRecoveredFn({ debug, artifactDir });
     if (!recovered && typeof recoverChatFn === "function") {
@@ -1927,7 +1966,8 @@ export async function extractShareCardUrl(
       reason = !closed ? "viewer_not_closed" : "chat_not_recovered";
       status = "failed";
     }
+    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
   }
 
-  return { status, reason, usedBrowserFallback, url };
+  return { status, reason, usedBrowserFallback, url, timings };
 }

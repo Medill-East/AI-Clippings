@@ -190,6 +190,29 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 0);
   });
 
+  it("marks bilibili brand-typo OCR cards as skipped before viewer extraction", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "Bolilbi 哔哩哔哩", x: 1016, y: 566, width: 220, height: 32 },
+          { text: "播放：7483", x: 1016, y: 606, width: 160, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, "bilibili_video");
+    assert.equal(snapshot.candidates.length, 0);
+  });
+
   it("finds copy-link menu actions from OCR output", () => {
     const line = findMenuActionLine(
       [
@@ -1000,6 +1023,90 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_unresolved, 1);
     assert.equal(result.stats.duplicate_skipped, 1);
   });
+
+  it("deduplicates the same untimed article across pages when OCR title drifts", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: `ocr-item-${captureCalls}`,
+                  timestampText: null,
+                  rawLines:
+                    captureCalls === 1
+                      ? ["全链路 AIPPT神器：牛马打工 人有救了"]
+                      : ["全链路 AIPPT神器： 牛马打工"],
+                  rawText:
+                    captureCalls === 1
+                      ? "全链路 AIPPT神器：牛马打工 人有救了"
+                      : "全链路 AIPPT神器： 牛马打工",
+                  directUrls: [],
+                  shareCardTitle:
+                    captureCalls === 1
+                      ? "全链路 AIPPT神器：牛马打工 人有救了"
+                      : "全链路 AIPPT神器： 牛马打工",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([
+              [
+                `ocr-item-${captureCalls}`,
+                {
+                  itemKey: `ocr-item-${captureCalls}`,
+                  title:
+                    captureCalls === 1
+                      ? "全链路 AIPPT神器：牛马打工 人有救了"
+                      : "全链路 AIPPT神器： 牛马打工",
+                  clickX: 500,
+                  clickY: 400,
+                },
+              ],
+            ]),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/untimed-duplicate-1",
+            usedBrowserFallback: false,
+            timings: {
+              viewer_open_wait_ms: 10,
+              viewer_ready_wait_ms: 20,
+              viewer_menu_wait_ms: 30,
+              viewer_copy_wait_ms: 40,
+              viewer_close_wait_ms: 50,
+            },
+          };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.stats.duplicate_skipped, 1);
+  });
 });
 
 describe("extractShareCardUrl", () => {
@@ -1038,6 +1145,8 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.status, "ok");
     assert.equal(result.usedBrowserFallback, false);
     assert.equal(result.url, "https://mp.weixin.qq.com/s/abc123");
+    assert.ok(result.timings);
+    assert.equal(typeof result.timings.viewer_open_wait_ms, "number");
   });
 
   it("targets the newly opened viewer window even when it appears first in the window list", async () => {
