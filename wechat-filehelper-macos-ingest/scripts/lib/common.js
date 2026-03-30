@@ -216,6 +216,25 @@ export function parseWeChatTimestamp(text, referenceDate) {
     return buildCstDate(refCst.year, refCst.month, refCst.day, +m[1], +m[2]);
   }
 
+  // English weekday: "Saturday 18:05"
+  m = text.match(/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2}):(\d{2})$/i);
+  if (m) {
+    const weekdayIndex = weekdayNameToIndex(m[1]);
+    if (weekdayIndex !== null) {
+      const refCstDate = toCSTDate(ref);
+      const refWeekday = refCstDate.getUTCDay();
+      const diff = (refWeekday - weekdayIndex + 7) % 7;
+      const target = new Date(refCstDate);
+      target.setUTCDate(target.getUTCDate() - diff);
+      const tc = {
+        year: target.getUTCFullYear(),
+        month: target.getUTCMonth() + 1,
+        day: target.getUTCDate(),
+      };
+      return buildCstDate(tc.year, tc.month, tc.day, +m[2], +m[3]);
+    }
+  }
+
   // Today: "10:30"
   m = text.match(/^(\d{1,2}):(\d{2})$/);
   if (m) {
@@ -232,10 +251,21 @@ function toCST(date) {
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
+function toCSTDate(date) {
+  return new Date(date.getTime() + 8 * 60 * 60 * 1000);
+}
+
 /** Build a Date from CST year/month/day/hour/minute components. */
 function buildCstDate(year, month, day, hour, minute) {
   // Construct as UTC by subtracting 8h offset
   return new Date(Date.UTC(year, month - 1, day, hour - 8, minute));
+}
+
+function weekdayNameToIndex(name) {
+  const normalized = String(name ?? "").trim().toLowerCase();
+  const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const index = weekdays.indexOf(normalized);
+  return index >= 0 ? index : null;
 }
 
 // ---------------------------------------------------------------------------

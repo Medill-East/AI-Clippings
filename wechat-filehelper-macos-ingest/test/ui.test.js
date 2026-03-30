@@ -82,7 +82,7 @@ describe("ui helpers", () => {
         height: 1846,
         lines: [
           { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
-          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "Yesterday 18:05", x: 999, y: 520, width: 150, height: 22 },
           { text: "刚刚，飞书 CLI 开源，Claude", x: 1016, y: 566, width: 360, height: 32 },
           { text: "Code 也可以丝滑操控飞书节…", x: 1016, y: 606, width: 360, height: 32 },
           { text: "给AI用的飞书", x: 1016, y: 646, width: 160, height: 24 },
@@ -129,6 +129,40 @@ describe("ui helpers", () => {
     assert.equal(snapshot.ocrFallbackBlocks.length, 0);
     assert.equal(snapshot.effectiveBlocks.length, 1);
     assert.equal(snapshot.candidates.length, 0);
+  });
+
+  it("promotes OCR-only broken external URL fragments into direct URL blocks", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Sunday 19:31", x: 999, y: 198, width: 152, height: 28 },
+          { text: "https://www.youtube.com/watch？", x: 943, y: 292, width: 445, height: 30 },
+          { text: "v=ea81dJjF5ts", x: 949, y: 332, width: 193, height: 27 },
+          { text: "Sunday 19:41", x: 999, y: 434, width: 155, height: 28 },
+          { text: "https://h5-pay.xywlhlh.com/pages/", x: 930, y: 525, width: 461, height: 32 },
+          { text: "index/index?xid=2MHnK", x: 924, y: 566, width: 324, height: 30 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    const directBlocks = snapshot.effectiveBlocks.filter((block) => (block.directUrls?.length ?? 0) > 0);
+    assert.equal(directBlocks.length, 2);
+    assert.deepEqual(
+      directBlocks.map((block) => block.directUrls[0]),
+      [
+        "https://www.youtube.com/watch?v=ea81dJjF5ts",
+        "https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK",
+      ]
+    );
+    assert.equal(directBlocks[0].timestampText, "Sunday 19:31");
+    assert.equal(directBlocks[1].timestampText, "Sunday 19:41");
   });
 
   it("keeps true OCR-only share cards even when the same page also has direct URL blocks", () => {
@@ -450,6 +484,61 @@ describe("ui helpers", () => {
     assert.equal(clipboardReads, 1);
     assert.equal(page.samplingMode, "ocr_plus_clipboard");
     assert.equal(page.urlLikeSignature.includes("youtube.com"), true);
+  });
+
+  it("forces a clipboard resample once and stops early when actionable OCR blocks still have no candidates", async () => {
+    let captureCalls = 0;
+    let scrollCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      3,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async ({ forceClipboardSnapshot = false }) => {
+          captureCalls += 1;
+          return {
+            samplingMode: forceClipboardSnapshot ? "ocr_plus_clipboard" : "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: "ocr-item-0",
+                  timestampText: "Sunday 19:31",
+                  rawLines: ["刚刚，飞书CLI开源， Claude"],
+                  rawText: "刚刚，飞书CLI开源， Claude",
+                  directUrls: [],
+                  shareCardTitle: "刚刚，飞书CLI开源， Claude",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map(),
+            urlLikeSignature: "",
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          throw new Error("should not open viewer when no candidates were generated");
+        },
+        scrollPageFn: () => {
+          scrollCalls += 1;
+        },
+      }
+    );
+
+    assert.equal(captureCalls, 2);
+    assert.equal(scrollCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.stats.share_cards_attempted, 0);
+    assert.equal(result.stats.share_cards_unresolved, 1);
   });
 
   it("skips repeated clipboard reads when the next page has the same URL-like OCR signature", async () => {

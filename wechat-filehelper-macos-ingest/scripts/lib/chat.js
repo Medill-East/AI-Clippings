@@ -175,6 +175,7 @@ function matchClipboardTimestamp(line) {
     /^(今天\s+\d{1,2}:\d{2})/,
     /^(yesterday\s+\d{1,2}:\d{2})/i,
     /^(today\s+\d{1,2}:\d{2})/i,
+    /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+\d{1,2}:\d{2}$/i,
     /^(\d{1,2}:\d{2})$/,
   ];
 
@@ -389,7 +390,8 @@ export async function scanClipboardLinks(
   { getSnapshot = readVisibleClipboardSnapshot, scrollPage = scrollUpOnce } = {}
 ) {
   const sessionId = newCaptureSessionId();
-  const now = new Date();
+  const capturedAt = new Date();
+  const referenceNow = until instanceof Date ? until : capturedAt;
   const records = [];
   const skippedRecords = [];
   const seenKeys = new Set();
@@ -405,14 +407,14 @@ export async function scanClipboardLinks(
   function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
     if (!skipReason) return;
 
-    const messageTimeIso = (messageTime ?? now).toISOString();
+    const messageTimeIso = (messageTime ?? referenceNow).toISOString();
     const dedupeBasis = rawUrl || title || rawText || skipReason;
     const key = dedupeKey(CHAT_NAME, messageTimeIso, `skip:${skipReason}:${dedupeBasis}`);
     if (seenSkippedKeys.has(key)) return;
     seenSkippedKeys.add(key);
 
     skippedRecords.push({
-      captured_at: new Date().toISOString(),
+      captured_at: capturedAt.toISOString(),
       message_time: messageTimeIso,
       chat_name: CHAT_NAME,
       record_type: "skipped_card",
@@ -460,7 +462,7 @@ export async function scanClipboardLinks(
       let messageTime = null;
       if (block.timestampText) {
         try {
-          messageTime = parseWeChatTimestamp(block.timestampText, now);
+          messageTime = parseWeChatTimestamp(block.timestampText, referenceNow);
         } catch {
           messageTime = null;
         }
@@ -493,13 +495,13 @@ export async function scanClipboardLinks(
         if (seenUrls.has(canonicalUrl)) continue;
         seenUrls.add(canonicalUrl);
 
-        const messageTimeIso = (messageTime ?? now).toISOString();
+        const messageTimeIso = (messageTime ?? referenceNow).toISOString();
         const key = dedupeKey(CHAT_NAME, messageTimeIso, canonicalUrl);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
 
         records.push({
-          captured_at: new Date().toISOString(),
+          captured_at: capturedAt.toISOString(),
           message_time: messageTimeIso,
           chat_name: CHAT_NAME,
           message_type: block.shareCardTitle ? "share_card" : "text_url",

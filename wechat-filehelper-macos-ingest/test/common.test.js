@@ -164,6 +164,11 @@ describe("parseWeChatTimestamp", () => {
     assert.equal(result?.toISOString(), "2026-03-28T01:00:00.000Z");
   });
 
+  it('parses "Sunday HH:MM" as the previous matching weekday', () => {
+    const result = parseWeChatTimestamp("Sunday 19:41", ref);
+    assert.equal(result?.toISOString(), "2026-03-22T11:41:00.000Z");
+  });
+
   it('parses "M月D日 HH:MM"', () => {
     const result = parseWeChatTimestamp("3月22日 15:00", ref);
     // 2026-03-22 15:00 CST = 2026-03-22 07:00 UTC
