@@ -197,6 +197,18 @@ describe("ui helpers", () => {
         ["https://h5-pay.xywlhlh.com/pages/index/index?xid=2MHnK"],
       ]
     );
+    assert.equal(
+      snapshot.effectiveBlocks[0].directUrlEntries.some(
+        (entry) => entry.url === "https://www.youtube.com/watch" && entry.confidence === "uncertain"
+      ),
+      true
+    );
+    assert.equal(
+      snapshot.effectiveBlocks[1].directUrlEntries.some(
+        (entry) => entry.url === "https://h5-pay.xywlhlh.com/pages" && entry.confidence === "uncertain"
+      ),
+      true
+    );
   });
 
   it("keeps true OCR-only share cards even when the same page also has direct URL blocks", () => {
@@ -737,6 +749,75 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_attempted, 0);
   });
 
+  it("records OCR-only low-confidence external URLs as uncertain links without opening the viewer", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "block-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: [
+                  "https://www.youtube.com/watch",
+                  "https://www.youtube.com/watch?v=ea81dJjF5ts",
+                ],
+                rawText:
+                  "https://www.youtube.com/watch\nhttps://www.youtube.com/watch?v=ea81dJjF5ts",
+                directUrls: ["https://www.youtube.com/watch?v=ea81dJjF5ts"],
+                directUrlEntries: [
+                  {
+                    url: "https://www.youtube.com/watch?v=ea81dJjF5ts",
+                    confidence: "confirmed",
+                    confidenceReason: "ocr_unique",
+                  },
+                  {
+                    url: "https://www.youtube.com/watch",
+                    confidence: "uncertain",
+                    confidenceReason: "truncated_prefix",
+                  },
+                ],
+                shareCardTitle: null,
+                skipReason: null,
+              },
+            ],
+            stats: {
+              share_cards_seen: 0,
+              share_cards_unresolved: 0,
+              skipped_by_rule: {},
+            },
+          },
+          candidateMap: new Map(),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].url, "https://www.youtube.com/watch?v=ea81dJjF5ts");
+    assert.equal(result.uncertainRecords.length, 1);
+    assert.equal(result.uncertainRecords[0].url, "https://www.youtube.com/watch");
+    assert.equal(result.uncertainRecords[0].record_type, "uncertain_link");
+    assert.equal(result.stats.uncertain_links_total, 1);
+  });
+
   it("only opens the viewer for blocks that lack a direct URL", async () => {
     let extractorCalls = 0;
 
@@ -1270,6 +1351,100 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.url, "https://mp.weixin.qq.com/s/abc123");
     assert.ok(result.timings);
     assert.equal(typeof result.timings.viewer_open_wait_ms, "number");
+  });
+
+  it("skips OCR recovery verification when fast close returns to a known pre-view window", async () => {
+    let verifyCalls = 0;
+    let windowsCall = 0;
+
+    const result = await extractShareCardUrl(
+      { title: "第一篇文章", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "File Transfer", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({ width: 2880, height: 1800, lines: [] }),
+        openViewerMenuFn: async () => ({
+          copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+          browserLine: null,
+          ocrResult: { lines: [] },
+        }),
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/fast-close-123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => ({
+          closed: true,
+          currentWindows: [{ name: "File Transfer", x: 0, y: 0, width: 800, height: 600 }],
+          frontWindow: { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 },
+          usedCommandW: false,
+        }),
+        verifyChatRecoveredFn: async () => {
+          verifyCalls += 1;
+          return true;
+        },
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/fast-close-123");
+    assert.equal(verifyCalls, 0);
+  });
+
+  it("falls back to OCR recovery verification when the fast close state is uncertain", async () => {
+    let verifyCalls = 0;
+    let windowsCall = 0;
+
+    const result = await extractShareCardUrl(
+      { title: "第一篇文章", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "main", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({ width: 2880, height: 1800, lines: [] }),
+        openViewerMenuFn: async () => ({
+          copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+          browserLine: null,
+          ocrResult: { lines: [] },
+        }),
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/verify-close-123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => ({
+          closed: true,
+          currentWindows: [{ name: "unknown", x: 0, y: 0, width: 800, height: 600 }],
+          frontWindow: { name: "unknown", x: 0, y: 0, width: 800, height: 600 },
+          usedCommandW: false,
+        }),
+        verifyChatRecoveredFn: async () => {
+          verifyCalls += 1;
+          return true;
+        },
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/verify-close-123");
+    assert.equal(verifyCalls, 1);
   });
 
   it("targets the newly opened viewer window even when it appears first in the window list", async () => {

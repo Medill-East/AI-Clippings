@@ -53,6 +53,7 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   if (all.length === 0) {
     return {
       records: [],
+      uncertainLinks: [],
       skippedCards: [],
       rendered: "Index is empty. Run scan-links.js first.",
       indexPath: resolvedIndexPath,
@@ -61,8 +62,10 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
 
   const results = filterByTimeRange(all, since, until);
   const seenUrls = new Set();
+  const seenUncertain = new Set();
   const seenSkipped = new Set();
   const deduped = [];
+  const uncertainLinks = [];
   const skippedCards = [];
 
   for (const record of results) {
@@ -74,28 +77,42 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
       continue;
     }
 
+    if (record?.record_type === "uncertain_link") {
+      if (!record?.url || shouldSkipUrl(record.url)) continue;
+      if (seenUrls.has(record.url) || seenUncertain.has(record.url)) continue;
+      seenUncertain.add(record.url);
+      uncertainLinks.push(record);
+      continue;
+    }
+
     if (!record?.url || shouldSkipUrl(record.url)) continue;
     if (seenUrls.has(record.url)) continue;
     seenUrls.add(record.url);
     deduped.push(record);
   }
 
+  const filteredUncertainLinks = uncertainLinks.filter((record) => !seenUrls.has(record.url));
+
   return {
     records: deduped,
+    uncertainLinks: filteredUncertainLinks,
     skippedCards,
-    rendered: renderQueryResults({ records: deduped, skippedCards }, { since, until, format }),
+    rendered: renderQueryResults(
+      { records: deduped, uncertainLinks: filteredUncertainLinks, skippedCards },
+      { since, until, format }
+    ),
     indexPath: resolvedIndexPath,
   };
 }
 
-export function renderQueryResults({ records, skippedCards = [] }, { since, until, format }) {
-  if (records.length === 0 && skippedCards.length === 0) {
+export function renderQueryResults({ records, uncertainLinks = [], skippedCards = [] }, { since, until, format }) {
+  if (records.length === 0 && uncertainLinks.length === 0 && skippedCards.length === 0) {
     return "No links found in the specified time range.";
   }
 
   switch (format) {
     case "json":
-      return JSON.stringify({ records, skipped_cards: skippedCards }, null, 2);
+      return JSON.stringify({ records, uncertain_links: uncertainLinks, skipped_cards: skippedCards }, null, 2);
     case "md": {
       const lines = [`# 文件传输助手链接（${since.toISOString()} ~ ${until.toISOString()}）`, ""];
       lines.push("## 已收集链接");
@@ -110,10 +127,26 @@ export function renderQueryResults({ records, skippedCards = [] }, { since, unti
         }
       }
 
-      if (skippedCards.length > 0) {
-        lines.push("");
-        lines.push("## 已跳过卡片");
-        lines.push("");
+      lines.push("");
+      lines.push("## 待确认外链");
+      lines.push("");
+      if (uncertainLinks.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of uncertainLinks) {
+          const title = record.title || record.url;
+          lines.push(`- [${title}](${record.url})`);
+          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${record.confidence_reason ?? "ocr_uncertain"}`);
+        }
+      }
+
+      lines.push("");
+      lines.push("## 已跳过卡片");
+      lines.push("");
+      if (skippedCards.length === 0) {
+        lines.push("- 无");
+      } else {
         for (const record of skippedCards) {
           lines.push(`- ${record.title || "(untitled skipped card)"}`);
           lines.push(`  > ${record.message_time}`);
@@ -131,14 +164,21 @@ export function renderQueryResults({ records, skippedCards = [] }, { since, unti
         lines.push("");
       }
 
-      if (skippedCards.length > 0) {
-        lines.push(`Skipped ${skippedCards.length} card(s):`);
+      lines.push(`Uncertain ${uncertainLinks.length} external link(s):`);
+      lines.push("");
+      for (const record of uncertainLinks) {
+        lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
+        lines.push(`  ${record.url}`);
+        lines.push(`  confidence: ${record.confidence_reason ?? "ocr_uncertain"}`);
         lines.push("");
-        for (const record of skippedCards) {
-          lines.push(`[${record.message_time}] ${record.title || "(untitled skipped card)"}`);
-          lines.push(`  skip: ${record.skip_reason ?? "skipped"}`);
-          lines.push("");
-        }
+      }
+
+      lines.push(`Skipped ${skippedCards.length} card(s):`);
+      lines.push("");
+      for (const record of skippedCards) {
+        lines.push(`[${record.message_time}] ${record.title || "(untitled skipped card)"}`);
+        lines.push(`  skip: ${record.skip_reason ?? "skipped"}`);
+        lines.push("");
       }
       return lines.join("\n").trimEnd();
     }

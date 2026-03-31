@@ -80,8 +80,13 @@ async function main() {
   console.log("");
   if (
     scanResult.newRecords.length === 0 &&
+    (scanResult.uncertainRecords?.length ?? 0) === 0 &&
     (scanResult.skippedRecords?.length ?? 0) === 0 &&
-    (queryResult.records.length > 0 || (queryResult.skippedCards?.length ?? 0) > 0)
+    (
+      queryResult.records.length > 0 ||
+      (queryResult.uncertainLinks?.length ?? 0) > 0 ||
+      (queryResult.skippedCards?.length ?? 0) > 0
+    )
   ) {
     console.log("本次扫描没有新增链接；下面展示的是该时间范围内已有索引中的结果。");
     console.log("");

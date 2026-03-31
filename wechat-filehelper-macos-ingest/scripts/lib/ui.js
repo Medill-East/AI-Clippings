@@ -71,9 +71,9 @@ const VIEWER_READY_POLL_MS = 40;
 const VIEWER_MENU_SETTLE_MS = 45;
 const VIEWER_COPY_SETTLE_MS = 0;
 const VIEWER_BROWSER_SETTLE_MS = 500;
-const VIEWER_CLOSE_INITIAL_SETTLE_MS = 10;
-const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 35;
-const VIEWER_CLOSE_CMD_W_SETTLE_MS = 55;
+const VIEWER_CLOSE_INITIAL_SETTLE_MS = 5;
+const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 20;
+const VIEWER_CLOSE_CMD_W_SETTLE_MS = 35;
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -246,7 +246,22 @@ export function mapOcrRectCenterToScreenPoint(windowBounds, rect, ocrResult = nu
 
 function normalizeSnapshotBlocks(clipboardSnapshot = {}) {
   if (Array.isArray(clipboardSnapshot.blocks)) {
-    return clipboardSnapshot.blocks;
+    return clipboardSnapshot.blocks.map((block, index) => {
+      const directUrlEntries = normalizeDirectUrlEntries(
+        block?.directUrlEntries,
+        block?.directUrls,
+        "clipboard_explicit"
+      );
+
+      return {
+        ...block,
+        blockId: block?.blockId ?? `block-${index}`,
+        directUrls: directUrlEntries
+          .filter((entry) => entry.confidence === "confirmed")
+          .map((entry) => entry.url),
+        directUrlEntries,
+      };
+    });
   }
 
   const items = Array.isArray(clipboardSnapshot.items) ? clipboardSnapshot.items : [];
@@ -259,6 +274,18 @@ function normalizeSnapshotBlocks(clipboardSnapshot = {}) {
       .filter(Boolean),
     rawText: item.rawText ?? "",
     directUrls: item.kind === "text_url" ? (item.links ?? []).map((link) => link.url) : [],
+    directUrlEntries:
+      item.kind === "text_url"
+        ? normalizeDirectUrlEntries(
+            (item.links ?? []).map((link) => ({
+              url: link.url,
+              confidence: "confirmed",
+              confidenceReason: "clipboard_explicit",
+            })),
+            [],
+            "clipboard_explicit"
+          )
+        : [],
     shareCardTitle:
       item.kind === "share_card" ? item.title ?? "" : item.title?.trim() ? item.title.trim() : null,
     skipReason: item.skipReason ?? null,
@@ -278,13 +305,14 @@ function blockToSnapshotItem(block) {
     };
   }
 
-  if ((block.directUrls?.length ?? 0) > 0) {
+  const directUrlEntries = getBlockDirectUrlEntries(block);
+  if (directUrlEntries.length > 0) {
     return {
       kind: "text_url",
       itemKey: block.blockId,
       timestampText: block.timestampText,
-      links: block.directUrls.map((url) => ({
-        url,
+      links: directUrlEntries.map((entry) => ({
+        url: entry.url,
         type: "text_url",
         title: block.shareCardTitle ?? "",
       })),
@@ -315,7 +343,10 @@ function ocrFallbackItemToBlock(item) {
         .map((line) => line.trim())
         .filter(Boolean);
   const rawText = rawLines.join("\n");
-  const directUrls = extractUrlsFromOcrText(rawLines);
+  const directUrlEntries = extractOcrUrlEntries(rawLines);
+  const directUrls = directUrlEntries
+    .filter((entry) => entry.confidence === "confirmed")
+    .map((entry) => entry.url);
 
   return {
     blockId: item.itemKey,
@@ -323,8 +354,9 @@ function ocrFallbackItemToBlock(item) {
     rawLines,
     rawText,
     directUrls,
-    shareCardTitle: directUrls.length > 0 ? null : item.title ?? "",
-    skipReason: directUrls.length > 0 ? null : item.skipReason ?? null,
+    directUrlEntries,
+    shareCardTitle: directUrlEntries.length > 0 ? null : item.title ?? "",
+    skipReason: directUrlEntries.length > 0 ? null : item.skipReason ?? null,
     ocrCluster: item.ocrCluster ?? [],
   };
 }
@@ -367,6 +399,56 @@ function addOcrUrlVariant(variants, rawText, score) {
   const normalized = normalizeOcrUrlText(rawText);
   if (!normalized) return;
   variants.push({ text: normalized, score });
+}
+
+function buildDirectUrlEntry(url, confidence, confidenceReason) {
+  return {
+    url: canonicalizeUrl(url),
+    confidence,
+    confidenceReason,
+  };
+}
+
+function normalizeDirectUrlEntries(entries = [], fallbackUrls = [], defaultConfidenceReason = "clipboard_explicit") {
+  const normalized = [];
+  const seen = new Set();
+
+  const addEntry = (entryLike, fallbackConfidence = "confirmed") => {
+    const rawUrl =
+      typeof entryLike === "string"
+        ? entryLike
+        : entryLike?.url;
+    if (!rawUrl) return;
+
+    const canonicalUrl = canonicalizeUrl(rawUrl);
+    const dedupeKey = `${entryLike?.confidence ?? fallbackConfidence}|${canonicalUrl}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    normalized.push({
+      url: canonicalUrl,
+      confidence: entryLike?.confidence ?? fallbackConfidence,
+      confidenceReason: entryLike?.confidenceReason ?? defaultConfidenceReason,
+    });
+  };
+
+  for (const entry of entries ?? []) {
+    addEntry(entry, "confirmed");
+  }
+  for (const url of fallbackUrls ?? []) {
+    addEntry(url, "confirmed");
+  }
+
+  return normalized;
+}
+
+function getBlockDirectUrlEntries(block) {
+  return normalizeDirectUrlEntries(block?.directUrlEntries, block?.directUrls, "clipboard_explicit");
+}
+
+function getBlockConfirmedDirectUrls(block) {
+  return getBlockDirectUrlEntries(block)
+    .filter((entry) => entry.confidence === "confirmed")
+    .map((entry) => entry.url);
 }
 
 function buildOcrUrlVariants(rawLines) {
@@ -475,24 +557,28 @@ function isMalformedOcrUrl(url) {
   return (String(url ?? "").match(/https?:\/\//g) ?? []).length > 1;
 }
 
-function looksLikeBilibiliVideoText(text) {
-  const normalized = String(text ?? "").normalize("NFKC");
-  const comparable = normalizeComparableText(normalized);
-  const hasBrand =
-    /哔哩哔哩|bilibili|b23\.tv/i.test(normalized) ||
-    BILIBILI_BRAND_TOKENS.some((token) => comparable.includes(token));
-  const hasVideoIndicator =
-    /UP主|播放[:：]|\bBV[0-9A-Za-z]{6,}\b|直播|番剧|投稿|av\d+|视频/i.test(normalized);
-
-  return (
-    /b23\.tv/i.test(normalized) ||
-    /\bBV[0-9A-Za-z]{6,}\b/.test(normalized) ||
-    (hasBrand && hasVideoIndicator) ||
-    (hasBrand && comparable.length <= 20)
-  );
+function haveConflictingOcrUrls(left, right) {
+  if (left === right) return false;
+  const leftMeta = buildOcrUrlMetadata(left);
+  const rightMeta = buildOcrUrlMetadata(right);
+  if (!leftMeta.origin || leftMeta.origin !== rightMeta.origin) return false;
+  if (leftMeta.pathname !== rightMeta.pathname) return false;
+  return leftMeta.queryKeys.join("|") === rightMeta.queryKeys.join("|");
 }
 
-function extractUrlsFromOcrText(linesOrText) {
+function hasSuspiciousOcrUrlTail(url) {
+  try {
+    const parsed = new URL(url);
+    for (const [, value] of parsed.searchParams) {
+      if (/[A-Za-z0-9]{4,}\.[A-Za-z]{4,}$/i.test(value)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function extractOcrUrlEntries(linesOrText) {
   const rawLines = Array.isArray(linesOrText)
     ? linesOrText.map((line) => String(line ?? "").trim()).filter(Boolean)
     : String(linesOrText ?? "")
@@ -519,31 +605,80 @@ function extractUrlsFromOcrText(linesOrText) {
     }
   }
 
-  let candidates = [...extracted.values()].sort((left, right) => {
+  const candidates = [...extracted.values()].sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
     if (right.count !== left.count) return right.count - left.count;
     return right.url.length - left.url.length;
   });
+  const reasonsByUrl = new Map();
 
-  candidates = candidates.filter(
-    (candidate, index) =>
-      !candidates.some(
-        (preferred, preferredIndex) =>
-          preferredIndex < index && isTruncatedUrlPrefix(candidate.url, preferred.url)
-      )
-  );
-
-  const deduped = [];
-  for (const candidate of candidates) {
-    const existingIndex = deduped.findIndex((current) => areNearDuplicateOcrUrls(current.url, candidate.url));
-    if (existingIndex === -1) {
-      deduped.push(candidate);
-      continue;
-    }
-    deduped[existingIndex] = choosePreferredOcrUrl(deduped[existingIndex], candidate);
+  function addReason(url, reason) {
+    if (!reasonsByUrl.has(url)) reasonsByUrl.set(url, new Set());
+    reasonsByUrl.get(url).add(reason);
   }
 
-  return deduped.map((entry) => entry.url);
+  for (const candidate of candidates) {
+    if (isMalformedOcrUrl(candidate.url)) addReason(candidate.url, "malformed_url");
+    if (hasSuspiciousOcrUrlTail(candidate.url)) addReason(candidate.url, "suspicious_tail");
+  }
+
+  for (let index = 0; index < candidates.length; index++) {
+    for (let otherIndex = 0; otherIndex < candidates.length; otherIndex++) {
+      if (index === otherIndex) continue;
+      if (isTruncatedUrlPrefix(candidates[index].url, candidates[otherIndex].url)) {
+        addReason(candidates[index].url, "truncated_prefix");
+      }
+    }
+  }
+
+  for (let index = 0; index < candidates.length; index++) {
+    for (let otherIndex = index + 1; otherIndex < candidates.length; otherIndex++) {
+      const current = candidates[index];
+      const other = candidates[otherIndex];
+      if (!areNearDuplicateOcrUrls(current.url, other.url) && !haveConflictingOcrUrls(current.url, other.url)) {
+        continue;
+      }
+      const preferred = choosePreferredOcrUrl(current, other);
+      const alternate = preferred.url === current.url ? other : current;
+      addReason(alternate.url, areNearDuplicateOcrUrls(current.url, other.url) ? "near_duplicate_variant" : "conflicting_variant");
+    }
+  }
+
+  const confirmed = [];
+  const uncertain = [];
+  for (const candidate of candidates) {
+    const reasons = [...(reasonsByUrl.get(candidate.url) ?? [])];
+    if (reasons.length === 0) {
+      confirmed.push(buildDirectUrlEntry(candidate.url, "confirmed", "ocr_unique"));
+      continue;
+    }
+    uncertain.push(buildDirectUrlEntry(candidate.url, "uncertain", reasons[0]));
+  }
+
+  return normalizeDirectUrlEntries([...confirmed, ...uncertain], [], "ocr_unique");
+}
+
+function looksLikeBilibiliVideoText(text) {
+  const normalized = String(text ?? "").normalize("NFKC");
+  const comparable = normalizeComparableText(normalized);
+  const hasBrand =
+    /哔哩哔哩|bilibili|b23\.tv/i.test(normalized) ||
+    BILIBILI_BRAND_TOKENS.some((token) => comparable.includes(token));
+  const hasVideoIndicator =
+    /UP主|播放[:：]|\bBV[0-9A-Za-z]{6,}\b|直播|番剧|投稿|av\d+|视频/i.test(normalized);
+
+  return (
+    /b23\.tv/i.test(normalized) ||
+    /\bBV[0-9A-Za-z]{6,}\b/.test(normalized) ||
+    (hasBrand && hasVideoIndicator) ||
+    (hasBrand && comparable.length <= 20)
+  );
+}
+
+function extractUrlsFromOcrText(linesOrText) {
+  return extractOcrUrlEntries(linesOrText)
+    .filter((entry) => entry.confidence === "confirmed")
+    .map((entry) => entry.url);
 }
 
 function hasProtocolLikeHint(normalized) {
@@ -585,13 +720,14 @@ function looksLikeUrlLikeText(text) {
 function shouldFilterOcrFallbackBlock(block, clipboardBlocks) {
   if (!block) return true;
 
-  if ((block.directUrls?.length ?? 0) > 0) {
-    const directBlockUrls = block.directUrls.map(normalizeUrlLikeText).filter(Boolean);
-    const directBlocks = clipboardBlocks.filter((candidate) => (candidate.directUrls?.length ?? 0) > 0);
+  const directUrlEntries = getBlockDirectUrlEntries(block);
+  if (directUrlEntries.length > 0) {
+    const directBlockUrls = directUrlEntries.map((entry) => normalizeUrlLikeText(entry.url)).filter(Boolean);
+    const directBlocks = clipboardBlocks.filter((candidate) => getBlockDirectUrlEntries(candidate).length > 0);
 
     return directBlocks.some((candidate) =>
-      (candidate.directUrls ?? [])
-        .map(normalizeUrlLikeText)
+      getBlockDirectUrlEntries(candidate)
+        .map((entry) => normalizeUrlLikeText(entry.url))
         .filter(Boolean)
         .some((signature) =>
           directBlockUrls.some(
@@ -609,12 +745,12 @@ function shouldFilterOcrFallbackBlock(block, clipboardBlocks) {
   const normalizedCombined = normalizeUrlLikeText(combinedText);
   if (!normalizedCombined) return false;
 
-  const directBlocks = clipboardBlocks.filter((candidate) => (candidate.directUrls?.length ?? 0) > 0);
+  const directBlocks = clipboardBlocks.filter((candidate) => getBlockDirectUrlEntries(candidate).length > 0);
   return directBlocks.some((candidate) => {
     const signatures = [
       candidate.rawText,
       candidate.shareCardTitle,
-      ...(candidate.directUrls ?? []),
+      ...getBlockDirectUrlEntries(candidate).map((entry) => entry.url),
     ]
       .filter(Boolean)
       .map(normalizeUrlLikeText)
@@ -704,7 +840,9 @@ function buildArticleFingerprint(block) {
 }
 
 function buildBlockSignature(block) {
-  const directUrls = (block?.directUrls ?? []).map((url) => canonicalizeUrl(url)).sort();
+  const directUrls = getBlockDirectUrlEntries(block)
+    .map((entry) => `${entry.confidence}:${canonicalizeUrl(entry.url)}`)
+    .sort();
   if (directUrls.length > 0) {
     return `direct|${block?.timestampText ?? ""}|${directUrls.join("|")}`;
   }
@@ -804,7 +942,7 @@ function buildFallbackCandidateFromCluster(block, windowBounds, ocrResult) {
 
 function hasCandidateForActionableShareCards(blocks, candidateMap) {
   const actionableBlocks = blocks.filter(
-    (block) => block.shareCardTitle && (block.directUrls?.length ?? 0) === 0 && !block.skipReason
+    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
   );
   if (actionableBlocks.length === 0) return true;
   return actionableBlocks.some((block) => candidateMap.has(block.blockId));
@@ -826,7 +964,7 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
   const effectiveBlocks = clipboardHasShareCards ? blocks : [...blocks, ...ocrFallbackBlocks];
   const effectiveItems = effectiveBlocks.map(blockToSnapshotItem).filter(Boolean);
   const shareCardBlocks = effectiveBlocks.filter(
-    (block) => block.shareCardTitle && (block.directUrls?.length ?? 0) === 0 && !block.skipReason
+    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
   );
   const candidates = [];
   const usedLineIndexes = new Set();
@@ -1080,6 +1218,7 @@ export async function scanUiLinks(
     share_cards_attempted: 0,
     share_cards_resolved: 0,
     share_cards_unresolved: 0,
+    uncertain_links_total: 0,
     browser_fallback_used: 0,
     clipboard_reads: 0,
     ocr_only_pages: 0,
@@ -1093,8 +1232,10 @@ export async function scanUiLinks(
   };
 
   const records = [];
+  const uncertainRecords = [];
   const skippedRecords = [];
   const seenUrls = new Set();
+  const seenUncertainUrls = new Set();
   const seenKeys = new Set();
   const seenSkippedKeys = new Set();
   const articleStates = new Map();
@@ -1222,21 +1363,34 @@ export async function scanUiLinks(
       const articleFingerprint = articleFingerprints[0] ?? "";
       const existingArticleState = findExistingArticleState(articleStates, articleFingerprints)?.state ?? null;
 
-      const directUrls = Array.isArray(block.directUrls) ? block.directUrls : [];
+      const directUrlEntries = getBlockDirectUrlEntries(block);
       const directRecords = [];
+      const uncertainDirectRecords = [];
       const directSkippedEntries = [];
       const directSeen = new Set();
-      for (const rawUrl of directUrls) {
-        const canonicalUrl = canonicalizeUrl(rawUrl);
+      for (const entry of directUrlEntries) {
+        const canonicalUrl = canonicalizeUrl(entry.url);
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
-          directSkippedEntries.push({ url: canonicalUrl, reason: skipReason });
+          directSkippedEntries.push({
+            url: canonicalUrl,
+            reason: skipReason,
+            confidenceReason: entry.confidenceReason ?? null,
+          });
           incrementCount(stats.skipped_by_rule, skipReason);
           continue;
         }
-        if (directSeen.has(canonicalUrl)) continue;
-        directSeen.add(canonicalUrl);
-        directRecords.push(canonicalUrl);
+        const directKey = `${entry.confidence}:${canonicalUrl}`;
+        if (directSeen.has(directKey)) continue;
+        directSeen.add(directKey);
+        if (entry.confidence === "uncertain") {
+          uncertainDirectRecords.push({
+            url: canonicalUrl,
+            confidenceReason: entry.confidenceReason ?? "ocr_ambiguous",
+          });
+        } else {
+          directRecords.push(canonicalUrl);
+        }
       }
 
       const artifactRecord =
@@ -1255,7 +1409,7 @@ export async function scanUiLinks(
             }
           : null;
 
-      if (directRecords.length > 0) {
+      if (directRecords.length > 0 || uncertainDirectRecords.length > 0) {
         for (const skippedEntry of directSkippedEntries) {
           pushSkippedRecord({
             messageTime,
@@ -1266,11 +1420,11 @@ export async function scanUiLinks(
           });
         }
 
+        const messageTimeIso = (messageTime ?? referenceNow).toISOString();
         for (const canonicalUrl of directRecords) {
           if (seenUrls.has(canonicalUrl)) continue;
           seenUrls.add(canonicalUrl);
 
-          const messageTimeIso = (messageTime ?? referenceNow).toISOString();
           const key = dedupeKey(FILE_HELPER_CHAT_NAME, messageTimeIso, canonicalUrl);
           if (seenKeys.has(key)) continue;
           seenKeys.add(key);
@@ -1279,6 +1433,7 @@ export async function scanUiLinks(
             captured_at: new Date().toISOString(),
             message_time: messageTimeIso,
             chat_name: FILE_HELPER_CHAT_NAME,
+            record_type: "link",
             message_type: block.shareCardTitle ? "share_card" : "text_url",
             title: block.shareCardTitle ?? "",
             url: canonicalUrl,
@@ -1288,11 +1443,40 @@ export async function scanUiLinks(
           });
         }
 
+        for (const uncertainEntry of uncertainDirectRecords) {
+          if (seenUrls.has(uncertainEntry.url) || seenUncertainUrls.has(uncertainEntry.url)) continue;
+          seenUncertainUrls.add(uncertainEntry.url);
+
+          const key = dedupeKey(
+            FILE_HELPER_CHAT_NAME,
+            messageTimeIso,
+            `uncertain:${uncertainEntry.url}:${uncertainEntry.confidenceReason}`
+          );
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+
+          uncertainRecords.push({
+            captured_at: new Date().toISOString(),
+            message_time: messageTimeIso,
+            chat_name: FILE_HELPER_CHAT_NAME,
+            record_type: "uncertain_link",
+            message_type: block.shareCardTitle ? "share_card" : "text_url",
+            title: block.shareCardTitle ?? "",
+            url: uncertainEntry.url,
+            confidence_reason: uncertainEntry.confidenceReason,
+            dedupe_key: key,
+            capture_session_id: sessionId,
+            source: "ui",
+          });
+        }
+
         if (artifactRecord) {
-          artifactRecord.status = "resolved_direct_url";
-          artifactRecord.url = directRecords[0];
+          artifactRecord.status = directRecords.length > 0 ? "resolved_direct_url" : "uncertain_direct_url";
+          artifactRecord.url = directRecords[0] ?? uncertainDirectRecords[0]?.url ?? null;
+          artifactRecord.reason = uncertainDirectRecords[0]?.confidenceReason ?? null;
           candidateArtifacts.push(artifactRecord);
         }
+        stats.uncertain_links_total += uncertainDirectRecords.length;
         upsertArticleState(articleStates, articleFingerprints, {
           status: "resolved",
           attempted: true,
@@ -1305,7 +1489,7 @@ export async function scanUiLinks(
         continue;
       }
 
-      if (directUrls.length > 0) {
+      if (directUrlEntries.length > 0) {
         if (artifactRecord) {
           artifactRecord.status = "skipped";
           artifactRecord.reason = directSkippedEntries[0]?.reason ?? "direct_url_skipped";
@@ -1466,6 +1650,7 @@ export async function scanUiLinks(
             captured_at: new Date().toISOString(),
             message_time: messageTimeIso,
             chat_name: FILE_HELPER_CHAT_NAME,
+            record_type: "link",
             message_type: "share_card",
             title: candidate.title ?? block.shareCardTitle ?? "",
             url: canonicalUrl,
@@ -1539,7 +1724,7 @@ export async function scanUiLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, skippedRecords, stats };
+  return { records, uncertainRecords, skippedRecords, stats };
 }
 
 export async function captureVisibleUiPage(
@@ -1620,7 +1805,7 @@ export async function captureVisibleUiPage(
       share_cards_unresolved:
         clipboardSnapshot.stats.share_cards_unresolved +
         uiSnapshot.ocrFallbackBlocks.filter(
-          (block) => block.shareCardTitle && !block.skipReason && (block.directUrls?.length ?? 0) === 0
+          (block) => block.shareCardTitle && !block.skipReason && getBlockDirectUrlEntries(block).length === 0
         ).length,
       skipped_by_rule: { ...clipboardSnapshot.stats.skipped_by_rule },
     },
@@ -1840,6 +2025,43 @@ function windowSignature(window) {
     Math.round(Number(window.width ?? 0)),
     Math.round(Number(window.height ?? 0)),
   ].join("|");
+}
+
+function looksLikeFileHelperWindow(window) {
+  const normalized = normalizeComparableText(window?.name ?? "");
+  if (!normalized) return false;
+  return FILE_HELPER_NAMES.some((name) => {
+    const expected = normalizeComparableText(name);
+    return normalized.includes(expected) || expected.includes(normalized);
+  });
+}
+
+function normalizeCloseViewerResult(result, beforeWindows, getFrontWeChatWindowFn = getFrontWeChatWindow) {
+  if (typeof result === "boolean") {
+    return {
+      closed: result,
+      currentWindows: result ? beforeWindows : null,
+      frontWindow: getFrontWeChatWindowFn(),
+      usedCommandW: !result,
+    };
+  }
+
+  return {
+    closed: Boolean(result?.closed),
+    currentWindows: Array.isArray(result?.currentWindows) ? result.currentWindows : null,
+    frontWindow: result?.frontWindow ?? getFrontWeChatWindowFn(),
+    usedCommandW: Boolean(result?.usedCommandW),
+  };
+}
+
+function fastChatRecoveryLooksGood(beforeWindows, currentWindows, frontWindow) {
+  if (!Array.isArray(currentWindows) || currentWindows.length > beforeWindows.length) {
+    return false;
+  }
+  if (!frontWindow) return false;
+
+  const beforeSignatures = new Set(beforeWindows.map(windowSignature));
+  return beforeSignatures.has(windowSignature(frontWindow)) || looksLikeFileHelperWindow(frontWindow);
 }
 
 function findViewerTitleLine(ocrResult, candidate) {
@@ -2071,6 +2293,7 @@ function closeViewerWindow(
   { debug = false } = {},
   {
     getWeChatWindowsFn = getWeChatWindows,
+    getFrontWeChatWindowFn = getFrontWeChatWindow,
     sendKeyCodeFn = sendKeyCode,
     sendKeystrokeFn = sendKeystroke,
     sleepMsFn = sleepMs,
@@ -2083,18 +2306,32 @@ function closeViewerWindow(
   sleepMsFn(VIEWER_CLOSE_ESCAPE_SETTLE_MS);
 
   const beforeCount = beforeWindows.length;
-  if (getWeChatWindowsFn().length <= beforeCount) {
-    return true;
+  let currentWindows = getWeChatWindowsFn();
+  let frontWindow = getFrontWeChatWindowFn();
+  if (currentWindows.length <= beforeCount) {
+    return {
+      closed: true,
+      currentWindows,
+      frontWindow,
+      usedCommandW: false,
+    };
   }
 
   sendKeystrokeFn("w", ["command down"]);
   sleepMsFn(VIEWER_CLOSE_CMD_W_SETTLE_MS);
 
-  const closed = getWeChatWindowsFn().length <= beforeCount;
+  currentWindows = getWeChatWindowsFn();
+  frontWindow = getFrontWeChatWindowFn();
+  const closed = currentWindows.length <= beforeCount;
   if (debug && !closed) {
     console.log("[debug] viewer window did not close cleanly");
   }
-  return closed;
+  return {
+    closed,
+    currentWindows,
+    frontWindow,
+    usedCommandW: true,
+  };
 }
 
 async function verifyChatRecovered(
@@ -2271,8 +2508,20 @@ export async function extractShareCardUrl(
     }
   } finally {
     const closeStartedAt = Date.now();
-    const closed = closeViewerWindowFn(beforeWindows, { debug });
-    let recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    const closeResult = normalizeCloseViewerResult(
+      closeViewerWindowFn(beforeWindows, { debug }),
+      beforeWindows,
+      getFrontWeChatWindowFn
+    );
+    const closed = closeResult.closed;
+    let recovered = false;
+
+    if (closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
+      recovered = true;
+    } else {
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+
     if (!recovered && typeof recoverChatFn === "function") {
       if (debug) {
         console.log("[debug] Chat recovery failed, re-opening 文件传输助手...");

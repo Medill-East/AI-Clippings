@@ -189,14 +189,18 @@ export async function runScan(
   }
 
   const newRecords = scanResult.records;
+  const uncertainRecords = scanResult.uncertainRecords ?? [];
   const skippedRecords = scanResult.skippedRecords ?? [];
   console.log(`Collected ${newRecords.length} link(s) from this scan.`);
+  if (uncertainRecords.length > 0) {
+    console.log(`Recorded ${uncertainRecords.length} uncertain external link(s).`);
+  }
   if (skippedRecords.length > 0) {
     console.log(`Recorded ${skippedRecords.length} skipped card(s).`);
   }
 
   const existing = await readJsonlines(indexPath);
-  const merged = mergeRecords(existing, [...newRecords, ...skippedRecords]);
+  const merged = mergeRecords(existing, [...newRecords, ...uncertainRecords, ...skippedRecords]);
   const addedCount = merged.length - existing.length;
   await writeJsonlines(indexPath, merged);
   console.log(`Added ${addedCount} new record(s) to index (${merged.length} total).`);
@@ -214,6 +218,7 @@ export async function runScan(
     max_candidates: Number.isFinite(opts.maxCandidates) ? opts.maxCandidates : null,
     reindex: opts.reindex,
     collected: newRecords.length,
+    uncertain_links_total: uncertainRecords.length,
     skipped_cards_total: skippedRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,
@@ -248,6 +253,7 @@ export async function runScan(
     manifest,
     merged,
     newRecords,
+    uncertainRecords,
     skippedRecords,
     uiProbe,
     storeProbe,

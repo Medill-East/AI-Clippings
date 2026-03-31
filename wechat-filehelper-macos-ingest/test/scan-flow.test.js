@@ -57,10 +57,26 @@ describe("scan flow", () => {
               captured_at: "2026-03-28T07:10:00.000Z",
               message_time: "2026-03-28T07:10:00.000Z",
               chat_name: "文件传输助手",
+              record_type: "link",
               message_type: "share_card",
               title: "WeChat Article",
               url: "https://mp.weixin.qq.com/s/abc123",
               dedupe_key: "dedupe-ui-1",
+              capture_session_id: "session-ui-1",
+              source: "ui",
+            },
+          ],
+          uncertainRecords: [
+            {
+              captured_at: "2026-03-28T07:11:00.000Z",
+              message_time: "2026-03-28T07:11:00.000Z",
+              chat_name: "文件传输助手",
+              record_type: "uncertain_link",
+              message_type: "text_url",
+              title: "Possible OCR URL",
+              url: "https://example.com/maybe",
+              confidence_reason: "near_duplicate_variant",
+              dedupe_key: "dedupe-ui-2",
               capture_session_id: "session-ui-1",
               source: "ui",
             },
@@ -71,6 +87,7 @@ describe("scan flow", () => {
             share_cards_attempted: 1,
             share_cards_resolved: 1,
             share_cards_unresolved: 0,
+            uncertain_links_total: 1,
             browser_fallback_used: 0,
               skipped_by_rule: {},
             },
@@ -87,9 +104,11 @@ describe("scan flow", () => {
     assert.equal(result.manifest.ui_probe_status, "ready");
     assert.equal(result.manifest.share_cards_attempted, 1);
     assert.equal(result.manifest.share_cards_resolved, 1);
+    assert.equal(result.manifest.uncertain_links_total, 1);
     assert.equal(result.manifest.max_candidates, 1);
     assert.equal(capturedUiOptions.maxCandidates, 1);
     assert.equal(result.newRecords[0].source, "ui");
+    assert.equal(result.uncertainRecords[0].record_type, "uncertain_link");
   });
 
   it("auto falls back to clipboard when the UI probe is not ready", async () => {
