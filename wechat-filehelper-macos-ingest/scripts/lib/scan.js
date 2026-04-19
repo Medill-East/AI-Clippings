@@ -2,7 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { waitForUserReady, navigateToFileHelper, scanClipboardLinks } from "./chat.js";
-import { mergeRecords, newRunTimestamp, readJsonlines, writeJsonlines } from "./common.js";
+import {
+  formatCstDateTime,
+  mergeRecords,
+  newRunTimestamp,
+  parseUserDateTimeInput,
+  readJsonlines,
+  writeJsonlines,
+} from "./common.js";
 import { probeWeChatStore, scanStoreLinks } from "./store.js";
 import { probeUiEnvironment, scanUiLinks } from "./ui.js";
 
@@ -53,9 +60,9 @@ export function parseScanArgs(argv) {
     throw new Error("--since and --until are required.");
   }
 
-  const since = new Date(opts.since);
-  const until = new Date(opts.until);
-  if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime())) {
+  const since = parseUserDateTimeInput(opts.since);
+  const until = parseUserDateTimeInput(opts.until);
+  if (!since || !until) {
     throw new Error("--since and --until must be valid ISO 8601 date-time strings.");
   }
   if (since > until) {
@@ -71,8 +78,8 @@ Usage:
   node scripts/scan-links.js --since <ISO8601> --until <ISO8601> [options]
 
 Options:
-  --since <ISO8601>     Start time (inclusive), e.g. 2026-03-28T15:00:00+08:00
-  --until <ISO8601>     End time (inclusive), e.g. 2026-03-28T23:59:59+08:00
+  --since <ISO8601>     Start time (inclusive), China Standard Time by default, e.g. 2026-03-28T15:00:00 or 2026-03-28T15:00:00+08:00
+  --until <ISO8601>     End time (inclusive), China Standard Time by default, e.g. 2026-03-28T23:59:59 or 2026-03-28T23:59:59+08:00
   --source <mode>       auto | ui | store | clipboard (default auto)
   --max-scrolls N       Maximum upward scrolls for clipboard fallback (default 50, max 200)
   --max-candidates N    Maximum share-card extraction attempts in UI mode (default unlimited)
@@ -102,8 +109,8 @@ export async function runScan(
   await fsImpl.mkdir(runDir, { recursive: true });
 
   console.log("WeChat FileHelper macOS Ingest — Scan");
-  console.log(`Since : ${opts.since.toISOString()}`);
-  console.log(`Until : ${opts.until.toISOString()}`);
+  console.log(`Since : ${formatCstDateTime(opts.since)}`);
+  console.log(`Until : ${formatCstDateTime(opts.until)}`);
   console.log(`Source: ${opts.source}`);
   console.log(`Max scrolls: ${opts.maxScrolls}`);
   if (opts.reindex) console.log("Mode  : REINDEX (clearing existing index)");
@@ -190,17 +197,21 @@ export async function runScan(
 
   const newRecords = scanResult.records;
   const uncertainRecords = scanResult.uncertainRecords ?? [];
+  const pendingRecords = scanResult.pendingRecords ?? [];
   const skippedRecords = scanResult.skippedRecords ?? [];
   console.log(`Collected ${newRecords.length} link(s) from this scan.`);
   if (uncertainRecords.length > 0) {
     console.log(`Recorded ${uncertainRecords.length} uncertain external link(s).`);
+  }
+  if (pendingRecords.length > 0) {
+    console.log(`Recorded ${pendingRecords.length} pending item(s).`);
   }
   if (skippedRecords.length > 0) {
     console.log(`Recorded ${skippedRecords.length} skipped card(s).`);
   }
 
   const existing = await readJsonlines(indexPath);
-  const merged = mergeRecords(existing, [...newRecords, ...uncertainRecords, ...skippedRecords]);
+  const merged = mergeRecords(existing, [...newRecords, ...uncertainRecords, ...pendingRecords, ...skippedRecords]);
   const addedCount = merged.length - existing.length;
   await writeJsonlines(indexPath, merged);
   console.log(`Added ${addedCount} new record(s) to index (${merged.length} total).`);
@@ -219,6 +230,7 @@ export async function runScan(
     reindex: opts.reindex,
     collected: newRecords.length,
     uncertain_links_total: uncertainRecords.length,
+    pending_items_total: pendingRecords.length,
     skipped_cards_total: skippedRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,
@@ -254,6 +266,7 @@ export async function runScan(
     merged,
     newRecords,
     uncertainRecords,
+    pendingRecords,
     skippedRecords,
     uiProbe,
     storeProbe,

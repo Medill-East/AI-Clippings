@@ -7,6 +7,8 @@ import {
   shouldSkipUrl,
   dedupeKey,
   parseWeChatTimestamp,
+  parseUserDateTimeInput,
+  formatCstDateTime,
   mergeRecords,
   filterByTimeRange,
 } from "../scripts/lib/common.js";
@@ -187,6 +189,25 @@ describe("parseWeChatTimestamp", () => {
 
   it("returns null for unrecognized format", () => {
     assert.equal(parseWeChatTimestamp("not a date", ref), null);
+  });
+});
+
+describe("parseUserDateTimeInput", () => {
+  it("treats naive datetime input as China Standard Time", () => {
+    const result = parseUserDateTimeInput("2026-04-11T00:00:00");
+    assert.equal(result?.toISOString(), "2026-04-10T16:00:00.000Z");
+  });
+
+  it("preserves explicit +08:00 input", () => {
+    const result = parseUserDateTimeInput("2026-04-11T00:00:00+08:00");
+    assert.equal(result?.toISOString(), "2026-04-10T16:00:00.000Z");
+  });
+});
+
+describe("formatCstDateTime", () => {
+  it("renders UTC dates in +08:00 form", () => {
+    const result = formatCstDateTime(new Date("2026-04-10T16:00:00.000Z"));
+    assert.equal(result, "2026-04-11T00:00:00+08:00");
   });
 });
 

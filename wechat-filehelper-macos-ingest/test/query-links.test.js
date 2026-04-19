@@ -185,7 +185,7 @@ describe("query-links.js", () => {
 
     assert.match(output, /## 已收集链接/);
     assert.match(output, /Visible Link/);
-    assert.match(output, /## 待确认外链/);
+    assert.match(output, /## 待确认项/);
     assert.match(output, /## 已跳过卡片/);
     assert.match(output, /B站视频卡片/);
     assert.match(output, /bilibili_video/);
@@ -272,8 +272,142 @@ describe("query-links.js", () => {
       }
     );
 
-    assert.match(mdOutput, /## 待确认外链/);
+    assert.match(mdOutput, /## 待确认项/);
     assert.match(mdOutput, /Possible OCR URL/);
     assert.match(mdOutput, /near_duplicate_variant/);
+  });
+
+  it("shows pending items separately from confirmed links", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          captured_at: "2026-03-28T07:10:00.000Z",
+          message_time: "2026-03-28T07:10:00.000Z",
+          chat_name: "文件传输助手",
+          record_type: "link",
+          message_type: "share_card",
+          title: "Confirmed article",
+          url: "https://mp.weixin.qq.com/s/abc123",
+          dedupe_key: "aaa",
+          capture_session_id: "session-1",
+          source: "ui",
+        }),
+        JSON.stringify({
+          captured_at: "2026-03-28T07:11:00.000Z",
+          message_time: "2026-03-28T23:59:59.000Z",
+          chat_name: "文件传输助手",
+          record_type: "pending_item",
+          title: "刚刚，飞书CLI开源，Claude",
+          raw_text: "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书",
+          pending_reason: "missing_timestamp",
+          dedupe_key: "pending-1",
+          capture_session_id: "session-1",
+          source: "ui",
+          pending_window_since: "2026-03-28T00:00:00.000Z",
+          pending_window_until: "2026-03-29T23:59:59.000Z",
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
+    const jsonOutput = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-03-28T00:00:00.000Z",
+        "--until",
+        "2026-03-29T23:59:59.000Z",
+        "--format",
+        "json",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          WECHAT_FILEHELPER_INDEX_PATH: indexPath,
+        },
+      }
+    );
+
+    const parsed = JSON.parse(jsonOutput);
+    assert.equal(parsed.records.length, 1);
+    assert.equal(parsed.pending_items.length, 1);
+    assert.equal(parsed.pending_items[0].pending_reason, "missing_timestamp");
+
+    const mdOutput = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-03-28T00:00:00.000Z",
+        "--until",
+        "2026-03-29T23:59:59.000Z",
+        "--format",
+        "md",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          WECHAT_FILEHELPER_INDEX_PATH: indexPath,
+        },
+      }
+    );
+
+    assert.match(mdOutput, /## 待确认项/);
+    assert.match(mdOutput, /刚刚，飞书CLI开源，Claude/);
+    assert.match(mdOutput, /missing_timestamp/);
+  });
+
+  it("renders query range headings in China Standard Time", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          captured_at: "2026-04-10T16:10:00.000Z",
+          message_time: "2026-04-10T16:10:00.000Z",
+          chat_name: "文件传输助手",
+          record_type: "link",
+          message_type: "text_url",
+          title: "CST Link",
+          url: "https://example.com/cst",
+          dedupe_key: "cst-1",
+          capture_session_id: "session-1",
+          source: "ui",
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
+    const mdOutput = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-04-11T00:00:00",
+        "--until",
+        "2026-04-11T01:00:00",
+        "--format",
+        "md",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          WECHAT_FILEHELPER_INDEX_PATH: indexPath,
+        },
+      }
+    );
+
+    assert.match(mdOutput, /2026-04-11T00:00:00\+08:00 ~ 2026-04-11T01:00:00\+08:00/);
+    assert.match(mdOutput, /CST Link/);
   });
 });

@@ -63,6 +63,8 @@ const OCR_TIMESTAMP_MIN_RATIO = 0.60;
 const OCR_TIMESTAMP_MAX_RATIO = 0.82;
 const OCR_TIMESTAMP_BEFORE_MAX_GAP_PX = 180;
 const OCR_TIMESTAMP_AFTER_MAX_GAP_PX = 40;
+const OCR_TIMESTAMP_FALLBACK_MAX_INDEX_GAP = 4;
+const OCR_TIMESTAMP_FALLBACK_MAX_Y_GAP_PX = 420;
 const VIEWER_OPEN_SETTLE_MS = 160;
 const VIEWER_DETECT_TIMEOUT_MS = 900;
 const VIEWER_DETECT_POLL_MS = 60;
@@ -175,7 +177,8 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
   for (const cluster of clusters) {
     if (cluster.length < 2) continue;
 
-    const rawText = cluster.map((line) => line.text).join(" ").trim();
+    const rawLines = cluster.map((line) => String(line?.text ?? "").trim()).filter(Boolean);
+    const rawText = rawLines.join(" ").trim();
     if (!rawText) continue;
 
     const title = cluster
@@ -184,7 +187,7 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
       .join(" ")
       .trim();
     const timestampLine = findNearestTimestampLine(cluster[0], timestampLines);
-    const skipReason = classifyOcrShareCardSkipReason(rawText);
+    const skipReason = classifyOcrShareCardSkipReason(rawText, rawLines);
 
     items.push({
       kind: "share_card",
@@ -221,9 +224,71 @@ function findNearestTimestampLine(clusterTopLine, timestampLines) {
   return before ?? after ?? null;
 }
 
-function classifyOcrShareCardSkipReason(rawText) {
-  if (/视频号|video\s+channel/i.test(rawText)) return "video_channel";
+function looksLikeMarkdownDocText(text, rawLines = []) {
+  const value = String(text ?? "").normalize("NFKC");
+  if (!/\.(?:md|markdown)(?:$|[\s)）】\]])/i.test(value)) return false;
+
+  const lines = Array.isArray(rawLines)
+    ? rawLines.map((line) => String(line ?? "").trim()).filter(Boolean)
+    : value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+  return lines.some((line) => /^[A-Za-z0-9][A-Za-z0-9._/\- ]{1,120}\.(?:md|markdown)$/i.test(line));
+}
+
+function looksLikeFileCardText(text) {
+  return /(?:^|[\s(（【\[])[\w./-]+\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|rtf|pages|numbers|key|zip|tar|gz)(?:$|[\s)）】\]])/i.test(
+    String(text ?? "")
+  );
+}
+
+function looksLikeArticleMetadataLine(text) {
+  return /^(原创|作者[:：]?|by\b|来源[:：]?|公众号|发布于|阅读原文|微信公众平台|阅读|link|链接)$/i.test(
+    String(text ?? "").trim()
+  );
+}
+
+function looksLikePlainTextBlock(rawLines, rawText) {
+  const lines = Array.isArray(rawLines) ? rawLines.filter(Boolean) : [];
+  if (lines.length < 3) return false;
+  if (looksLikeMarkdownDocText(rawText, rawLines) || looksLikeFileCardText(rawText)) return false;
+  if (lines.some((line) => looksLikeUrlLikeText(line))) return false;
+  if (lines.some((line) => looksLikeArticleMetadataLine(line))) return false;
+
+  const text = String(rawText ?? "");
+  const sentencePunctuationCount = (text.match(/[。！？；]/g) ?? []).length;
+  const commaCount = (text.match(/[，,]/g) ?? []).length;
+  const normalizedLength = normalizeComparableText(text).length;
+
+  return normalizedLength >= 28 && (sentencePunctuationCount >= 2 || commaCount >= 3);
+}
+
+function looksLikeVideoChannelText(rawText, rawLines = []) {
+  const text = String(rawText ?? "").normalize("NFKC");
+  if (/视频号|video\s+channel|channels\.weixin\.qq\.com/i.test(text)) return true;
+
+  const lines = Array.isArray(rawLines) ? rawLines.map((line) => String(line ?? "").trim()) : [];
+  const hasExplicitFollow = lines.some(
+    (line) =>
+      /^\+?\s*\d*\s*个?朋友?关注$/.test(line) ||
+      /^\+\s*关注$/.test(line) ||
+      /^关注$/.test(line)
+  );
+  const hasVideoCue = /原声|时长|点赞|评论|转发|收藏|观看|播放|直播|封面|短视频|合集/i.test(text);
+  const hasChannelCue = /视频号|video\s+channel/i.test(text);
+  const socialCueMatches = text.match(/原声|时长|点赞|评论|转发|收藏|观看|播放|直播|封面|短视频|合集/g) ?? [];
+
+  return hasChannelCue || hasExplicitFollow || (hasExplicitFollow && hasVideoCue) || socialCueMatches.length >= 2;
+}
+
+function classifyOcrShareCardSkipReason(rawText, rawLines = []) {
+  if (looksLikeVideoChannelText(rawText, rawLines)) return "video_channel";
   if (looksLikeBilibiliVideoText(rawText)) return "bilibili_video";
+  if (looksLikeMarkdownDocText(rawText, rawLines)) return "markdown_doc_card";
+  if (looksLikeFileCardText(rawText)) return "file_card";
+  if (looksLikePlainTextBlock(rawLines, rawText)) return "plain_text_block";
   if (/共\s*\d+\s*篇|\b\d+\s+articles?\b|multiple\s+articles?/i.test(rawText)) {
     return "multi_article_card";
   }
@@ -830,13 +895,92 @@ function buildArticleFingerprintAliases(block) {
     [timestamp, primary ? primary.slice(0, 10) : "", tertiary ? tertiary.slice(0, 8) : ""]
       .filter(Boolean)
       .join("|"),
+    signatureLines.length >= 2
+      ? [primary ? primary.slice(0, 18) : "", secondary ? secondary.slice(0, 14) : ""]
+          .filter(Boolean)
+          .join("|")
+      : "",
+    signatureLines.length >= 3
+      ? [primary ? primary.slice(0, 18) : "", tertiary ? tertiary.slice(0, 14) : ""]
+          .filter(Boolean)
+          .join("|")
+      : "",
+    signatureLines.length >= 2
+      ? [signatureLines[0] ? signatureLines[0].slice(0, 16) : "", signatureLines[1] ? signatureLines[1].slice(0, 12) : ""]
+          .filter(Boolean)
+          .join("|")
+      : "",
   ].filter(Boolean);
 
   return [...new Set(aliases)];
 }
 
+function isOcrOnlyBlock(block) {
+  return (
+    (Array.isArray(block?.ocrCluster) && block.ocrCluster.length > 0) ||
+    String(block?.blockId ?? "").startsWith("ocr-item-")
+  );
+}
+
 function buildArticleFingerprint(block) {
   return buildArticleFingerprintAliases(block)[0] ?? "";
+}
+
+function getBlockAnchorY(block) {
+  const cluster = Array.isArray(block?.ocrCluster) ? block.ocrCluster : [];
+  if (cluster.length > 0) {
+    return Math.min(...cluster.map((line) => Number(line?.y ?? Number.POSITIVE_INFINITY)).filter(Number.isFinite));
+  }
+  return null;
+}
+
+function inferTimestampTextForBlock(blocks, index) {
+  const block = blocks[index];
+  if (!block || block.timestampText || !isOcrOnlyBlock(block)) return block?.timestampText ?? null;
+
+  const blockY = getBlockAnchorY(block);
+  let best = null;
+
+  for (let candidateIndex = 0; candidateIndex < blocks.length; candidateIndex += 1) {
+    if (candidateIndex === index) continue;
+    const candidate = blocks[candidateIndex];
+    if (!candidate?.timestampText) continue;
+
+    const indexGap = Math.abs(candidateIndex - index);
+    if (indexGap > OCR_TIMESTAMP_FALLBACK_MAX_INDEX_GAP) continue;
+
+    const candidateY = getBlockAnchorY(candidate);
+    const yGap =
+      Number.isFinite(blockY) && Number.isFinite(candidateY) ? Math.abs(candidateY - blockY) : indexGap * 120;
+    if (yGap > OCR_TIMESTAMP_FALLBACK_MAX_Y_GAP_PX) continue;
+
+    const candidateLooksSupported =
+      (Array.isArray(candidate?.directUrls) && candidate.directUrls.length > 0) ||
+      (candidate?.shareCardTitle && !candidate?.skipReason);
+    const blockLooksSupported =
+      (Array.isArray(block?.directUrls) && block.directUrls.length > 0) ||
+      (block?.shareCardTitle && !block?.skipReason);
+    const supportPenalty = candidateLooksSupported === blockLooksSupported ? 0 : 250;
+    const score = supportPenalty + indexGap * 1000 + yGap;
+    if (!best || score < best.score) {
+      best = { timestampText: candidate.timestampText, score };
+    }
+  }
+
+  return best?.timestampText ?? null;
+}
+
+function applyOcrTimestampFallback(blocks) {
+  return blocks.map((block, index) => {
+    if (block?.timestampText || !isOcrOnlyBlock(block)) return block;
+    const inferredTimestampText = inferTimestampTextForBlock(blocks, index);
+    if (!inferredTimestampText) return block;
+    return {
+      ...block,
+      timestampText: inferredTimestampText,
+      inferredTimestampText,
+    };
+  });
 }
 
 function buildBlockSignature(block) {
@@ -946,6 +1090,16 @@ function hasCandidateForActionableShareCards(blocks, candidateMap) {
   );
   if (actionableBlocks.length === 0) return true;
   return actionableBlocks.some((block) => candidateMap.has(block.blockId));
+}
+
+function classifyViewerContentSkipReason(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const text = lines.map((line) => String(line?.text ?? "").trim()).filter(Boolean).join("\n");
+  if (!text) return null;
+  if (/微信公众平台|mp\.weixin\.qq\.com/i.test(text)) return null;
+  if (looksLikeVideoChannelText(text, lines.map((line) => line?.text ?? ""))) return "video_channel";
+  if (looksLikeBilibiliVideoText(text)) return "bilibili_video";
+  return null;
 }
 
 export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) {
@@ -1233,11 +1387,13 @@ export async function scanUiLinks(
 
   const records = [];
   const uncertainRecords = [];
+  const pendingRecords = [];
   const skippedRecords = [];
   const seenUrls = new Set();
   const seenUncertainUrls = new Set();
   const seenKeys = new Set();
   const seenSkippedKeys = new Set();
+  const seenPendingKeys = new Set();
   const articleStates = new Map();
   const seenPages = new Set();
   const artifactDir = runDir ? path.join(runDir, "artifacts") : null;
@@ -1263,6 +1419,34 @@ export async function scanUiLinks(
       dedupe_key: key,
       capture_session_id: sessionId,
       source: "ui",
+    });
+  }
+
+  function pushPendingRecord({ title = "", rawText = "", pendingReason, articleFingerprint = "" }) {
+    if (!pendingReason) return;
+
+    const dedupeBasis = articleFingerprint || title || truncateComparableText(rawText, 40) || pendingReason;
+    const key = dedupeKey(
+      FILE_HELPER_CHAT_NAME,
+      `${since.toISOString()}|${until.toISOString()}`,
+      `pending:${pendingReason}:${dedupeBasis}`
+    );
+    if (seenPendingKeys.has(key)) return;
+    seenPendingKeys.add(key);
+
+    pendingRecords.push({
+      captured_at: capturedAt.toISOString(),
+      message_time: null,
+      chat_name: FILE_HELPER_CHAT_NAME,
+      record_type: "pending_item",
+      title: title || "(untitled pending item)",
+      raw_text: rawText || "",
+      pending_reason: pendingReason,
+      dedupe_key: key,
+      capture_session_id: sessionId,
+      source: "ui",
+      pending_window_since: since.toISOString(),
+      pending_window_until: until.toISOString(),
     });
   }
 
@@ -1321,7 +1505,7 @@ export async function scanUiLinks(
       });
     }
 
-    const pageBlocks = normalizeSnapshotBlocks(page.clipboardSnapshot);
+    const pageBlocks = applyOcrTimestampFallback(normalizeSnapshotBlocks(page.clipboardSnapshot));
     if (page.samplingMode === "ocr_plus_clipboard") {
       stats.clipboard_reads += 1;
     } else if (page.samplingMode === "ocr_only") {
@@ -1410,6 +1594,34 @@ export async function scanUiLinks(
           : null;
 
       if (directRecords.length > 0 || uncertainDirectRecords.length > 0) {
+        if (!messageTime && isOcrOnlyBlock(block)) {
+          pushPendingRecord({
+            title: block.shareCardTitle ?? directRecords[0] ?? uncertainDirectRecords[0]?.url ?? "",
+            rawText: block.rawText,
+            pendingReason: "missing_timestamp",
+            articleFingerprint: articleFingerprint || directRecords[0] || uncertainDirectRecords[0]?.url || "",
+          });
+          if (artifactRecord) {
+            artifactRecord.status = "pending";
+            artifactRecord.reason = "missing_timestamp";
+            artifactRecord.url = directRecords[0] ?? uncertainDirectRecords[0]?.url ?? null;
+            candidateArtifacts.push(artifactRecord);
+          }
+          if (articleFingerprints.length > 0) {
+            upsertArticleState(articleStates, articleFingerprints, {
+              status: "pending",
+              attempted: false,
+              resolved: false,
+              failed: false,
+              skipped: false,
+              lastSeenPage: scrollCount,
+              lastSeenYBand: null,
+            });
+          }
+          stats.uncertain_links_total += uncertainDirectRecords.length;
+          continue;
+        }
+
         for (const skippedEntry of directSkippedEntries) {
           pushSkippedRecord({
             messageTime,
@@ -1551,6 +1763,44 @@ export async function scanUiLinks(
         continue;
       }
 
+      if (!messageTime && isOcrOnlyBlock(block)) {
+        if (existingArticleState) {
+          if (artifactRecord) {
+            artifactRecord.status = "duplicate_skipped";
+            artifactRecord.reason = "article_already_pending";
+            candidateArtifacts.push(artifactRecord);
+          }
+          stats.duplicate_skipped += 1;
+          upsertArticleState(articleStates, articleFingerprints, {
+            lastSeenPage: scrollCount,
+            lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
+          });
+          continue;
+        }
+
+        if (artifactRecord) {
+          artifactRecord.status = "pending";
+          artifactRecord.reason = "missing_timestamp";
+          candidateArtifacts.push(artifactRecord);
+        }
+        pushPendingRecord({
+          title: block.shareCardTitle ?? "",
+          rawText: block.rawText,
+          pendingReason: "missing_timestamp",
+          articleFingerprint,
+        });
+        upsertArticleState(articleStates, articleFingerprints, {
+          status: "pending",
+          attempted: false,
+          resolved: false,
+          failed: false,
+          skipped: false,
+          lastSeenPage: scrollCount,
+          lastSeenYBand: null,
+        });
+        continue;
+      }
+
       if (existingArticleState) {
         if (artifactRecord) {
           artifactRecord.status = "duplicate_skipped";
@@ -1615,7 +1865,26 @@ export async function scanUiLinks(
       stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
       stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
 
-      if (extraction.status === "ok" && extraction.url) {
+      if (extraction.status === "skipped" && extraction.reason) {
+        incrementCount(stats.skipped_by_rule, extraction.reason);
+        artifactRecord.status = "skipped";
+        artifactRecord.reason = extraction.reason;
+        pushSkippedRecord({
+          messageTime,
+          title: candidate.title ?? block.shareCardTitle ?? "",
+          rawText: block.rawText,
+          skipReason: extraction.reason,
+        });
+        upsertArticleState(articleStates, articleFingerprints, {
+          status: "skipped",
+          attempted: true,
+          resolved: false,
+          failed: false,
+          skipped: true,
+          lastSeenPage: scrollCount,
+          lastSeenYBand: candidateYBand,
+        });
+      } else if (extraction.status === "ok" && extraction.url) {
         const canonicalUrl = canonicalizeUrl(extraction.url);
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
@@ -1724,7 +1993,7 @@ export async function scanUiLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, uncertainRecords, skippedRecords, stats };
+  return { records, uncertainRecords, pendingRecords, skippedRecords, stats };
 }
 
 export async function captureVisibleUiPage(
@@ -1793,10 +2062,11 @@ export async function captureVisibleUiPage(
   }
 
   const uiSnapshot = buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds: window });
+  const effectiveBlocks = applyOcrTimestampFallback(uiSnapshot.effectiveBlocks);
   const mergedClipboardSnapshot = {
     ...clipboardSnapshot,
-    blocks: uiSnapshot.effectiveBlocks,
-    items: uiSnapshot.effectiveItems,
+    blocks: effectiveBlocks,
+    items: effectiveBlocks.map(blockToSnapshotItem).filter(Boolean),
     stats: {
       ...clipboardSnapshot.stats,
       share_cards_seen:
@@ -2442,6 +2712,43 @@ export async function extractShareCardUrl(
       content_lines: readyViewerContext.ocrAnalysis?.contentLines ?? 0,
       metadata_lines: readyViewerContext.ocrAnalysis?.metadataLines ?? 0,
     });
+  }
+
+  const viewerSkipReason = classifyViewerContentSkipReason(readyViewerContext.ocrResult);
+  if (viewerSkipReason) {
+    const closeStartedAt = Date.now();
+    const closeResult = normalizeCloseViewerResult(
+      closeViewerWindowFn(beforeWindows, { debug }),
+      beforeWindows,
+      getFrontWeChatWindowFn
+    );
+    let recovered = false;
+    if (closeResult.closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
+      recovered = true;
+    } else {
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    if (!recovered && typeof recoverChatFn === "function") {
+      await recoverChatFn(debug);
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
+    if (!closeResult.closed || !recovered) {
+      return {
+        status: "failed",
+        reason: !closeResult.closed ? "viewer_not_closed" : "chat_not_recovered",
+        url: null,
+        usedBrowserFallback: false,
+        timings,
+      };
+    }
+    return {
+      status: "skipped",
+      reason: viewerSkipReason,
+      url: null,
+      usedBrowserFallback: false,
+      timings,
+    };
   }
 
   let url = null;

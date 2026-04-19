@@ -293,6 +293,92 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 0);
   });
 
+  it("keeps md-titled article cards actionable while still skipping true markdown-like docs and long plain text", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "一个.md 文件让AI 学会审", x: 1016, y: 566, width: 300, height: 32 },
+          { text: "美：30+大厂设计系统免费..", x: 1016, y: 606, width: 320, height: 32 },
+          { text: "Awesome Design MD", x: 1016, y: 646, width: 220, height: 24 },
+          { text: "Yesterday 18:04", x: 420, y: 760, width: 150, height: 22 },
+          { text: "README.md", x: 1016, y: 806, width: 180, height: 32 },
+          { text: "12 KB", x: 1016, y: 846, width: 80, height: 24 },
+          { text: "Yesterday 18:03", x: 420, y: 930, width: 150, height: 22 },
+          { text: "另外一个是关于问题的设置", x: 1016, y: 970, width: 320, height: 32 },
+          { text: "这个实现其实会带来两个问题，", x: 1016, y: 1010, width: 360, height: 32 },
+          { text: "因为它会绕过时间窗，还会重复打开，", x: 1016, y: 1050, width: 420, height: 32 },
+          { text: "所以这类纯文本块不应该进入 viewer。", x: 1016, y: 1090, width: 440, height: 32 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 3);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, null);
+    assert.equal(snapshot.ocrFallbackBlocks[1].skipReason, "markdown_doc_card");
+    assert.equal(snapshot.ocrFallbackBlocks[2].skipReason, "plain_text_block");
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].title, "一个.md 文件让AI 学会审 美：30+大厂设计系统免费..");
+  });
+
+  it("marks video-channel style OCR cards as skipped before candidate generation", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "这条内容很有意思", x: 1016, y: 566, width: 320, height: 32 },
+          { text: "+关注", x: 1016, y: 606, width: 110, height: 32 },
+          { text: "8个朋友关注", x: 1016, y: 646, width: 180, height: 24 },
+          { text: "视频号", x: 1016, y: 686, width: 100, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, "video_channel");
+    assert.equal(snapshot.candidates.length, 0);
+  });
+
+  it("marks follow-heavy video-channel OCR cards as skipped even without the explicit 视频号 label", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "创业者用AI神级外挂", x: 1016, y: 566, width: 320, height: 32 },
+          { text: "+关注", x: 1016, y: 606, width: 110, height: 32 },
+          { text: "8个朋友关注", x: 1016, y: 646, width: 180, height: 24 },
+          { text: "原声", x: 1016, y: 686, width: 80, height: 24 },
+          { text: "点赞 评论 转发", x: 1016, y: 726, width: 180, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, "video_channel");
+    assert.equal(snapshot.candidates.length, 0);
+  });
+
   it("finds copy-link menu actions from OCR output", () => {
     const line = findMenuActionLine(
       [
@@ -1228,7 +1314,7 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.duplicate_skipped, 1);
   });
 
-  it("deduplicates the same untimed article across pages when OCR title drifts", async () => {
+  it("keeps untimed OCR-only articles out of formal results and deduplicates them across pages", async () => {
     let extractorCalls = 0;
     let captureCalls = 0;
 
@@ -1301,6 +1387,297 @@ describe("scanUiLinks", () => {
               viewer_copy_wait_ms: 40,
               viewer_close_wait_ms: 50,
             },
+          };
+        },
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.pendingRecords.length, 1);
+    assert.equal(result.pendingRecords[0].record_type, "pending_item");
+    assert.equal(result.pendingRecords[0].pending_reason, "missing_timestamp");
+    assert.equal(result.stats.duplicate_skipped, 1);
+  });
+
+  it("infers a nearby timestamp for supported OCR-only articles before opening the viewer", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-29T00:00:00+08:00"),
+      new Date("2026-03-29T23:59:59+08:00"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: "Today 09:51",
+                rawLines: ["前一条有时间"],
+                rawText: "前一条有时间",
+                directUrls: [],
+                shareCardTitle: null,
+                skipReason: null,
+              },
+              {
+                blockId: "ocr-item-1",
+                timestampText: null,
+                rawLines: ["刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书"],
+                rawText: "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书",
+                directUrls: [],
+                shareCardTitle: "刚刚，飞书CLI开源，Claude",
+                skipReason: null,
+                ocrCluster: [
+                  { text: "刚刚，飞书CLI开源，Claude", x: 1016, y: 620, width: 360, height: 32 },
+                ],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-1",
+              { itemKey: "ocr-item-1", title: "刚刚，飞书CLI开源，Claude", clickX: 500, clickY: 400 },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/inferred-timestamp-1",
+            usedBrowserFallback: false,
+            timings: {
+              viewer_open_wait_ms: 10,
+              viewer_ready_wait_ms: 20,
+              viewer_menu_wait_ms: 30,
+              viewer_copy_wait_ms: 40,
+              viewer_close_wait_ms: 50,
+            },
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.stats.share_cards_attempted, 1);
+    assert.equal(result.records[0].url, "https://mp.weixin.qq.com/s/inferred-timestamp-1");
+  });
+
+  it("infers a grouped timestamp for supported OCR-only articles even when a skipped block sits between them", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-29T00:00:00+08:00"),
+      new Date("2026-03-29T23:59:59+08:00"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: "Today 09:51",
+                rawLines: ["上一条同组文章"],
+                rawText: "上一条同组文章",
+                directUrls: [],
+                shareCardTitle: "上一条同组文章",
+                skipReason: null,
+                ocrCluster: [{ text: "上一条同组文章", x: 1016, y: 520, width: 260, height: 32 }],
+              },
+              {
+                blockId: "ocr-item-1",
+                timestampText: null,
+                rawLines: ["+关注", "8个朋友关注", "原声"],
+                rawText: "+关注 8个朋友关注 原声",
+                directUrls: [],
+                shareCardTitle: "创业者用AI神级外挂",
+                skipReason: "video_channel",
+                ocrCluster: [{ text: "创业者用AI神级外挂", x: 1016, y: 620, width: 320, height: 32 }],
+              },
+              {
+                blockId: "ocr-item-2",
+                timestampText: null,
+                rawLines: ["暴雪前首席创意官：我们无法", "决定一款游戏是否能长久，…", "游戏研究社"],
+                rawText: "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，… 游戏研究社",
+                directUrls: [],
+                shareCardTitle: "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，…",
+                skipReason: null,
+                ocrCluster: [{ text: "暴雪前首席创意官：我们无法", x: 1016, y: 760, width: 360, height: 32 }],
+              },
+            ],
+            stats: { share_cards_seen: 3, share_cards_unresolved: 1, skipped_by_rule: { video_channel: 1 } },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-2",
+              {
+                itemKey: "ocr-item-2",
+                title: "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，…",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/inferred-timestamp-grouped-1",
+            usedBrowserFallback: false,
+            timings: {
+              viewer_open_wait_ms: 10,
+              viewer_ready_wait_ms: 20,
+              viewer_menu_wait_ms: 30,
+              viewer_copy_wait_ms: 40,
+              viewer_close_wait_ms: 50,
+            },
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.records[0].url, "https://mp.weixin.qq.com/s/inferred-timestamp-grouped-1");
+  });
+
+  it("does not open OCR-only cards that are outside the requested time range", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-29T00:00:00+08:00"),
+      new Date("2026-03-29T23:59:59+08:00"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书"],
+                rawText: "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书",
+                directUrls: [],
+                shareCardTitle: "刚刚，飞书CLI开源，Claude",
+                skipReason: null,
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-0",
+              { itemKey: "ocr-item-0", title: "刚刚，飞书CLI开源，Claude", clickX: 500, clickY: 400 },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.stats.share_cards_attempted, 0);
+  });
+
+  it("deduplicates multi-line articles across pages even when the inferred timestamp drifts slightly", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-29T00:00:00+08:00"),
+      new Date("2026-03-29T23:59:59+08:00"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [
+                {
+                  blockId: `ocr-item-${captureCalls}`,
+                  timestampText: captureCalls === 1 ? "Today 23:17" : "Today 23:18",
+                  rawLines:
+                    captureCalls === 1
+                      ? ["暴雪前首席创意官：我们无法", "决定一款游戏是否能长久，…", "游戏研究社"]
+                      : ["暴雪前首席创意官：我们无法", "决定一款游戏是否能长久，⋯", "游戏研究社"],
+                  rawText:
+                    captureCalls === 1
+                      ? "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，… 游戏研究社"
+                      : "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，⋯ 游戏研究社",
+                  directUrls: [],
+                  shareCardTitle: "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，…",
+                  skipReason: null,
+                },
+              ],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([
+              [
+                `ocr-item-${captureCalls}`,
+                {
+                  itemKey: `ocr-item-${captureCalls}`,
+                  title: "暴雪前首席创意官：我们无法 决定一款游戏是否能长久，…",
+                  clickX: 500,
+                  clickY: 400,
+                },
+              ],
+            ]),
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/blizzard-duplicate-1",
+            usedBrowserFallback: false,
           };
         },
         scrollPageFn: () => {},

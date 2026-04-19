@@ -244,6 +244,30 @@ export function parseWeChatTimestamp(text, referenceDate) {
   return null;
 }
 
+const TZ_SUFFIX_RE = /(z|[+-]\d{2}:\d{2})$/i;
+
+export function parseUserDateTimeInput(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return null;
+
+  const normalized = TZ_SUFFIX_RE.test(value) ? value : `${value}+08:00`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatCstDateTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+
+  const cst = toCSTDate(date);
+  const year = cst.getUTCFullYear();
+  const month = String(cst.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(cst.getUTCDate()).padStart(2, "0");
+  const hour = String(cst.getUTCHours()).padStart(2, "0");
+  const minute = String(cst.getUTCMinutes()).padStart(2, "0");
+  const second = String(cst.getUTCSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`;
+}
+
 /** Decompose a Date into CST (UTC+8) year/month/day components. */
 function toCST(date) {
   const cstMs = date.getTime() + 8 * 60 * 60 * 1000;
