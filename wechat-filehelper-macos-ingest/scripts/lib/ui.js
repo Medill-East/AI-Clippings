@@ -68,7 +68,7 @@ const OCR_TIMESTAMP_FALLBACK_MAX_Y_GAP_PX = 420;
 const VIEWER_OPEN_SETTLE_MS = 160;
 const VIEWER_DETECT_TIMEOUT_MS = 900;
 const VIEWER_DETECT_POLL_MS = 60;
-const VIEWER_READY_TIMEOUT_MS = 420;
+const VIEWER_READY_TIMEOUT_MS = 1800;
 const VIEWER_READY_POLL_MS = 40;
 const VIEWER_MENU_SETTLE_MS = 45;
 const VIEWER_COPY_SETTLE_MS = 0;
@@ -2667,6 +2667,22 @@ function viewerLooksLoading(ocrResult) {
   return lines.some((line) => /\bloading\b/i.test(line?.text ?? ""));
 }
 
+function viewerContextReadyState(viewerContext) {
+  const scopedOcrResult = viewerContext?.viewerOcrResult ?? viewerContext?.ocrResult;
+  const ocrAnalysis = viewerContext?.ocrAnalysis ?? {};
+
+  if (viewerLooksLoading(scopedOcrResult)) return "loading";
+  if (ocrAnalysis.matched) return "ready";
+  if (classifyViewerContentSkipReason(scopedOcrResult)) return "ready";
+  if (ocrAnalysis.titleLine) return "partial_title";
+  return "unknown";
+}
+
+function viewerContextStillLoading(viewerContext) {
+  const state = viewerContextReadyState(viewerContext);
+  return state === "loading" || state === "partial_title";
+}
+
 function shouldStopViewerMenuProbing(viewerContext, currentWindows, frontWindow) {
   if (!viewerContext?.window || viewerContext.mode === "ocr_detected") {
     return false;
@@ -2979,10 +2995,13 @@ async function waitForViewerReady(
   } = {}
 ) {
   let currentContext = viewerContext;
-  const initiallyLoading = viewerLooksLoading(currentContext?.viewerOcrResult ?? currentContext?.ocrResult);
-  const initiallyReady = !initiallyLoading && Boolean(currentContext?.ocrAnalysis?.titleLine);
+  const initiallyReady = viewerContextReadyState(currentContext) === "ready";
 
   if (initiallyReady) {
+    return currentContext;
+  }
+
+  if (!viewerContextStillLoading(currentContext)) {
     return currentContext;
   }
 
@@ -3022,7 +3041,11 @@ async function waitForViewerReady(
       await fs.rm(screenshotPath, { force: true }).catch(() => {});
     }
 
-    if (!viewerLooksLoading(viewerOcrResult) && (ocrAnalysis.titleLine || ocrAnalysis.matched)) {
+    const readyState = viewerContextReadyState(currentContext);
+    if (readyState === "ready") {
+      return currentContext;
+    }
+    if (readyState === "unknown") {
       return currentContext;
     }
   }
@@ -3193,6 +3216,43 @@ export async function extractShareCardUrl(
       content_lines: readyViewerContext.ocrAnalysis?.contentLines ?? 0,
       metadata_lines: readyViewerContext.ocrAnalysis?.metadataLines ?? 0,
     });
+  }
+
+  const readyState = viewerContextReadyState(readyViewerContext);
+  if (readyState === "loading" || readyState === "partial_title") {
+    const closeStartedAt = Date.now();
+    const closeResult = normalizeCloseViewerResult(
+      closeViewerWindowFn(beforeWindows, { debug }),
+      beforeWindows,
+      getFrontWeChatWindowFn
+    );
+    let recovered = false;
+    if (closeResult.closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
+      recovered = true;
+    } else {
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    if (!recovered && typeof recoverChatFn === "function") {
+      await recoverChatFn(debug);
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
+    if (!closeResult.closed || !recovered) {
+      return {
+        status: "failed",
+        reason: !closeResult.closed ? "viewer_not_closed" : "chat_not_recovered",
+        url: null,
+        usedBrowserFallback: false,
+        timings,
+      };
+    }
+    return {
+      status: "failed",
+      reason: "viewer_not_ready",
+      url: null,
+      usedBrowserFallback: false,
+      timings,
+    };
   }
 
   if (viewerContextLooksMismatched(readyViewerContext, candidate)) {

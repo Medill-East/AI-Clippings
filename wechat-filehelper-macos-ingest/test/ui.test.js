@@ -2987,6 +2987,72 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.url, "https://mp.weixin.qq.com/s/loading-ready-123");
   });
 
+  it("waits for article content after the title appears before opening the menu", async () => {
+    let windowsCall = 0;
+    let ocrCall = 0;
+    const result = await extractShareCardUrl(
+      { title: "第一篇文章非常长的标题", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "main", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => {
+          ocrCall += 1;
+          if (ocrCall < 3) {
+            return {
+              width: 2880,
+              height: 1800,
+              lines: [
+                { text: "第一篇文章非常长的标题", x: 120, y: 80, width: 720, height: 42 },
+                { text: "A Summary Provided by yuanbao", x: 960, y: 92, width: 330, height: 26 },
+              ],
+            };
+          }
+          return {
+            width: 2880,
+            height: 1800,
+            lines: [
+              { text: "第一篇文章非常长的标题", x: 120, y: 80, width: 720, height: 42 },
+              { text: "原创", x: 120, y: 148, width: 70, height: 30 },
+              { text: "数字生命卡兹克", x: 220, y: 148, width: 180, height: 30 },
+              { text: "最近一直在聊Agent，聊Vibe Coding。", x: 120, y: 240, width: 620, height: 36 },
+              { text: "但是在给越来越多的朋友安利的时候，发现其实。", x: 120, y: 300, width: 620, height: 36 },
+              { text: "真正卡住大多数人的，是自己没有一个标准的工作流程。", x: 120, y: 360, width: 760, height: 36 },
+              { text: "特别在创造一个你想要的软件或者程序的时候。", x: 120, y: 420, width: 680, height: 36 },
+            ],
+          };
+        },
+        openViewerMenuFn: async (viewerContext) => {
+          assert.equal(viewerContext.ocrAnalysis.matched, true);
+          assert.equal(viewerContext.ocrAnalysis.contentLines >= 4, true);
+          return {
+            copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+            browserLine: null,
+            ocrResult: { lines: [] },
+          };
+        },
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/title-before-content-123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/title-before-content-123");
+  });
+
   it("retries the first viewer-menu point before shifting to safer nearby offsets", async () => {
     let windowsCall = 0;
     const clicks = [];
