@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   buildUiSnapshot,
@@ -7,6 +10,7 @@ import {
   extractShareCardUrl,
   findFileHelperTitleLine,
   findMenuActionLine,
+  inferShareCardItemsFromOcr,
   mapOcrRectCenterToScreenPoint,
   probeUiEnvironment,
   scanUiLinks,
@@ -57,8 +61,8 @@ describe("ui helpers", () => {
         height: 700,
         lines: [
           { text: "文件传输助手", x: 240, y: 20, width: 120, height: 24 },
-          { text: "第一篇文章", x: 180, y: 220, width: 180, height: 28 },
-          { text: "第二篇文章", x: 180, y: 330, width: 180, height: 28 },
+          { text: "第一篇文章", x: 580, y: 220, width: 180, height: 28 },
+          { text: "第二篇文章", x: 580, y: 330, width: 180, height: 28 },
         ],
       },
       windowBounds: { x: 100, y: 200, width: 900, height: 700 },
@@ -68,8 +72,34 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 2);
     assert.equal(snapshot.candidates[0].itemKey, "item-1");
     assert.equal(snapshot.candidates[1].itemKey, "item-2");
-    assert.equal(snapshot.candidates[0].clickX, 370);
+    assert.equal(snapshot.candidates[0].clickX, 770);
     assert.equal(snapshot.candidates[0].clickY, 434);
+  });
+
+  it("keeps OCR-only fallback clicks in the right chat pane when the sidebar has similar text", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        items: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "姚顺宇4小时深度访谈，我们", x: 235, y: 300, width: 320, height: 28 },
+          { text: "姚顺宇4小时深度访谈，我们", x: 925, y: 496, width: 365, height: 38 },
+          { text: "概括为30句话", x: 925, y: 537, width: 188, height: 32 },
+          { text: "AI这个事，本来也不太", x: 925, y: 588, width: 244, height: 32 },
+          { text: "人人都是产品经理", x: 966, y: 700, width: 193, height: 30 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 780, height: 923 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].matchReason, "cluster_fallback");
+    assert.ok(snapshot.candidates[0].clickX > 450);
   });
 
   it("falls back to OCR-only share-card discovery when clipboard has no share cards", () => {
@@ -97,6 +127,38 @@ describe("ui helpers", () => {
     assert.equal(snapshot.effectiveBlocks[0].timestampText, "Yesterday 18:05");
     assert.equal(snapshot.candidates.length, 1);
     assert.equal(snapshot.candidates[0].itemKey, snapshot.effectiveBlocks[0].blockId);
+  });
+
+  it("does not assign left sidebar timestamps to right-pane OCR-only cards", () => {
+    const items = inferShareCardItemsFromOcr(
+      [
+        { text: "11:23", x: 523, y: 818, width: 54, height: 22 },
+        { text: "装了这个AI热点Skill之后，", x: 928, y: 496, width: 333, height: 38 },
+        { text: "你再也不需要自己去刷AI新..", x: 928, y: 537, width: 368, height: 32 },
+        { text: "Agent万岁", x: 925, y: 587, width: 118, height: 30 },
+      ],
+      { imageWidth: 1600, imageHeight: 1800 }
+    );
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].timestampText, null);
+  });
+
+  it("keeps multi-line article cards supported instead of treating them as plain text", () => {
+    const items = inferShareCardItemsFromOcr(
+      [
+        { text: "从创意到上线全托管，单人靠", x: 928, y: 496, width: 360, height: 38 },
+        { text: "AI 也能做出专业级游戏，零⋯", x: 928, y: 537, width: 360, height: 32 },
+        { text: "想做游戏要全能，缺技", x: 928, y: 590, width: 240, height: 30 },
+        { text: "能就卡壳；想组队没预", x: 928, y: 622, width: 240, height: 30 },
+        { text: "算没资源，代码越写…", x: 928, y: 654, width: 240, height: 30 },
+        { text: "AI架构之道", x: 934, y: 724, width: 132, height: 28 },
+      ],
+      { imageWidth: 1600, imageHeight: 1800 }
+    );
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].skipReason, null);
   });
 
   it("does not turn URL-like OCR text into fallback share cards when clipboard already has a direct URL block", () => {
@@ -328,6 +390,38 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates[0].title, "一个.md 文件让AI 学会审 美：30+大厂设计系统免费..");
   });
 
+  it("keeps text-share cards actionable without treating them as plain text", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 420, y: 520, width: 150, height: 22 },
+          { text: "花叔的文字分享", x: 1016, y: 566, width: 240, height: 32 },
+          { text: "花了大半天把张小珺访", x: 1016, y: 606, width: 320, height: 32 },
+          { text: "谈姚顺宇的4小时长访", x: 1016, y: 646, width: 300, height: 32 },
+          { text: "花叔", x: 1016, y: 706, width: 80, height: 24 },
+          { text: "Yesterday 18:04", x: 420, y: 820, width: 150, height: 22 },
+          { text: "视频号文字分享", x: 1016, y: 866, width: 220, height: 32 },
+          { text: "+关注", x: 1016, y: 906, width: 110, height: 32 },
+          { text: "点赞 评论 转发", x: 1016, y: 946, width: 180, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 2);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, null);
+    assert.equal(snapshot.ocrFallbackBlocks[0].cardType, "text_share_card");
+    assert.equal(snapshot.ocrFallbackBlocks[1].skipReason, "video_channel");
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].cardType, "text_share_card");
+  });
+
   it("marks video-channel style OCR cards as skipped before candidate generation", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
@@ -461,7 +555,7 @@ describe("ui helpers", () => {
           height: 700,
           lines: [
             { text: "File Transfer", x: 240, y: 20, width: 120, height: 24 },
-            { text: "第一篇文章", x: 180, y: 220, width: 180, height: 28 },
+            { text: "第一篇文章", x: 580, y: 220, width: 180, height: 28 },
           ],
         },
       },
@@ -671,6 +765,90 @@ describe("ui helpers", () => {
     assert.equal(result.records.length, 0);
     assert.equal(result.stats.share_cards_attempted, 0);
     assert.equal(result.stats.share_cards_unresolved, 1);
+  });
+
+  it("does not open a share card when the generated click point is outside the right chat pane", async () => {
+    let attemptedExtraction = false;
+    const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-ui-unsafe-click-"));
+
+    const result = await scanUiLinks(
+      new Date("2026-05-17T00:00:00+08:00"),
+      new Date("2026-05-17T23:59:59+08:00"),
+      0,
+      false,
+      {
+        runDir,
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          window: { x: 0, y: 0, width: 780, height: 923 },
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: null,
+                rawLines: ["姚顺宇4小时深度访谈，我们", "概括为30句话", "人人都是产品经理"],
+                rawText: "姚顺宇4小时深度访谈，我们\n概括为30句话\n人人都是产品经理",
+                directUrls: [],
+                shareCardTitle: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                skipReason: null,
+                ocrCluster: [],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-0",
+              {
+                itemKey: "ocr-item-0",
+                blockId: "ocr-item-0",
+                title: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                clickX: 190,
+                clickY: 300,
+                matchReason: "sidebar_title_match",
+                line: { x: 230, y: 280, width: 320, height: 28, text: "姚顺宇4小时深度访谈，我们" },
+              },
+            ],
+          ]),
+          urlLikeSignature: "",
+        }),
+        extractShareCardUrlFn: async () => {
+          attemptedExtraction = true;
+          throw new Error("should not attempt extraction for unsafe click points");
+        },
+        scrollPageFn: () => {},
+        nowFn: () => new Date("2026-05-17T12:00:00+08:00"),
+      }
+    );
+
+    assert.equal(attemptedExtraction, false);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.stats.share_cards_attempted, 0);
+    assert.equal(result.stats.share_cards_unresolved, 1);
+
+    const candidates = JSON.parse(
+      fs.readFileSync(path.join(runDir, "artifacts", "candidates.json"), "utf8")
+    );
+    assert.equal(candidates[0].click_safety_status, "outside_right_chat_pane");
+    assert.equal(candidates[0].match_reason, "sidebar_title_match");
+    assert.deepEqual(candidates[0].screen_click_point, { x: 190, y: 300 });
+    assert.deepEqual(candidates[0].window_bounds, { x: 0, y: 0, width: 780, height: 923 });
+    assert.deepEqual(candidates[0].candidate_ocr_rect, {
+      x: 230,
+      y: 280,
+      width: 320,
+      height: 28,
+      text: "姚顺宇4小时深度访谈，我们",
+    });
+
+    fs.rmSync(runDir, { recursive: true, force: true });
   });
 
   it("skips repeated clipboard reads when the next page has the same URL-like OCR signature", async () => {
@@ -1401,6 +1579,436 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.duplicate_skipped, 1);
   });
 
+  it("opens untimed supported OCR-only articles when the scan run time is inside the requested window", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-09T23:00:00+08:00"),
+      new Date("2026-05-10T23:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-10T11:25:11+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: null,
+                rawLines: ["装了这个AI热点Skill之后，", "你再也不需要自己去刷AI新..", "Agent万岁"],
+                rawText: "装了这个AI热点Skill之后，\n你再也不需要自己去刷AI新..\nAgent万岁",
+                directUrls: [],
+                shareCardTitle: "装了这个AI热点Skill之后， 你再也不需要自己去刷AI新..",
+                skipReason: null,
+                ocrCluster: [
+                  { text: "装了这个AI热点Skill之后，", x: 928, y: 496, width: 333, height: 38 },
+                ],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-0",
+              {
+                itemKey: "ocr-item-0",
+                title: "装了这个AI热点Skill之后， 你再也不需要自己去刷AI新..",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/batch-forward-untimed-1",
+            usedBrowserFallback: false,
+            timings: {
+              viewer_open_wait_ms: 10,
+              viewer_ready_wait_ms: 20,
+              viewer_menu_wait_ms: 30,
+              viewer_copy_wait_ms: 40,
+              viewer_close_wait_ms: 50,
+            },
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.records[0].time_confidence, "window_assumed");
+    assert.equal(result.records[0].message_time, "2026-05-10T03:25:11.000Z");
+  });
+
+  it("opens untimed supported OCR-only articles for same-day windows even after the window has ended", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-17T00:00:00+08:00"),
+      new Date("2026-05-17T11:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-17T12:27:53+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: null,
+                rawLines: ["姚顺宇4小时深度访谈，我们", "概括为30句话", "人人都是产品经理"],
+                rawText: "姚顺宇4小时深度访谈，我们\n概括为30句话\n人人都是产品经理",
+                directUrls: [],
+                shareCardTitle: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                skipReason: null,
+                ocrCluster: [
+                  { text: "姚顺宇4小时深度访谈，我们", x: 1016, y: 566, width: 360, height: 32 },
+                ],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-0",
+              {
+                itemKey: "ocr-item-0",
+                title: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/same-day-window-assumed-1",
+            usedBrowserFallback: false,
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.records[0].time_confidence, "window_assumed");
+    assert.equal(result.records[0].message_time, "2026-05-17T03:59:59.000Z");
+  });
+
+  it("keeps untimed supported OCR-only articles pending for historical windows outside the scan day", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-16T00:00:00+08:00"),
+      new Date("2026-05-16T23:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-17T12:27:53+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: null,
+                rawLines: ["姚顺宇4小时深度访谈，我们", "概括为30句话", "人人都是产品经理"],
+                rawText: "姚顺宇4小时深度访谈，我们\n概括为30句话\n人人都是产品经理",
+                directUrls: [],
+                shareCardTitle: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                skipReason: null,
+                cardType: "single_article_card",
+                ocrCluster: [
+                  { text: "姚顺宇4小时深度访谈，我们", x: 1016, y: 566, width: 360, height: 32 },
+                ],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            [
+              "ocr-item-0",
+              {
+                itemKey: "ocr-item-0",
+                title: "姚顺宇4小时深度访谈，我们 概括为30句话",
+                cardType: "single_article_card",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.pendingRecords.length, 1);
+    assert.equal(result.pendingRecords[0].pending_reason, "missing_timestamp");
+  });
+
+  it("skips unsupported OCR-only image, symbol, and plain-text blocks instead of opening them", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-17T00:00:00+08:00"),
+      new Date("2026-05-17T23:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-17T12:27:53+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: "Today 11:03",
+                rawLines: ["◎ ©④"],
+                rawText: "◎ ©④",
+                directUrls: [],
+                shareCardTitle: "◎ ©④",
+                skipReason: null,
+                cardType: null,
+                ocrCluster: [{ text: "◎ ©④", x: 1016, y: 566, width: 120, height: 32 }],
+              },
+              {
+                blockId: "ocr-item-1",
+                timestampText: "Today 11:04",
+                rawLines: ["一张图片", "Image", "Photo"],
+                rawText: "一张图片\nImage\nPhoto",
+                directUrls: [],
+                shareCardTitle: "一张图片",
+                skipReason: null,
+                cardType: null,
+                ocrCluster: [{ text: "一张图片", x: 1016, y: 666, width: 180, height: 32 }],
+              },
+              {
+                blockId: "ocr-item-2",
+                timestampText: "Today 11:05",
+                rawLines: [
+                  "这是一段普通文字，里面有很多描述。",
+                  "它不是链接卡片，也不是公众号来源。",
+                  "继续写几句只是为了形成长文本块。",
+                ],
+                rawText:
+                  "这是一段普通文字，里面有很多描述。\n它不是链接卡片，也不是公众号来源。\n继续写几句只是为了形成长文本块。",
+                directUrls: [],
+                shareCardTitle: "这是一段普通文字，里面有很多描述。",
+                skipReason: null,
+                cardType: null,
+                ocrCluster: [
+                  { text: "这是一段普通文字，里面有很多描述。", x: 1016, y: 766, width: 460, height: 32 },
+                ],
+              },
+            ],
+            stats: { share_cards_seen: 3, share_cards_unresolved: 3, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            ["ocr-item-0", { itemKey: "ocr-item-0", title: "◎ ©④", clickX: 500, clickY: 400 }],
+            ["ocr-item-1", { itemKey: "ocr-item-1", title: "一张图片", clickX: 500, clickY: 500 }],
+            [
+              "ocr-item-2",
+              { itemKey: "ocr-item-2", title: "这是一段普通文字，里面有很多描述。", clickX: 500, clickY: 600 },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.skippedRecords.length, 3);
+    assert.deepEqual(
+      result.skippedRecords.map((record) => record.skip_reason).sort(),
+      ["image_card", "plain_text_block", "unsupported_ocr_card"]
+    );
+  });
+
+  it("opens text-share OCR-only cards as supported records inside the requested window", async () => {
+    let extractorCalls = 0;
+    let snapshot = null;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-17T00:00:00+08:00"),
+      new Date("2026-05-17T23:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-17T11:03:00+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          snapshot = buildUiSnapshot({
+            clipboardSnapshot: { rawText: "", blocks: [] },
+            ocrResult: {
+              width: 1560,
+              height: 1846,
+              lines: [
+                { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+                { text: "花叔的文字分享", x: 1016, y: 566, width: 240, height: 32 },
+                { text: "花了大半天把张小珺访", x: 1016, y: 606, width: 320, height: 32 },
+                { text: "谈姚顺宇的4小时长访", x: 1016, y: 646, width: 300, height: 32 },
+                { text: "花叔", x: 1016, y: 706, width: 80, height: 24 },
+              ],
+            },
+            windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+          });
+
+          return {
+            window: { x: 100, y: 200, width: 1560, height: 1846 },
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: snapshot.effectiveBlocks,
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map(snapshot.candidates.map((candidate) => [candidate.itemKey, candidate])),
+          };
+        },
+        extractShareCardUrlFn: async (candidate) => {
+          extractorCalls += 1;
+          assert.equal(candidate.cardType, "text_share_card");
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/text-share-window-assumed-1",
+            usedBrowserFallback: false,
+            timings: {
+              viewer_open_wait_ms: 10,
+              viewer_ready_wait_ms: 20,
+              viewer_menu_wait_ms: 30,
+              viewer_copy_wait_ms: 40,
+              viewer_close_wait_ms: 50,
+            },
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].message_type, "text_share");
+    assert.equal(result.records[0].time_confidence, "window_assumed");
+    assert.equal(result.pendingRecords.length, 0);
+  });
+
+  it("does not collapse different text-share cards that share the same author header", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-05-17T00:00:00+08:00"),
+      new Date("2026-05-17T23:59:59+08:00"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-05-17T11:03:00+08:00"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-item-0",
+                timestampText: null,
+                rawLines: ["花叔的文字分享", "花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。", "花叔"],
+                rawText: "花叔的文字分享\n花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。\n花叔",
+                directUrls: [],
+                shareCardTitle: "花叔的文字分享",
+                skipReason: null,
+                cardType: "text_share_card",
+                ocrCluster: [{ text: "花叔的文字分享", x: 1016, y: 566, width: 240, height: 32 }],
+              },
+              {
+                blockId: "ocr-item-1",
+                timestampText: null,
+                rawLines: ["花叔的文字分享", "观察了三年，我把所有人用AI的水平分成了10个等级。", "花叔"],
+                rawText: "花叔的文字分享\n观察了三年，我把所有人用AI的水平分成了10个等级。\n花叔",
+                directUrls: [],
+                shareCardTitle: "花叔的文字分享",
+                skipReason: null,
+                cardType: "text_share_card",
+                ocrCluster: [{ text: "花叔的文字分享", x: 1016, y: 866, width: 240, height: 32 }],
+              },
+            ],
+            stats: { share_cards_seen: 2, share_cards_unresolved: 2, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([
+            ["ocr-item-0", { itemKey: "ocr-item-0", title: "花叔的文字分享", rawText: "花叔的文字分享\n花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。\n花叔", cardType: "text_share_card", clickX: 500, clickY: 400 }],
+            ["ocr-item-1", { itemKey: "ocr-item-1", title: "花叔的文字分享", rawText: "花叔的文字分享\n观察了三年，我把所有人用AI的水平分成了10个等级。\n花叔", cardType: "text_share_card", clickX: 500, clickY: 700 }],
+          ]),
+        }),
+        extractShareCardUrlFn: async (candidate) => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: `https://mp.weixin.qq.com/s/text-share-${candidate.itemKey}`,
+            usedBrowserFallback: false,
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 2);
+    assert.equal(result.records.length, 2);
+    assert.equal(result.stats.duplicate_skipped, 0);
+  });
+
   it("infers a nearby timestamp for supported OCR-only articles before opening the viewer", async () => {
     let extractorCalls = 0;
 
@@ -1438,6 +2046,7 @@ describe("scanUiLinks", () => {
                 directUrls: [],
                 shareCardTitle: "刚刚，飞书CLI开源，Claude",
                 skipReason: null,
+                cardType: "single_article_card",
                 ocrCluster: [
                   { text: "刚刚，飞书CLI开源，Claude", x: 1016, y: 620, width: 360, height: 32 },
                 ],
@@ -1953,6 +2562,175 @@ describe("extractShareCardUrl", () => {
     assert.equal(menuOpened, true);
     assert.equal(result.status, "ok");
     assert.equal(result.url, "https://mp.weixin.qq.com/s/in-place-123");
+  });
+
+  it("ignores bilibili text outside the viewer when deciding viewer skip reason", async () => {
+    let windowsCall = 0;
+    let menuOpened = false;
+    const result = await extractShareCardUrl(
+      {
+        title: "黄仁勋：奔跑吧，为了食物，或者“不成为食物”",
+        rawText: "黄仁勋：奔跑吧，为了食物，或者“不成为食物” AI 时代的起跑线确实被拉平了 罗辑思维",
+        clickX: 500,
+        clickY: 400,
+      },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "File Transfer", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 40, y: 20, width: 980, height: 760 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 40, y: 20, width: 980, height: 760 }),
+        captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 2880, height: 1800 }),
+        recognizeTextFromImageFn: async () => ({
+          width: 2880,
+          height: 1800,
+          lines: [
+            { text: "黄仁勋：奔跑吧，为了食物，", x: 100, y: 120, width: 520, height: 40 },
+            { text: "或者“不成为食物”", x: 100, y: 170, width: 420, height: 40 },
+            { text: "原创 罗辑思维 2026年5月17日", x: 100, y: 230, width: 520, height: 30 },
+            { text: "AI 时代的起跑线确实被拉平了，但新的竞争维度也同时出现了。", x: 100, y: 320, width: 780, height: 34 },
+            { text: "这是一篇正常的公众号文章内容。", x: 100, y: 380, width: 520, height: 34 },
+            { text: "- https://www.bilibili.com/video/BV1YR5E6EE90", x: 1900, y: 700, width: 720, height: 30 },
+            { text: "> bilibili_video", x: 1940, y: 760, width: 260, height: 30 },
+          ],
+        }),
+        openViewerMenuFn: async () => {
+          menuOpened = true;
+          return {
+            copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+            browserLine: null,
+            ocrResult: { lines: [] },
+          };
+        },
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/normal-viewer-123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(menuOpened, true);
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/normal-viewer-123");
+  });
+
+  it("matches text-share viewers by body opener instead of the card header", async () => {
+    let windowsCall = 0;
+    let menuOpened = false;
+
+    const result = await extractShareCardUrl(
+      {
+        title: "花叔的文字分享",
+        rawText: "花叔的文字分享\n花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。\n花叔",
+        cardType: "text_share_card",
+        clickX: 500,
+        clickY: 400,
+      },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "File Transfer", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 0, y: 0, width: 1470, height: 1846 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 0, y: 0, width: 1470, height: 1846 }),
+        captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 1470, height: 1846 }),
+        recognizeTextFromImageFn: async () => ({
+          width: 1470,
+          height: 1846,
+          lines: [
+            { text: "花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。", x: 58, y: 155, width: 1180, height: 42 },
+            { text: "这位去年刚从Anthropic跳到Google DeepMind的哥们，参与过Claude 3.7/4.5和Gemini 3。", x: 58, y: 214, width: 1230, height: 40 },
+            { text: "他说几条我觉得最有意思的：", x: 58, y: 274, width: 500, height: 38 },
+            { text: "1. Google禁止员工用Claude Code，但姚顺宇保守估计自己90%代码是AI生成的。", x: 58, y: 376, width: 1220, height: 40 },
+            { text: "2. 他离开Anthropic的原因里，反对Dario反华占40%。", x: 58, y: 596, width: 900, height: 40 },
+            { text: "3. Claude 3.5/3.6/3.7的命名是个草台班子般的乌龙。", x: 58, y: 704, width: 940, height: 40 },
+            { text: "4. Claude Code是「个人英雄主义的开端」。", x: 58, y: 870, width: 780, height: 40 },
+            { text: "花叔", x: 136, y: 1770, width: 90, height: 32 },
+          ],
+        }),
+        openViewerMenuFn: async (viewerContext) => {
+          menuOpened = true;
+          assert.equal(viewerContext.ocrAnalysis.titleLine?.text, "花了大半天把张小珺访谈姚顺宇的4小时长访听了一遍。");
+          return {
+            copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+            browserLine: null,
+            ocrResult: { lines: [] },
+          };
+        },
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/text-share-copy-link-1",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(menuOpened, true);
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/text-share-copy-link-1");
+  });
+
+  it("does not convert an untrusted viewer context into a bilibili skipped card", async () => {
+    let windowsCall = 0;
+    let menuOpened = false;
+    const result = await extractShareCardUrl(
+      { title: "正常公众号文章标题", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "File Transfer", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 40, y: 20, width: 980, height: 760 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 40, y: 20, width: 980, height: 760 }),
+        captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 2880, height: 1800 }),
+        recognizeTextFromImageFn: async () => ({
+          width: 2880,
+          height: 1800,
+          lines: [
+            { text: "File Transfer", x: 200, y: 120, width: 200, height: 30 },
+            { text: "- https://www.bilibili.com/video/BV1YR5E6EE90", x: 1900, y: 700, width: 720, height: 30 },
+            { text: "> bilibili_video", x: 1940, y: 760, width: 260, height: 30 },
+          ],
+        }),
+        openViewerMenuFn: async () => {
+          menuOpened = true;
+          return {
+            copyLine: null,
+            browserLine: null,
+            ocrResult: { lines: [] },
+          };
+        },
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(menuOpened, false);
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "viewer_context_mismatch");
   });
 
   it("falls back to the browser URL when copy-link is unavailable", async () => {

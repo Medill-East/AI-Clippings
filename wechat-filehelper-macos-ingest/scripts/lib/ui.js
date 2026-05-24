@@ -76,6 +76,9 @@ const VIEWER_BROWSER_SETTLE_MS = 500;
 const VIEWER_CLOSE_INITIAL_SETTLE_MS = 5;
 const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 20;
 const VIEWER_CLOSE_CMD_W_SETTLE_MS = 35;
+const CST_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SUPPORTED_SHARE_CARD_TYPES = new Set(["single_article_card", "text_share_card"]);
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -188,6 +191,7 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
       .trim();
     const timestampLine = findNearestTimestampLine(cluster[0], timestampLines);
     const skipReason = classifyOcrShareCardSkipReason(rawText, rawLines);
+    const cardType = inferSupportedShareCardType(rawLines, rawText, skipReason);
 
     items.push({
       kind: "share_card",
@@ -196,6 +200,7 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
       rawText,
       title,
       skipReason,
+      cardType,
       ocrCluster: cluster,
     });
   }
@@ -244,10 +249,67 @@ function looksLikeFileCardText(text) {
   );
 }
 
+function looksLikeImageCardText(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  const text = lines.join(" ").normalize("NFKC").trim();
+  if (!text) return false;
+  if (/^(?:\[?\s*)?(?:图片|照片|image|photo)(?:\s*\]?)?$/i.test(text)) return true;
+  if (/^(?:一张|多张)?(?:图片|照片)$/i.test(text)) return true;
+  return lines.length <= 3 && /\b(?:image|photo)\b/i.test(text) && /图片|照片|image|photo/i.test(text);
+}
+
 function looksLikeArticleMetadataLine(text) {
   return /^(原创|作者[:：]?|by\b|来源[:：]?|公众号|发布于|阅读原文|微信公众平台|阅读|link|链接)$/i.test(
     String(text ?? "").trim()
   );
+}
+
+function normalizeRawLines(rawLines, rawText = "") {
+  return Array.isArray(rawLines)
+    ? rawLines.map((line) => String(line ?? "").normalize("NFKC").trim()).filter(Boolean)
+    : String(rawText ?? "")
+        .normalize("NFKC")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
+function looksLikeTextShareCardText(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  if (lines.length < 2) return false;
+  const headerLines = lines.slice(0, Math.min(lines.length, 2));
+  return headerLines.some((line) => /文字分享/.test(line));
+}
+
+function looksLikeArticleSourceFooter(text) {
+  const value = String(text ?? "").normalize("NFKC").trim();
+  if (!value) return false;
+  if (looksLikeUrlLikeText(value) || looksLikeTimestampOcrText(value)) return false;
+  if (looksLikeVideoChannelText(value, [value]) || looksLikeBilibiliVideoText(value)) return false;
+  if (/^(?:图片|照片|image|photo)$/i.test(value)) return false;
+  if (/[\d.]+\s*(?:KB|MB|GB|页|pages?)\b/i.test(value)) return false;
+  if (/[，,。！？；!?、]/.test(value)) return false;
+
+  const normalized = normalizeComparableText(value);
+  return normalized.length >= 2 && normalized.length <= 24;
+}
+
+function looksLikeSingleArticleCardText(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  if (lines.length < 2) return false;
+  if (looksLikeVideoChannelText(rawText, lines) || looksLikeBilibiliVideoText(rawText)) return false;
+  if (looksLikeTextShareCardText(lines, rawText)) return true;
+  if (lines.some((line) => looksLikeArticleMetadataLine(line))) return true;
+
+  const footerCandidates = lines.slice(Math.max(0, lines.length - 2));
+  return footerCandidates.some((line) => looksLikeArticleSourceFooter(line));
+}
+
+function inferSupportedShareCardType(rawLines, rawText, skipReason = null) {
+  if (skipReason) return null;
+  if (looksLikeTextShareCardText(rawLines, rawText)) return "text_share_card";
+  if (looksLikeSingleArticleCardText(rawLines, rawText)) return "single_article_card";
+  return null;
 }
 
 function looksLikePlainTextBlock(rawLines, rawText) {
@@ -256,6 +318,7 @@ function looksLikePlainTextBlock(rawLines, rawText) {
   if (looksLikeMarkdownDocText(rawText, rawLines) || looksLikeFileCardText(rawText)) return false;
   if (lines.some((line) => looksLikeUrlLikeText(line))) return false;
   if (lines.some((line) => looksLikeArticleMetadataLine(line))) return false;
+  if (looksLikeSingleArticleCardText(rawLines, rawText)) return false;
 
   const text = String(rawText ?? "");
   const sentencePunctuationCount = (text.match(/[。！？；]/g) ?? []).length;
@@ -288,6 +351,8 @@ function classifyOcrShareCardSkipReason(rawText, rawLines = []) {
   if (looksLikeBilibiliVideoText(rawText)) return "bilibili_video";
   if (looksLikeMarkdownDocText(rawText, rawLines)) return "markdown_doc_card";
   if (looksLikeFileCardText(rawText)) return "file_card";
+  if (looksLikeImageCardText(rawLines, rawText)) return "image_card";
+  if (looksLikeSingleArticleCardText(rawLines, rawText)) return null;
   if (looksLikePlainTextBlock(rawLines, rawText)) return "plain_text_block";
   if (/共\s*\d+\s*篇|\b\d+\s+articles?\b|multiple\s+articles?/i.test(rawText)) {
     return "multi_article_card";
@@ -317,44 +382,61 @@ function normalizeSnapshotBlocks(clipboardSnapshot = {}) {
         block?.directUrls,
         "clipboard_explicit"
       );
+      const rawLines = Array.isArray(block?.rawLines)
+        ? block.rawLines
+        : String(block?.rawText ?? "")
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+      const rawText = block?.rawText ?? rawLines.join("\n");
+      const skipReason = block?.skipReason ?? null;
 
       return {
         ...block,
         blockId: block?.blockId ?? `block-${index}`,
+        rawLines,
+        rawText,
         directUrls: directUrlEntries
           .filter((entry) => entry.confidence === "confirmed")
           .map((entry) => entry.url),
         directUrlEntries,
+        cardType: block?.cardType ?? inferSupportedShareCardType(rawLines, rawText, skipReason),
       };
     });
   }
 
   const items = Array.isArray(clipboardSnapshot.items) ? clipboardSnapshot.items : [];
-  return items.map((item, index) => ({
-    blockId: item.blockId ?? item.itemKey ?? `item-${index}`,
-    timestampText: item.timestampText ?? null,
-    rawLines: String(item.rawText ?? "")
+  return items.map((item, index) => {
+    const rawLines = String(item.rawText ?? "")
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean),
-    rawText: item.rawText ?? "",
-    directUrls: item.kind === "text_url" ? (item.links ?? []).map((link) => link.url) : [],
-    directUrlEntries:
-      item.kind === "text_url"
-        ? normalizeDirectUrlEntries(
-            (item.links ?? []).map((link) => ({
-              url: link.url,
-              confidence: "confirmed",
-              confidenceReason: "clipboard_explicit",
-            })),
-            [],
-            "clipboard_explicit"
-          )
-        : [],
-    shareCardTitle:
-      item.kind === "share_card" ? item.title ?? "" : item.title?.trim() ? item.title.trim() : null,
-    skipReason: item.skipReason ?? null,
-  }));
+      .filter(Boolean);
+    const rawText = item.rawText ?? "";
+    const skipReason = item.skipReason ?? null;
+    return {
+      blockId: item.blockId ?? item.itemKey ?? `item-${index}`,
+      timestampText: item.timestampText ?? null,
+      rawLines,
+      rawText,
+      directUrls: item.kind === "text_url" ? (item.links ?? []).map((link) => link.url) : [],
+      directUrlEntries:
+        item.kind === "text_url"
+          ? normalizeDirectUrlEntries(
+              (item.links ?? []).map((link) => ({
+                url: link.url,
+                confidence: "confirmed",
+                confidenceReason: "clipboard_explicit",
+              })),
+              [],
+              "clipboard_explicit"
+            )
+          : [],
+      shareCardTitle:
+        item.kind === "share_card" ? item.title ?? "" : item.title?.trim() ? item.title.trim() : null,
+      skipReason,
+      cardType: item.cardType ?? inferSupportedShareCardType(rawLines, rawText, skipReason),
+    };
+  });
 }
 
 function blockToSnapshotItem(block) {
@@ -387,7 +469,7 @@ function blockToSnapshotItem(block) {
   }
 
   if (block.shareCardTitle) {
-    return {
+    const item = {
       kind: "share_card",
       itemKey: block.blockId,
       timestampText: block.timestampText,
@@ -395,6 +477,10 @@ function blockToSnapshotItem(block) {
       title: block.shareCardTitle,
       skipReason: block.skipReason ?? null,
     };
+    if (block.cardType) {
+      item.cardType = block.cardType;
+    }
+    return item;
   }
 
   return null;
@@ -422,6 +508,10 @@ function ocrFallbackItemToBlock(item) {
     directUrlEntries,
     shareCardTitle: directUrlEntries.length > 0 ? null : item.title ?? "",
     skipReason: directUrlEntries.length > 0 ? null : item.skipReason ?? null,
+    cardType:
+      directUrlEntries.length > 0
+        ? null
+        : item.cardType ?? inferSupportedShareCardType(rawLines, rawText, item.skipReason ?? null),
     ocrCluster: item.ocrCluster ?? [],
   };
 }
@@ -735,8 +825,7 @@ function looksLikeBilibiliVideoText(text) {
   return (
     /b23\.tv/i.test(normalized) ||
     /\bBV[0-9A-Za-z]{6,}\b/.test(normalized) ||
-    (hasBrand && hasVideoIndicator) ||
-    (hasBrand && comparable.length <= 20)
+    (hasBrand && hasVideoIndicator)
   );
 }
 
@@ -869,15 +958,35 @@ function normalizeArticleSignatureLine(text) {
   return normalized;
 }
 
-function buildArticleFingerprintAliases(block) {
-  const timestamp = normalizeComparableText(block?.timestampText ?? "");
-  const title = normalizeArticleSignatureLine(block?.shareCardTitle ?? "");
-  const rawLines = Array.isArray(block?.rawLines)
-    ? block.rawLines
+function getBlockRawLines(block) {
+  return Array.isArray(block?.rawLines)
+    ? block.rawLines.map((line) => String(line ?? "").trim()).filter(Boolean)
     : String(block?.rawText ?? "")
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean);
+}
+
+function isTextShareBlock(block) {
+  if (block?.cardType === "text_share_card") return true;
+  return looksLikeTextShareCardText(getBlockRawLines(block), block?.rawText ?? block?.shareCardTitle ?? "");
+}
+
+function getArticleFingerprintLines(block) {
+  const rawLines = getBlockRawLines(block);
+  if (!isTextShareBlock(block)) return rawLines;
+
+  return rawLines
+    .map(stripTextShareHeader)
+    .filter((line) => line && !/文字分享/.test(line) && !looksLikeArticleSourceFooter(line));
+}
+
+function buildArticleFingerprintAliases(block) {
+  const timestamp = normalizeComparableText(block?.timestampText ?? "");
+  const title = normalizeArticleSignatureLine(
+    isTextShareBlock(block) ? stripTextShareHeader(block?.shareCardTitle ?? "") : block?.shareCardTitle ?? ""
+  );
+  const rawLines = getArticleFingerprintLines(block);
   const signatureLines = rawLines.map(normalizeArticleSignatureLine).filter(Boolean);
   const primary = title || signatureLines[0] || truncateComparableText(block?.rawText ?? "", 18);
   const secondary = signatureLines.find((line) => line !== primary) || "";
@@ -922,6 +1031,10 @@ function isOcrOnlyBlock(block) {
   );
 }
 
+function hasOcrCluster(block) {
+  return Array.isArray(block?.ocrCluster) && block.ocrCluster.length > 0;
+}
+
 function buildArticleFingerprint(block) {
   return buildArticleFingerprintAliases(block)[0] ?? "";
 }
@@ -954,12 +1067,8 @@ function inferTimestampTextForBlock(blocks, index) {
       Number.isFinite(blockY) && Number.isFinite(candidateY) ? Math.abs(candidateY - blockY) : indexGap * 120;
     if (yGap > OCR_TIMESTAMP_FALLBACK_MAX_Y_GAP_PX) continue;
 
-    const candidateLooksSupported =
-      (Array.isArray(candidate?.directUrls) && candidate.directUrls.length > 0) ||
-      (candidate?.shareCardTitle && !candidate?.skipReason);
-    const blockLooksSupported =
-      (Array.isArray(block?.directUrls) && block.directUrls.length > 0) ||
-      (block?.shareCardTitle && !block?.skipReason);
+    const candidateLooksSupported = isSupportedActionableBlock(candidate);
+    const blockLooksSupported = isSupportedActionableBlock(block);
     const supportPenalty = candidateLooksSupported === blockLooksSupported ? 0 : 250;
     const score = supportPenalty + indexGap * 1000 + yGap;
     if (!best || score < best.score) {
@@ -981,6 +1090,91 @@ function applyOcrTimestampFallback(blocks) {
       inferredTimestampText,
     };
   });
+}
+
+function clampDateToRange(date, since, until) {
+  if (date < since) return new Date(since);
+  if (date > until) return new Date(until);
+  return new Date(date);
+}
+
+function cstDayNumber(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  return Math.floor((date.getTime() + CST_OFFSET_MS) / DAY_MS);
+}
+
+function cstDayFallsWithinRange(date, since, until) {
+  const day = cstDayNumber(date);
+  const sinceDay = cstDayNumber(since);
+  const untilDay = cstDayNumber(until);
+  if (day === null || sinceDay === null || untilDay === null) return false;
+  return day >= sinceDay && day <= untilDay;
+}
+
+function isSupportedShareCardBlock(block) {
+  if (!block?.shareCardTitle || block?.skipReason) return false;
+  if (SUPPORTED_SHARE_CARD_TYPES.has(block.cardType)) return true;
+  return !hasOcrCluster(block);
+}
+
+function isSupportedActionableBlock(block) {
+  if (!block) return false;
+  if (getBlockDirectUrlEntries(block).length > 0) return true;
+  return isSupportedShareCardBlock(block);
+}
+
+function classifyUnsupportedShareCardBlock(block) {
+  if (!block?.shareCardTitle || getBlockDirectUrlEntries(block).length > 0) return null;
+  if (block.skipReason) return null;
+  if (isSupportedShareCardBlock(block)) return null;
+
+  const rawLines = getBlockRawLines(block);
+  const rawText = block.rawText ?? rawLines.join("\n");
+  return classifyOcrShareCardSkipReason(rawText, rawLines) ?? "unsupported_ocr_card";
+}
+
+function blockMessageType(block) {
+  if (block?.cardType === "text_share_card") return "text_share";
+  if (block?.shareCardTitle) return "share_card";
+  return "text_url";
+}
+
+function candidateMessageType(candidate, block) {
+  if (candidate?.cardType === "text_share_card" || block?.cardType === "text_share_card") {
+    return "text_share";
+  }
+  return "share_card";
+}
+
+function resolveOcrBlockMessageTime(
+  block,
+  { since, until, timestampReferenceNow, windowAssumptionNow } = {}
+) {
+  if (block?.timestampText) {
+    const parsed = parseWeChatTimestamp(block.timestampText, timestampReferenceNow);
+    if (parsed) {
+      return {
+        messageTime: parsed,
+        timeConfidence: block.inferredTimestampText ? "group_inferred" : "explicit",
+      };
+    }
+  }
+
+  const canAssumeWindowTime =
+    isOcrOnlyBlock(block) &&
+    isSupportedActionableBlock(block) &&
+    windowAssumptionNow instanceof Date &&
+    !Number.isNaN(windowAssumptionNow.getTime()) &&
+    cstDayFallsWithinRange(windowAssumptionNow, since, until);
+
+  if (canAssumeWindowTime) {
+    return {
+      messageTime: clampDateToRange(windowAssumptionNow, since, until),
+      timeConfidence: "window_assumed",
+    };
+  }
+
+  return { messageTime: null, timeConfidence: null };
 }
 
 function buildBlockSignature(block) {
@@ -1075,6 +1269,7 @@ function buildFallbackCandidateFromCluster(block, windowBounds, ocrResult) {
     title: block.shareCardTitle,
     timestampText: block.timestampText,
     rawText: block.rawText,
+    cardType: block.cardType ?? null,
     ocrText: block.ocrCluster?.[0]?.text ?? block.shareCardTitle ?? "",
     lineIndex: null,
     clickX: clickPoint.x,
@@ -1084,9 +1279,74 @@ function buildFallbackCandidateFromCluster(block, windowBounds, ocrResult) {
   };
 }
 
+function isCandidateClickInsideRightChatPane(candidate, windowBounds) {
+  if (!candidate || !windowBounds) return true;
+  const clickX = Number(candidate.clickX);
+  const clickY = Number(candidate.clickY);
+  const windowX = Number(windowBounds.x ?? 0);
+  const windowY = Number(windowBounds.y ?? 0);
+  const windowWidth = Number(windowBounds.width ?? 0);
+  const windowHeight = Number(windowBounds.height ?? 0);
+  if (![clickX, clickY, windowX, windowY, windowWidth, windowHeight].every(Number.isFinite)) return false;
+  if (windowWidth <= 0 || windowHeight <= 0) return false;
+
+  const minX = windowX + windowWidth * OCR_RIGHT_PANE_RATIO;
+  const maxX = windowX + windowWidth;
+  const minY = windowY + windowHeight * OCR_TOP_CONTENT_RATIO;
+  const maxY = windowY + windowHeight * 0.98;
+  return clickX >= minX && clickX <= maxX && clickY >= minY && clickY <= maxY;
+}
+
+function candidateClickSafetyStatus(candidate, windowBounds) {
+  if (!candidate) return "missing_candidate";
+  return isCandidateClickInsideRightChatPane(candidate, windowBounds)
+    ? "inside_right_chat_pane"
+    : "outside_right_chat_pane";
+}
+
+function finiteNumberOrNull(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function serializeWindowBounds(windowBounds) {
+  if (!windowBounds) return null;
+  return {
+    x: finiteNumberOrNull(windowBounds.x),
+    y: finiteNumberOrNull(windowBounds.y),
+    width: finiteNumberOrNull(windowBounds.width),
+    height: finiteNumberOrNull(windowBounds.height),
+  };
+}
+
+function serializeCandidateOcrRect(line) {
+  if (!line) return null;
+  return {
+    x: finiteNumberOrNull(line.x),
+    y: finiteNumberOrNull(line.y),
+    width: finiteNumberOrNull(line.width),
+    height: finiteNumberOrNull(line.height),
+    text: line.text ?? null,
+  };
+}
+
+function annotateCandidateArtifact(artifactRecord, candidate, windowBounds) {
+  if (!artifactRecord) return;
+  artifactRecord.click_safety_status = candidateClickSafetyStatus(candidate, windowBounds);
+  artifactRecord.match_reason = candidate?.matchReason ?? null;
+  artifactRecord.screen_click_point = candidate
+    ? {
+        x: finiteNumberOrNull(candidate.clickX),
+        y: finiteNumberOrNull(candidate.clickY),
+      }
+    : null;
+  artifactRecord.window_bounds = serializeWindowBounds(windowBounds);
+  artifactRecord.candidate_ocr_rect = serializeCandidateOcrRect(candidate?.line);
+}
+
 function hasCandidateForActionableShareCards(blocks, candidateMap) {
   const actionableBlocks = blocks.filter(
-    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
+    (block) => isSupportedShareCardBlock(block) && getBlockDirectUrlEntries(block).length === 0
   );
   if (actionableBlocks.length === 0) return true;
   return actionableBlocks.some((block) => candidateMap.has(block.blockId));
@@ -1100,6 +1360,70 @@ function classifyViewerContentSkipReason(ocrResult) {
   if (looksLikeVideoChannelText(text, lines.map((line) => line?.text ?? ""))) return "video_channel";
   if (looksLikeBilibiliVideoText(text)) return "bilibili_video";
   return null;
+}
+
+function lineIntersectsOcrRect(line, rect) {
+  const lineLeft = Number(line?.x ?? NaN);
+  const lineTop = Number(line?.y ?? NaN);
+  const lineRight = lineLeft + Number(line?.width ?? 0);
+  const lineBottom = lineTop + Number(line?.height ?? 0);
+  if (
+    !Number.isFinite(lineLeft) ||
+    !Number.isFinite(lineTop) ||
+    !Number.isFinite(lineRight) ||
+    !Number.isFinite(lineBottom)
+  ) {
+    return false;
+  }
+  return lineRight >= rect.x && lineLeft <= rect.x + rect.width && lineBottom >= rect.y && lineTop <= rect.y + rect.height;
+}
+
+function buildOcrRectFromScreenRect(screenRect, screenBounds, ocrResult, paddingPx = 0) {
+  const imageWidth = Number(ocrResult?.width ?? 0);
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const boundsWidth = Number(screenBounds?.width ?? 0);
+  const boundsHeight = Number(screenBounds?.height ?? 0);
+  if (!screenRect || !screenBounds || imageWidth <= 0 || imageHeight <= 0 || boundsWidth <= 0 || boundsHeight <= 0) {
+    return null;
+  }
+
+  const scaleX = imageWidth / boundsWidth;
+  const scaleY = imageHeight / boundsHeight;
+  const x = (Number(screenRect.x ?? 0) - Number(screenBounds.x ?? 0)) * scaleX - paddingPx;
+  const y = (Number(screenRect.y ?? 0) - Number(screenBounds.y ?? 0)) * scaleY - paddingPx;
+  const width = Number(screenRect.width ?? 0) * scaleX + paddingPx * 2;
+  const height = Number(screenRect.height ?? 0) * scaleY + paddingPx * 2;
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+
+  return {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    width: Math.min(imageWidth, x + width) - Math.max(0, x),
+    height: Math.min(imageHeight, y + height) - Math.max(0, y),
+  };
+}
+
+function filterOcrResultToScreenRect(ocrResult, screenRect, screenBounds, { paddingPx = 20 } = {}) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const ocrRect = buildOcrRectFromScreenRect(screenRect, screenBounds, ocrResult, paddingPx);
+  if (!ocrRect) return ocrResult;
+  return {
+    ...ocrResult,
+    lines: lines.filter((line) => lineIntersectsOcrRect(line, ocrRect)),
+  };
+}
+
+function countMeaningfulOcrLines(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  return lines.filter((line) => normalizeComparableText(line?.text ?? "").length >= 4).length;
+}
+
+function buildViewerOcrContext(ocrResult, screenRect, screenBounds, candidate) {
+  const viewerOcrResult = filterOcrResultToScreenRect(ocrResult, screenRect, screenBounds);
+  return {
+    viewerOcrResult,
+    ocrAnalysis: analyzeViewerOcr(viewerOcrResult, candidate),
+  };
 }
 
 export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) {
@@ -1118,13 +1442,21 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
   const effectiveBlocks = clipboardHasShareCards ? blocks : [...blocks, ...ocrFallbackBlocks];
   const effectiveItems = effectiveBlocks.map(blockToSnapshotItem).filter(Boolean);
   const shareCardBlocks = effectiveBlocks.filter(
-    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
+    (block) => isSupportedShareCardBlock(block) && getBlockDirectUrlEntries(block).length === 0
   );
   const candidates = [];
   const usedLineIndexes = new Set();
   let lastMatchedY = -1;
 
   for (const block of shareCardBlocks) {
+    if (Array.isArray(block.ocrCluster) && block.ocrCluster.length > 0) {
+      const fallbackCandidate = buildFallbackCandidateFromCluster(block, windowBounds, ocrResult);
+      if (fallbackCandidate) {
+        candidates.push(fallbackCandidate);
+        continue;
+      }
+    }
+
     const match = findBestShareCardLine({
       item: {
         title: block.shareCardTitle,
@@ -1134,6 +1466,7 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
       usedLineIndexes,
       lastMatchedY,
       imageHeight: ocrResult?.height ?? windowBounds?.height ?? 0,
+      imageWidth: ocrResult?.width ?? windowBounds?.width ?? 0,
     });
     if (!match) {
       const fallbackCandidate = buildFallbackCandidateFromCluster(block, windowBounds, ocrResult);
@@ -1153,6 +1486,7 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
       title: block.shareCardTitle,
       timestampText: block.timestampText,
       rawText: block.rawText,
+      cardType: block.cardType ?? null,
       ocrText: match.line.text,
       lineIndex: match.lineIndex,
       clickX: clickPoint.x,
@@ -1172,10 +1506,11 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
   };
 }
 
-function findBestShareCardLine({ item, ocrLines, usedLineIndexes, lastMatchedY, imageHeight }) {
+function findBestShareCardLine({ item, ocrLines, usedLineIndexes, lastMatchedY, imageHeight, imageWidth = 0 }) {
   const titleNorm = normalizeComparableText(item.title || item.rawText);
   const topBoundary = imageHeight > 0 ? imageHeight * 0.16 : 0;
   const bottomBoundary = imageHeight > 0 ? imageHeight * 0.95 : Number.POSITIVE_INFINITY;
+  const minX = imageWidth > 0 ? imageWidth * OCR_RIGHT_PANE_RATIO : 0;
 
   let best = null;
   for (let index = 0; index < ocrLines.length; index++) {
@@ -1183,6 +1518,7 @@ function findBestShareCardLine({ item, ocrLines, usedLineIndexes, lastMatchedY, 
     const line = ocrLines[index];
     if (!line?.text) continue;
     if (line.y < topBoundary || line.y > bottomBoundary) continue;
+    if (line.x < minX) continue;
 
     const normalized = normalizeComparableText(line.text);
     let score = 0;
@@ -1361,10 +1697,11 @@ export async function scanUiLinks(
     captureVisibleUiPageFn = captureVisibleUiPage,
     probeUiEnvironmentFn = probeUiEnvironment,
     extractShareCardUrlFn = extractShareCardUrl,
+    nowFn = () => new Date(),
   } = {}
 ) {
   const sessionId = newCaptureSessionId();
-  const capturedAt = new Date();
+  const capturedAt = nowFn();
   const referenceNow = until instanceof Date ? until : capturedAt;
   const stats = {
     source: "ui",
@@ -1530,10 +1867,12 @@ export async function scanUiLinks(
 
     let reachedBeforeRange = false;
     for (const block of pageBlocks) {
-      let messageTime = null;
-      if (block.timestampText) {
-        messageTime = parseWeChatTimestamp(block.timestampText, referenceNow);
-      }
+      const { messageTime, timeConfidence } = resolveOcrBlockMessageTime(block, {
+        since,
+        until,
+        timestampReferenceNow: referenceNow,
+        windowAssumptionNow: capturedAt,
+      });
 
       if (messageTime) {
         if (messageTime < since) {
@@ -1584,12 +1923,14 @@ export async function scanUiLinks(
               title: block.shareCardTitle,
               timestamp_text: block.timestampText,
               raw_text: block.rawText,
+              card_type: block.cardType ?? null,
               page_index: scrollCount,
               click_x: null,
               click_y: null,
               status: "pending",
               article_fingerprint: articleFingerprint || null,
               sampling_mode: page.samplingMode ?? null,
+              time_confidence: timeConfidence,
             }
           : null;
 
@@ -1646,9 +1987,10 @@ export async function scanUiLinks(
             message_time: messageTimeIso,
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "link",
-            message_type: block.shareCardTitle ? "share_card" : "text_url",
+            message_type: blockMessageType(block),
             title: block.shareCardTitle ?? "",
             url: canonicalUrl,
+            time_confidence: timeConfidence,
             dedupe_key: key,
             capture_session_id: sessionId,
             source: "ui",
@@ -1672,10 +2014,11 @@ export async function scanUiLinks(
             message_time: messageTimeIso,
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "uncertain_link",
-            message_type: block.shareCardTitle ? "share_card" : "text_url",
+            message_type: blockMessageType(block),
             title: block.shareCardTitle ?? "",
             url: uncertainEntry.url,
             confidence_reason: uncertainEntry.confidenceReason,
+            time_confidence: timeConfidence,
             dedupe_key: key,
             capture_session_id: sessionId,
             source: "ui",
@@ -1716,6 +2059,44 @@ export async function scanUiLinks(
             rawUrl: skippedEntry.url,
           });
         }
+        upsertArticleState(articleStates, articleFingerprints, {
+          status: "skipped",
+          attempted: true,
+          resolved: false,
+          failed: false,
+          skipped: true,
+          lastSeenPage: scrollCount,
+          lastSeenYBand: null,
+        });
+        continue;
+      }
+
+      const unsupportedSkipReason = classifyUnsupportedShareCardBlock(block);
+      if (unsupportedSkipReason) {
+        if (artifactRecord) {
+          if (existingArticleState) {
+            artifactRecord.status = "duplicate_skipped";
+            artifactRecord.reason = "article_already_skipped";
+            stats.duplicate_skipped += 1;
+            candidateArtifacts.push(artifactRecord);
+            upsertArticleState(articleStates, articleFingerprints, {
+              lastSeenPage: scrollCount,
+              lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
+            });
+            continue;
+          }
+
+          artifactRecord.status = "skipped";
+          artifactRecord.reason = unsupportedSkipReason;
+          candidateArtifacts.push(artifactRecord);
+        }
+        incrementCount(stats.skipped_by_rule, unsupportedSkipReason);
+        pushSkippedRecord({
+          messageTime,
+          title: block.shareCardTitle ?? "",
+          rawText: block.rawText,
+          skipReason: unsupportedSkipReason,
+        });
         upsertArticleState(articleStates, articleFingerprints, {
           status: "skipped",
           attempted: true,
@@ -1824,6 +2205,7 @@ export async function scanUiLinks(
       if (artifactRecord) {
         artifactRecord.click_x = candidate?.clickX ?? null;
         artifactRecord.click_y = candidate?.clickY ?? null;
+        annotateCandidateArtifact(artifactRecord, candidate, page.window);
         candidateArtifacts.push(artifactRecord);
       }
 
@@ -1833,6 +2215,22 @@ export async function scanUiLinks(
           ? "candidate_generation_failed"
           : "ocr_candidate_missing";
         stats.share_cards_unresolved += 1;
+        continue;
+      }
+
+      if (candidateClickSafetyStatus(candidate, page.window) !== "inside_right_chat_pane") {
+        artifactRecord.status = "unresolved";
+        artifactRecord.reason = "candidate_click_outside_chat_pane";
+        stats.share_cards_unresolved += 1;
+        upsertArticleState(articleStates, articleFingerprints, {
+          status: "failed",
+          attempted: false,
+          resolved: false,
+          failed: true,
+          skipped: false,
+          lastSeenPage: scrollCount,
+          lastSeenYBand: null,
+        });
         continue;
       }
 
@@ -1920,9 +2318,10 @@ export async function scanUiLinks(
             message_time: messageTimeIso,
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "link",
-            message_type: "share_card",
+            message_type: candidateMessageType(candidate, block),
             title: candidate.title ?? block.shareCardTitle ?? "",
             url: canonicalUrl,
+            time_confidence: timeConfidence,
             dedupe_key: key,
             capture_session_id: sessionId,
             source: "ui",
@@ -2334,11 +2733,71 @@ function fastChatRecoveryLooksGood(beforeWindows, currentWindows, frontWindow) {
   return beforeSignatures.has(windowSignature(frontWindow)) || looksLikeFileHelperWindow(frontWindow);
 }
 
+function looksLikeTextShareCandidate(candidate) {
+  if (candidate?.cardType === "text_share_card") return true;
+  return looksLikeTextShareCardText(
+    String(candidate?.rawText ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+    [candidate?.title, candidate?.rawText].filter(Boolean).join("\n")
+  );
+}
+
+function stripTextShareHeader(text) {
+  return String(text ?? "")
+    .normalize("NFKC")
+    .replace(/^.*?文字分享[:：]?\s*/, "")
+    .trim();
+}
+
+function buildTextShareViewerTitleAliases(candidate) {
+  const lines = String(candidate?.rawText ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.normalize("NFKC").trim())
+    .filter(Boolean);
+  const aliases = [];
+
+  for (const line of [candidate?.title, ...lines]) {
+    const stripped = stripTextShareHeader(line);
+    if (!stripped || /文字分享/.test(stripped)) continue;
+    if (looksLikeArticleSourceFooter(stripped)) continue;
+    aliases.push(stripped);
+  }
+
+  const bodyLines = lines
+    .map(stripTextShareHeader)
+    .filter((line) => line && !/文字分享/.test(line) && !looksLikeArticleSourceFooter(line));
+  if (bodyLines.length >= 2) {
+    aliases.push(`${bodyLines[0]}${bodyLines[1]}`);
+    aliases.push(`${bodyLines[0]} ${bodyLines[1]}`);
+  }
+
+  return aliases;
+}
+
+function buildViewerTitleAliases(candidate) {
+  const base = [candidate?.title ?? candidate?.rawText ?? ""];
+  if (looksLikeTextShareCandidate(candidate)) {
+    base.push(...buildTextShareViewerTitleAliases(candidate));
+  }
+
+  const seen = new Set();
+  const aliases = [];
+  for (const alias of base) {
+    const normalized = normalizeComparableText(alias);
+    if (normalized.length < 4 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    aliases.push(normalized);
+  }
+  return aliases;
+}
+
 function findViewerTitleLine(ocrResult, candidate) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const imageHeight = Number(ocrResult?.height ?? 0);
-  const titleNorm = normalizeComparableText(candidate?.title ?? candidate?.rawText ?? "");
-  if (!titleNorm) return null;
+  const titleAliases = buildViewerTitleAliases(candidate);
+  if (titleAliases.length === 0) return null;
 
   let best = null;
   for (const line of lines) {
@@ -2348,12 +2807,16 @@ function findViewerTitleLine(ocrResult, candidate) {
     if (!normalized || normalized.length < 6) continue;
 
     let score = 0;
-    if (normalized.includes(titleNorm)) score += 30;
-    else if (titleNorm.includes(normalized) && normalized.length >= 8) score += 22;
-    else {
-      const probe = titleNorm.slice(0, Math.min(titleNorm.length, 14));
-      if (probe && normalized.includes(probe)) score += 18;
-      else if (probe && probe.includes(normalized) && normalized.length >= 6) score += 12;
+    for (const titleNorm of titleAliases) {
+      let aliasScore = 0;
+      if (normalized.includes(titleNorm)) aliasScore += 30;
+      else if (titleNorm.includes(normalized) && normalized.length >= 8) aliasScore += 22;
+      else {
+        const probe = titleNorm.slice(0, Math.min(titleNorm.length, 14));
+        if (probe && normalized.includes(probe)) aliasScore += 18;
+        else if (probe && probe.includes(normalized) && normalized.length >= 6) aliasScore += 12;
+      }
+      score = Math.max(score, aliasScore);
     }
 
     if (line.width >= 260) score += 3;
@@ -2443,7 +2906,7 @@ async function detectViewerContext(
 
     const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
-    const ocrAnalysis = analyzeViewerOcr(ocrResult, candidate);
+    const fullScreenOcrAnalysis = analyzeViewerOcr(ocrResult, candidate);
 
     if (artifactDir != null) {
       await writeJsonArtifact(path.join(artifactDir, `viewer-detect-${stamp}.ocr.json`), ocrResult);
@@ -2456,37 +2919,44 @@ async function detectViewerContext(
         ? currentWindows.find((window) => !beforeSignatures.has(windowSignature(window)))
         : null;
     if (newWindow) {
+      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, newWindow, screenBounds, candidate);
       return {
         mode: "new_window",
         screenRect: newWindow,
         screenBounds,
         window: newWindow,
         ocrResult,
+        viewerOcrResult,
         ocrAnalysis,
       };
     }
 
     if (frontWindow && windowSignature(frontWindow) !== beforeFrontSignature) {
+      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, frontWindow, screenBounds, candidate);
       return {
         mode: "front_window_changed",
         screenRect: frontWindow,
         screenBounds,
         window: frontWindow,
         ocrResult,
+        viewerOcrResult,
         ocrAnalysis,
       };
     }
 
-    if (ocrAnalysis.matched) {
+    if (fullScreenOcrAnalysis.matched) {
       if (debug) {
         console.log("[debug] Detected article viewer via full-screen OCR");
       }
+      const ocrDetectedRect = frontWindow ?? screenBounds;
+      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, ocrDetectedRect, screenBounds, candidate);
       return {
         mode: "ocr_detected",
-        screenRect: frontWindow ?? screenBounds,
+        screenRect: ocrDetectedRect,
         screenBounds,
         window: frontWindow ?? null,
         ocrResult,
+        viewerOcrResult,
         ocrAnalysis,
       };
     }
@@ -2509,7 +2979,7 @@ async function waitForViewerReady(
   } = {}
 ) {
   let currentContext = viewerContext;
-  const initiallyLoading = viewerLooksLoading(currentContext?.ocrResult);
+  const initiallyLoading = viewerLooksLoading(currentContext?.viewerOcrResult ?? currentContext?.ocrResult);
   const initiallyReady = !initiallyLoading && Boolean(currentContext?.ocrAnalysis?.titleLine);
 
   if (initiallyReady) {
@@ -2532,15 +3002,17 @@ async function waitForViewerReady(
 
     const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
-    const ocrAnalysis = analyzeViewerOcr(ocrResult, candidate);
     const frontWindow = getFrontWeChatWindowFn();
+    const screenRect = currentContext.screenRect ?? frontWindow ?? screenBounds;
+    const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, screenRect, screenBounds, candidate);
 
     currentContext = {
       ...currentContext,
       screenBounds,
-      screenRect: currentContext.screenRect ?? frontWindow ?? screenBounds,
+      screenRect,
       window: frontWindow ?? currentContext.window ?? null,
       ocrResult,
+      viewerOcrResult,
       ocrAnalysis,
     };
 
@@ -2550,12 +3022,21 @@ async function waitForViewerReady(
       await fs.rm(screenshotPath, { force: true }).catch(() => {});
     }
 
-    if (!viewerLooksLoading(ocrResult) && (ocrAnalysis.titleLine || ocrAnalysis.matched)) {
+    if (!viewerLooksLoading(viewerOcrResult) && (ocrAnalysis.titleLine || ocrAnalysis.matched)) {
       return currentContext;
     }
   }
 
   return currentContext;
+}
+
+function viewerContextLooksMismatched(viewerContext, candidate) {
+  if (viewerContext?.ocrAnalysis?.titleLine) return false;
+  const candidateKey = normalizeComparableText(candidate?.title ?? candidate?.rawText ?? "");
+  if (candidateKey.length < 8) return false;
+  const scopedOcrResult = viewerContext?.viewerOcrResult ?? viewerContext?.ocrResult;
+  if (viewerLooksLoading(scopedOcrResult)) return false;
+  return countMeaningfulOcrLines(scopedOcrResult) > 0;
 }
 
 function closeViewerWindow(
@@ -2714,7 +3195,43 @@ export async function extractShareCardUrl(
     });
   }
 
-  const viewerSkipReason = classifyViewerContentSkipReason(readyViewerContext.ocrResult);
+  if (viewerContextLooksMismatched(readyViewerContext, candidate)) {
+    const closeStartedAt = Date.now();
+    const closeResult = normalizeCloseViewerResult(
+      closeViewerWindowFn(beforeWindows, { debug }),
+      beforeWindows,
+      getFrontWeChatWindowFn
+    );
+    let recovered = false;
+    if (closeResult.closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
+      recovered = true;
+    } else {
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    if (!recovered && typeof recoverChatFn === "function") {
+      await recoverChatFn(debug);
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
+    if (!closeResult.closed || !recovered) {
+      return {
+        status: "failed",
+        reason: !closeResult.closed ? "viewer_not_closed" : "chat_not_recovered",
+        url: null,
+        usedBrowserFallback: false,
+        timings,
+      };
+    }
+    return {
+      status: "failed",
+      reason: "viewer_context_mismatch",
+      url: null,
+      usedBrowserFallback: false,
+      timings,
+    };
+  }
+
+  const viewerSkipReason = classifyViewerContentSkipReason(readyViewerContext.viewerOcrResult ?? readyViewerContext.ocrResult);
   if (viewerSkipReason) {
     const closeStartedAt = Date.now();
     const closeResult = normalizeCloseViewerResult(

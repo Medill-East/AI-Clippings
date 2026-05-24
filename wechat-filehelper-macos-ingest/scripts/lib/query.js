@@ -145,6 +145,13 @@ function formatDisplayTime(value) {
   return formatCstDateTime(date);
 }
 
+function formatTimeConfidenceNote(record) {
+  if (record?.time_confidence === "window_assumed") {
+    return "time inferred from scan window";
+  }
+  return null;
+}
+
 export function renderQueryResults(
   { records, uncertainLinks = [], pendingItems = [], skippedCards = [] },
   { since, until, format }
@@ -171,6 +178,8 @@ export function renderQueryResults(
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
           lines.push(`  > ${formatDisplayTime(record.message_time)}`);
+          const timeNote = formatTimeConfidenceNote(record);
+          if (timeNote) lines.push(`  > ${timeNote}`);
         }
       }
 
@@ -184,6 +193,8 @@ export function renderQueryResults(
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
           lines.push(`  > ${formatDisplayTime(record.message_time)}`);
+          const timeNote = formatTimeConfidenceNote(record);
+          if (timeNote) lines.push(`  > ${timeNote}`);
           lines.push(`  > ${record.confidence_reason ?? "ocr_uncertain"}`);
         }
         for (const record of pendingItems) {
@@ -211,7 +222,10 @@ export function renderQueryResults(
     default: {
       const lines = [`Found ${records.length} link(s):`, ""];
       for (const record of records) {
-        lines.push(`[${formatDisplayTime(record.message_time)}] ${record.title || "(no title)"}`);
+        const timeNote = formatTimeConfidenceNote(record);
+        lines.push(
+          `[${formatDisplayTime(record.message_time)}${timeNote ? `, ${timeNote}` : ""}] ${record.title || "(no title)"}`
+        );
         lines.push(`  ${record.url}`);
         lines.push("");
       }
@@ -219,7 +233,10 @@ export function renderQueryResults(
       lines.push(`Pending ${uncertainLinks.length + pendingItems.length} item(s):`);
       lines.push("");
       for (const record of uncertainLinks) {
-        lines.push(`[${formatDisplayTime(record.message_time)}] ${record.title || "(no title)"}`);
+        const timeNote = formatTimeConfidenceNote(record);
+        lines.push(
+          `[${formatDisplayTime(record.message_time)}${timeNote ? `, ${timeNote}` : ""}] ${record.title || "(no title)"}`
+        );
         lines.push(`  ${record.url}`);
         lines.push(`  confidence: ${record.confidence_reason ?? "ocr_uncertain"}`);
         lines.push("");

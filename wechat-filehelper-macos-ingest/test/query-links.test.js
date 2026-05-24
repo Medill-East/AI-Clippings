@@ -364,6 +364,54 @@ describe("query-links.js", () => {
     assert.match(mdOutput, /missing_timestamp/);
   });
 
+  it("marks scan-window inferred times in markdown output", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          captured_at: "2026-05-10T03:25:11.000Z",
+          message_time: "2026-05-10T03:25:11.000Z",
+          time_confidence: "window_assumed",
+          chat_name: "文件传输助手",
+          record_type: "link",
+          message_type: "share_card",
+          title: "装了这个AI热点Skill之后",
+          url: "https://mp.weixin.qq.com/s/batch-forward-untimed-1",
+          dedupe_key: "window-assumed-1",
+          capture_session_id: "session-1",
+          source: "ui",
+        }),
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
+    const mdOutput = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-05-09T23:00:00",
+        "--until",
+        "2026-05-10T23:59:59",
+        "--format",
+        "md",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          WECHAT_FILEHELPER_INDEX_PATH: indexPath,
+        },
+      }
+    );
+
+    assert.match(mdOutput, /装了这个AI热点Skill之后/);
+    assert.match(mdOutput, /time inferred from scan window/);
+  });
+
   it("renders query range headings in China Standard Time", async () => {
     const dir = await makeTempDir("wechat-filehelper-query-");
     const indexPath = path.join(dir, "links.jsonl");
