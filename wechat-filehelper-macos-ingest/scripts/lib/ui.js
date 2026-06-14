@@ -2991,7 +2991,37 @@ function clickOcrLineInScreen(screenBounds, line, ocrResult, clickAtPointFn = cl
   clickAtPointFn(clickPoint.x, clickPoint.y);
 }
 
-function waitForClipboardMpUrl(
+function extractHttpUrlFromText(text) {
+  const value = String(text ?? "").trim();
+  const match = value.match(/https?:\/\/[^\s<>"'`）】\]]+/i);
+  if (!match) return null;
+  try {
+    return new URL(match[0].replace(/[.,;:!?)\]>'"。，；：！？）】]+$/, "")).toString();
+  } catch {
+    return null;
+  }
+}
+
+function classifyCopiedUrlKind(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.host.toLowerCase() === "mp.weixin.qq.com") return "mp_weixin";
+    return "external_url";
+  } catch {
+    return null;
+  }
+}
+
+function getUrlHost(url) {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function waitForClipboardShareUrl(
   { timeoutMs = 1500, pollMs = 25 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
 ) {
@@ -3002,8 +3032,9 @@ function waitForClipboardMpUrl(
     attempts += 1;
     const clipboard = readClipboardTextFn();
     lastClipboardText = clipboard ?? "";
-    if (clipboard && /^https:\/\/mp\.weixin\.qq\.com\//i.test(clipboard)) {
-      return { url: clipboard, attempts, lastClipboardText };
+    const copiedUrl = extractHttpUrlFromText(clipboard);
+    if (copiedUrl) {
+      return { url: copiedUrl, attempts, lastClipboardText };
     }
     sleepMsFn(pollMs);
   }
@@ -3033,6 +3064,12 @@ function attachCopyDiagnostics(artifactRecord, extraction) {
   }
   if (Object.hasOwn(extraction, "copyLastClipboardText")) {
     artifactRecord.copy_last_clipboard = summarizeClipboardText(extraction.copyLastClipboardText);
+  }
+  if (Object.hasOwn(extraction, "copyUrlKind")) {
+    artifactRecord.copy_url_kind = extraction.copyUrlKind;
+  }
+  if (Object.hasOwn(extraction, "copiedUrlHost")) {
+    artifactRecord.copied_url_host = extraction.copiedUrlHost;
   }
   if (Object.hasOwn(extraction, "viewerReadyState")) {
     artifactRecord.viewer_ready_state = extraction.viewerReadyState;
@@ -3321,7 +3358,7 @@ function looksLikeViewerChromeLine(text) {
   if (/summary provided|provided by|yuanbao|loading|微信|WeChat|search/i.test(value)) return true;
   if (FILE_HELPER_NAMES.some((name) => normalizeComparableText(value) === normalizeComparableText(name))) return true;
   if (looksLikeUrlLikeText(value)) return true;
-  if (/^\W+$/.test(value)) return true;
+  if (normalizeComparableText(value).length === 0) return true;
   return false;
 }
 
@@ -3385,6 +3422,92 @@ function looksLikeLoadedArticleMetadataLine(text) {
   return /原创|original|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}/i.test(value);
 }
 
+function lineBottom(line) {
+  return Number(line?.y ?? 0) + Number(line?.height ?? 0);
+}
+
+function findTitleContinuationLines(lines, titleLine, imageWidth, imageHeight) {
+  if (!titleLine) return [];
+  const titleBottom = lineBottom(titleLine);
+  const titleHeight = Math.max(1, Number(titleLine.height ?? 0));
+  const maxGap = Math.max(64, titleHeight * 1.6);
+  const titleZone = imageHeight > 0 ? imageHeight * 0.45 : Number.POSITIVE_INFINITY;
+  const leftTolerance = Math.max(90, imageWidth * 0.08);
+  const continuationLines = [];
+  let previousBottom = titleBottom;
+
+  const belowLines = lines
+    .filter((line) => line && line !== titleLine && line.text)
+    .filter((line) => Number(line.y ?? 0) >= titleBottom - 4 && Number(line.y ?? 0) <= titleZone)
+    .sort((a, b) => a.y - b.y);
+
+  for (const line of belowLines) {
+    const gap = Number(line.y ?? 0) - previousBottom;
+    if (gap > maxGap) break;
+    if (looksLikeLoadedArticleMetadataLine(line.text) || looksLikeArticleSourceFooter(line.text)) break;
+    if (looksLikeViewerChromeLine(line.text)) continue;
+
+    const normalized = normalizeComparableText(line.text);
+    const leftAligned = Math.abs(Number(line.x ?? 0) - Number(titleLine.x ?? 0)) <= leftTolerance;
+    const titleLikeHeight = Number(line.height ?? 0) >= Math.max(18, titleHeight * 0.55);
+    const titleLikeWidth = Number(line.width ?? 0) >= Math.max(80, Number(titleLine.width ?? 0) * 0.18);
+    if (!leftAligned || !titleLikeHeight || !titleLikeWidth || normalized.length < 2) break;
+
+    continuationLines.push(line);
+    previousBottom = Math.max(previousBottom, lineBottom(line));
+    if (continuationLines.length >= 3) break;
+  }
+
+  return continuationLines;
+}
+
+function analyzeArticleStructureForTitle(lines, titleLine, imageWidth, imageHeight) {
+  if (!titleLine) {
+    return {
+      contentLines: 0,
+      metadataLines: 0,
+      articleMetadataLines: 0,
+      titleBlockBottom: 0,
+      articleShellLoaded: false,
+    };
+  }
+
+  const continuationLines = findTitleContinuationLines(lines, titleLine, imageWidth, imageHeight);
+  const titleBlockBottom = Math.max(lineBottom(titleLine), ...continuationLines.map(lineBottom));
+  const metadataBottom = titleBlockBottom + 150;
+  const contentLines = lines.filter(
+    (line) =>
+      line.text &&
+      line.y > titleBlockBottom + 8 &&
+      line.y < imageHeight * 0.92 &&
+      line.x > titleLine.x - imageWidth * 0.08 &&
+      line.x < titleLine.x + imageWidth * 0.18 &&
+      line.width > Math.max(140, imageWidth * 0.14)
+  ).length;
+  const metadataLines = lines.filter(
+    (line) =>
+      line.text &&
+      line.y >= titleLine.y - 24 &&
+      line.y <= metadataBottom &&
+      /原创|original|summary provided|年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}|数字生命|yuanbao/i.test(line.text)
+  ).length;
+  const articleMetadataLines = lines.filter(
+    (line) =>
+      line.text &&
+      line.y >= titleLine.y - 24 &&
+      line.y <= metadataBottom &&
+      looksLikeLoadedArticleMetadataLine(line.text)
+  ).length;
+
+  return {
+    contentLines,
+    metadataLines,
+    articleMetadataLines,
+    titleBlockBottom,
+    articleShellLoaded: articleMetadataLines >= 1 || contentLines >= 4,
+  };
+}
+
 function analyzeViewerOcr(ocrResult, candidate) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const imageWidth = Number(ocrResult?.width ?? 0);
@@ -3394,12 +3517,21 @@ function analyzeViewerOcr(ocrResult, candidate) {
   const likelyArticleTitle = findLikelyArticleTitleCandidate(ocrResult);
   let titleLine = matchedTitleLine ?? weakTitleLine ?? likelyArticleTitle.line;
   let titleSource = matchedTitleLine ? "matched_title" : weakTitleLine ? "weak_title_alias" : likelyArticleTitle.source;
+  const likelyArticleStructure = analyzeArticleStructureForTitle(
+    lines,
+    likelyArticleTitle.line,
+    imageWidth,
+    imageHeight
+  );
+  const titleLineLooksLikeMetadata = titleLine ? looksLikeLoadedArticleMetadataLine(titleLine.text) : false;
   if (
     likelyArticleTitle.line &&
     titleLine &&
     likelyArticleTitle.line !== titleLine &&
-    likelyArticleTitle.line.y > titleLine.y + 40 &&
-    Number(likelyArticleTitle.line.width ?? 0) > Number(titleLine.width ?? 0) * 1.35
+    ((likelyArticleTitle.line.y > titleLine.y + 40 &&
+      Number(likelyArticleTitle.line.width ?? 0) > Number(titleLine.width ?? 0) * 1.35) ||
+      (lineBottom(likelyArticleTitle.line) < Number(titleLine.y ?? 0) - (titleLineLooksLikeMetadata ? 8 : 40) &&
+        likelyArticleStructure.articleShellLoaded))
   ) {
     titleLine = likelyArticleTitle.line;
     titleSource = "article_h1";
@@ -3429,29 +3561,8 @@ function analyzeViewerOcr(ocrResult, candidate) {
     };
   }
 
-  const contentLines = lines.filter(
-    (line) =>
-      line.text &&
-      line.y > titleLine.y + titleLine.height * 1.2 &&
-      line.y < imageHeight * 0.92 &&
-      line.x > titleLine.x - imageWidth * 0.08 &&
-      line.x < titleLine.x + imageWidth * 0.18 &&
-      line.width > Math.max(140, imageWidth * 0.14)
-  ).length;
-  const metadataLines = lines.filter(
-    (line) =>
-      line.text &&
-      line.y >= titleLine.y - 24 &&
-      line.y <= titleLine.y + 120 &&
-      /原创|original|summary provided|年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}|数字生命|yuanbao/i.test(line.text)
-  ).length;
-  const articleMetadataLines = lines.filter(
-    (line) =>
-      line.text &&
-      line.y >= titleLine.y - 24 &&
-      line.y <= titleLine.y + 120 &&
-      looksLikeLoadedArticleMetadataLine(line.text)
-  ).length;
+  const articleStructure = analyzeArticleStructureForTitle(lines, titleLine, imageWidth, imageHeight);
+  const { contentLines, metadataLines, articleMetadataLines } = articleStructure;
 
   return {
     matched:
@@ -3961,6 +4072,8 @@ export async function extractShareCardUrl(
   let copyAttempts = 0;
   let copyLastClipboardText = "";
   let copyFailureReason = null;
+  let copyUrlKind = null;
+  let copiedUrlHost = null;
 
   try {
     const menuStartedAt = Date.now();
@@ -3989,10 +4102,12 @@ export async function extractShareCardUrl(
       if (VIEWER_COPY_SETTLE_MS > 0) {
         sleepMsFn(VIEWER_COPY_SETTLE_MS);
       }
-      const copyResult = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
+      const copyResult = waitForClipboardShareUrl({}, { readClipboardTextFn, sleepMsFn });
       url = copyResult.url;
       copyAttempts = copyResult.attempts;
       copyLastClipboardText = copyResult.lastClipboardText;
+      copyUrlKind = classifyCopiedUrlKind(url);
+      copiedUrlHost = getUrlHost(url);
       timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (url) {
         status = "ok";
@@ -4029,9 +4144,12 @@ export async function extractShareCardUrl(
       );
       sleepMsFn(VIEWER_BROWSER_SETTLE_MS);
       const browserUrl = readFrontBrowserUrlFromAddressBarFn();
-      if (browserUrl && /^https:\/\/mp\.weixin\.qq\.com\//i.test(browserUrl)) {
+      const parsedBrowserUrl = extractHttpUrlFromText(browserUrl);
+      if (parsedBrowserUrl) {
         usedBrowserFallback = true;
-        url = browserUrl;
+        url = parsedBrowserUrl;
+        copyUrlKind = classifyCopiedUrlKind(url);
+        copiedUrlHost = getUrlHost(url);
         status = "ok";
       }
       timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
@@ -4078,6 +4196,8 @@ export async function extractShareCardUrl(
     copyAttempts,
     copyLastClipboardText: summarizeClipboardText(copyLastClipboardText),
     copyFailureReason,
+    copyUrlKind,
+    copiedUrlHost,
     ...viewerDiagnostics,
   };
 }

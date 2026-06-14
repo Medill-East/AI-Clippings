@@ -3061,6 +3061,231 @@ describe("extractShareCardUrl", () => {
     }
   });
 
+  it("opens the menu for Remedy when metadata appears after a multi-line H1", async () => {
+    const originalNow = Date.now;
+    let now = 1000;
+    Date.now = () => now;
+
+    let windowsCall = 0;
+    let openedMenu = false;
+
+    try {
+      const result = await extractShareCardUrl(
+        {
+          title: "从Remedy、10到拉瑞安，为什么 很多中型工作室坚持用自研引擎开..",
+          rawText: "从Remedy、10到拉瑞安，为什么\n很多中型工作室坚持用自研引擎开..\n触乐",
+          cardType: "single_article_card",
+          clickX: 500,
+          clickY: 400,
+        },
+        {},
+        {
+          clearClipboardTextFn: () => {},
+          clickAtPointFn: () => {},
+          getWeChatWindowsFn: () => {
+            windowsCall += 1;
+            if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 735, height: 923 }];
+            return [
+              { name: "main", x: 0, y: 0, width: 735, height: 923 },
+              { name: "viewer", x: 0, y: 33, width: 735, height: 923 },
+            ];
+          },
+          getFrontWeChatWindowFn: () => ({ name: "viewer", x: 0, y: 33, width: 735, height: 923 }),
+          captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 1470, height: 956 }),
+          recognizeTextFromImageFn: async () => ({
+            width: 2940,
+            height: 1912,
+            lines: [
+              { text: "从Remedy、1O到拉瑞安，为1 ×", x: 608, y: 93, width: 446, height: 36 },
+              {
+                text: "从Remedy、10到拉瑞安，为什么很多中型工作室坚持用自研引擎开",
+                x: 111,
+                y: 192,
+                width: 1365,
+                height: 60,
+              },
+              { text: "发游戏？|触乐", x: 111, y: 251.8, width: 342, height: 55.5 },
+              { text: "原创 等等", x: 111, y: 340.8, width: 157, height: 38.5 },
+              { text: "触乐 2026年5月11日 18:00", x: 111, y: 345.7, width: 424, height: 29 },
+              {
+                text: "游戏引擎与关卡设计、玩法机制一样，都是游戏作为一种艺术形式的重要组成部分。",
+                x: 143,
+                y: 1634.6,
+                width: 1390,
+                height: 44,
+              },
+            ],
+          }),
+          openViewerMenuFn: async (viewerContext) => {
+            openedMenu = true;
+            assert.equal(
+              viewerContext.ocrAnalysis.titleLine?.text,
+              "从Remedy、10到拉瑞安，为什么很多中型工作室坚持用自研引擎开"
+            );
+            assert.equal(viewerContext.ocrAnalysis.articleShellLoaded, true);
+            return {
+              copyLine: { text: "Copy Link", x: 20, y: 80, width: 100, height: 20 },
+              browserLine: null,
+              ocrResult: { lines: [] },
+            };
+          },
+          readFrontBrowserUrlFromAddressBarFn: () => null,
+          readClipboardTextFn: () => "https://mp.weixin.qq.com/s/remedy-engine-123",
+          sleepMsFn: (ms) => {
+            now += ms;
+          },
+          closeViewerWindowFn: () => true,
+          verifyChatRecoveredFn: async () => true,
+        }
+      );
+
+      assert.equal(openedMenu, true);
+      assert.equal(result.status, "ok");
+      assert.equal(result.url, "https://mp.weixin.qq.com/s/remedy-engine-123");
+      assert.equal(result.viewerArticleShellLoaded, true);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it("uses the H1 instead of the 游戏艺术设计 subtitle when the viewer is loaded", async () => {
+    const originalNow = Date.now;
+    let now = 1000;
+    Date.now = () => now;
+
+    let windowsCall = 0;
+    let openedMenu = false;
+
+    try {
+      const result = await extractShareCardUrl(
+        {
+          title: "游戏艺术设计是个好专业吗？ 一条走了二十年的路",
+          rawText: "一条走了二十年的路\n游戏茶馆",
+          cardType: "single_article_card",
+          clickX: 500,
+          clickY: 400,
+        },
+        {},
+        {
+          clearClipboardTextFn: () => {},
+          clickAtPointFn: () => {},
+          getWeChatWindowsFn: () => {
+            windowsCall += 1;
+            if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 735, height: 923 }];
+            return [
+              { name: "main", x: 0, y: 0, width: 735, height: 923 },
+              { name: "viewer", x: 0, y: 33, width: 735, height: 923 },
+            ];
+          },
+          getFrontWeChatWindowFn: () => ({ name: "viewer", x: 0, y: 33, width: 735, height: 923 }),
+          captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 1470, height: 956 }),
+          recognizeTextFromImageFn: async () => ({
+            width: 2940,
+            height: 1912,
+            lines: [
+              { text: "游戏艺术设计是个好专业吗？", x: 608, y: 93, width: 432, height: 36 },
+              { text: "游戏艺术设计是个好专业吗？", x: 111, y: 192, width: 526, height: 51 },
+              { text: "原创 茶馆小二儿 游戏茶馆 2026年6月12日 15:50|", x: 111, y: 281.7, width: 760, height: 30 },
+              { text: "一条走了二十年的路", x: 111, y: 546, width: 397, height: 45 },
+              { text: "游戏艺术设计这个专业，走到今天已经二十年了。", x: 111, y: 675, width: 820, height: 38 },
+              { text: "它见证了国内游戏行业从粗放增长到精细化生产的过程。", x: 111, y: 735, width: 910, height: 38 },
+              { text: "很多学生和家长会问，这到底是不是一个好专业。", x: 111, y: 795, width: 780, height: 38 },
+              { text: "答案往往取决于你期待它解决什么问题。", x: 111, y: 855, width: 660, height: 38 },
+            ],
+          }),
+          openViewerMenuFn: async (viewerContext) => {
+            openedMenu = true;
+            assert.equal(viewerContext.ocrAnalysis.titleLine?.text, "游戏艺术设计是个好专业吗？");
+            assert.equal(viewerContext.ocrAnalysis.titleSource, "article_h1");
+            assert.equal(viewerContext.ocrAnalysis.articleShellLoaded, true);
+            return {
+              copyLine: { text: "Copy Link", x: 20, y: 80, width: 100, height: 20 },
+              browserLine: null,
+              ocrResult: { lines: [] },
+            };
+          },
+          readFrontBrowserUrlFromAddressBarFn: () => null,
+          readClipboardTextFn: () => "https://mp.weixin.qq.com/s/game-art-major-123",
+          sleepMsFn: (ms) => {
+            now += ms;
+          },
+          closeViewerWindowFn: () => true,
+          verifyChatRecoveredFn: async () => true,
+        }
+      );
+
+      assert.equal(openedMenu, true);
+      assert.equal(result.status, "ok");
+      assert.equal(result.url, "https://mp.weixin.qq.com/s/game-art-major-123");
+      assert.equal(result.viewerTitleLineText, "游戏艺术设计是个好专业吗？");
+      assert.equal(result.viewerTitleSource, "article_h1");
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it("accepts an external copied URL from a loaded viewer", async () => {
+    const originalNow = Date.now;
+    let now = 1000;
+    Date.now = () => now;
+
+    let windowsCall = 0;
+
+    try {
+      const result = await extractShareCardUrl(
+        { title: "BIG ANNOUNCEMENT from LinkedIn", clickX: 500, clickY: 400 },
+        {},
+        {
+          clearClipboardTextFn: () => {},
+          clickAtPointFn: () => {},
+          getWeChatWindowsFn: () => {
+            windowsCall += 1;
+            if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 735, height: 923 }];
+            return [
+              { name: "main", x: 0, y: 0, width: 735, height: 923 },
+              { name: "viewer", x: 0, y: 33, width: 735, height: 923 },
+            ];
+          },
+          getFrontWeChatWindowFn: () => ({ name: "viewer", x: 0, y: 33, width: 735, height: 923 }),
+          captureFullScreenScreenshotFn: () => ({ x: 0, y: 0, width: 1470, height: 956 }),
+          recognizeTextFromImageFn: async () => ({
+            width: 2940,
+            height: 1912,
+            lines: [
+              { text: "Sarah Lynne Bowman's Post", x: 111, y: 192, width: 640, height: 51 },
+              { text: "LinkedIn 2026年6月14日 10:00", x: 111, y: 281.7, width: 360, height: 30 },
+              { text: "BIG ANNOUNCEMENT", x: 111, y: 420, width: 500, height: 40 },
+              { text: "I am excited to share a new update with everyone.", x: 111, y: 500, width: 820, height: 38 },
+              { text: "Thank you to the entire team for making this possible.", x: 111, y: 560, width: 850, height: 38 },
+              { text: "More details are available in the original post.", x: 111, y: 620, width: 760, height: 38 },
+              { text: "Please follow the link for the full announcement.", x: 111, y: 680, width: 780, height: 38 },
+            ],
+          }),
+          openViewerMenuFn: async () => ({
+            copyLine: { text: "Copy Link", x: 20, y: 80, width: 100, height: 20 },
+            browserLine: null,
+            ocrResult: { lines: [] },
+          }),
+          readFrontBrowserUrlFromAddressBarFn: () => null,
+          readClipboardTextFn: () => "https://www.linkedin.com/posts/sarah-bowman-big-announcement",
+          sleepMsFn: (ms) => {
+            now += ms;
+          },
+          closeViewerWindowFn: () => true,
+          verifyChatRecoveredFn: async () => true,
+        }
+      );
+
+      assert.equal(result.status, "ok");
+      assert.equal(result.url, "https://www.linkedin.com/posts/sarah-bowman-big-announcement");
+      assert.equal(result.copyUrlKind, "external_url");
+      assert.equal(result.copiedUrlHost, "www.linkedin.com");
+      assert.equal(result.copyFailureReason, null);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
   it("skips OCR recovery verification when fast close returns to a known pre-view window", async () => {
     let verifyCalls = 0;
     let windowsCall = 0;
