@@ -56,9 +56,10 @@ const VIEWER_MENU_PROBE_POINTS = [
   { xRatio: 0.94, yRatio: 0.032 },
 ];
 const BILIBILI_BRAND_TOKENS = ["哔哩哔哩", "bilibili", "b23tv", "bolilbi", "bolibili", "bililbi", "blbl"];
-const OCR_RIGHT_PANE_RATIO = 0.58;
+const OCR_RIGHT_PANE_RATIO = 0.56;
 const OCR_TOP_CONTENT_RATIO = 0.15;
 const OCR_CLUSTER_GAP_PX = 54;
+const OCR_FOOTER_MERGE_MAX_GAP_PX = 150;
 const OCR_TIMESTAMP_MIN_RATIO = 0.60;
 const OCR_TIMESTAMP_MAX_RATIO = 0.82;
 const OCR_TIMESTAMP_BEFORE_MAX_GAP_PX = 180;
@@ -68,7 +69,7 @@ const OCR_TIMESTAMP_FALLBACK_MAX_Y_GAP_PX = 420;
 const VIEWER_OPEN_SETTLE_MS = 160;
 const VIEWER_DETECT_TIMEOUT_MS = 900;
 const VIEWER_DETECT_POLL_MS = 60;
-const VIEWER_READY_TIMEOUT_MS = 1800;
+const VIEWER_READY_TIMEOUT_MS = 8000;
 const VIEWER_READY_POLL_MS = 40;
 const VIEWER_MENU_SETTLE_MS = 45;
 const VIEWER_COPY_SETTLE_MS = 0;
@@ -79,6 +80,13 @@ const VIEWER_CLOSE_CMD_W_SETTLE_MS = 35;
 const CST_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SUPPORTED_SHARE_CARD_TYPES = new Set(["single_article_card", "text_share_card"]);
+const ARTICLE_RETRY_LIMIT = 2;
+const RETRYABLE_EXTRACTION_REASONS = new Set([
+  "viewer_not_ready",
+  "viewer_context_mismatch",
+  "viewer_detected_but_menu_not_found",
+]);
+const SOFT_OCR_SKIP_REASONS = new Set(["unsupported_ocr_card", "weak_ocr_card"]);
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -173,11 +181,12 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
   if (currentCluster.length > 0) {
     clusters.push(currentCluster);
   }
+  const mergedClusters = mergeIsolatedArticleFooterClusters(clusters);
   timestampLines.sort((a, b) => a.y - b.y);
 
   const items = [];
   let index = 0;
-  for (const cluster of clusters) {
+  for (const cluster of mergedClusters) {
     if (cluster.length < 2) continue;
 
     const rawLines = cluster.map((line) => String(line?.text ?? "").trim()).filter(Boolean);
@@ -206,6 +215,66 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
   }
 
   return items;
+}
+
+function clusterBottom(cluster) {
+  return Math.max(...cluster.map((line) => Number(line?.y ?? 0) + Number(line?.height ?? 0)));
+}
+
+function clusterVerticalGap(upperCluster, lowerCluster) {
+  const upperBottom = clusterBottom(upperCluster);
+  const lowerTop = Math.min(...lowerCluster.map((line) => Number(line?.y ?? Number.POSITIVE_INFINITY)));
+  if (!Number.isFinite(upperBottom) || !Number.isFinite(lowerTop)) return Number.POSITIVE_INFINITY;
+  return lowerTop - upperBottom;
+}
+
+function clusterRawLines(cluster) {
+  return Array.isArray(cluster)
+    ? cluster.map((line) => String(line?.text ?? "").normalize("NFKC").trim()).filter(Boolean)
+    : [];
+}
+
+function isIsolatedArticleSourceFooterCluster(cluster) {
+  const rawLines = clusterRawLines(cluster);
+  if (rawLines.length === 0 || rawLines.length > 2) return false;
+  return rawLines.every((line) => looksLikeArticleSourceFooter(line));
+}
+
+function canAcceptIsolatedArticleSourceFooter(cluster) {
+  const rawLines = clusterRawLines(cluster);
+  if (rawLines.length === 0) return false;
+  if (rawLines.some((line) => looksLikeTimestampOcrText(line) || looksLikeUrlLikeText(line))) return false;
+
+  const rawText = rawLines.join("\n");
+  if (looksLikeVideoChannelText(rawText, rawLines) || looksLikeBilibiliVideoText(rawText)) return false;
+  if (looksLikeMarkdownDocText(rawText, rawLines) || looksLikeFileCardText(rawText)) return false;
+  if (looksLikeImageCardText(rawLines, rawText) || looksLikePlainTextBlock(rawLines, rawText)) return false;
+  if (looksLikeSingleArticleCardText(rawLines, rawText)) return false;
+
+  return rawLines.some((line) => {
+    if (looksLikeArticleSourceFooter(line)) return false;
+    return normalizeArticleSignatureLine(line).length >= 8;
+  });
+}
+
+function mergeIsolatedArticleFooterClusters(clusters) {
+  const merged = [];
+  for (let index = 0; index < clusters.length; index += 1) {
+    const cluster = clusters[index];
+    const nextCluster = clusters[index + 1];
+    if (
+      nextCluster &&
+      clusterVerticalGap(cluster, nextCluster) <= OCR_FOOTER_MERGE_MAX_GAP_PX &&
+      isIsolatedArticleSourceFooterCluster(nextCluster) &&
+      canAcceptIsolatedArticleSourceFooter(cluster)
+    ) {
+      merged.push([...cluster, ...nextCluster]);
+      index += 1;
+      continue;
+    }
+    merged.push(cluster);
+  }
+  return merged;
 }
 
 function findNearestTimestampLine(clusterTopLine, timestampLines) {
@@ -256,6 +325,34 @@ function looksLikeImageCardText(rawLines, rawText) {
   if (/^(?:\[?\s*)?(?:图片|照片|image|photo)(?:\s*\]?)?$/i.test(text)) return true;
   if (/^(?:一张|多张)?(?:图片|照片)$/i.test(text)) return true;
   return lines.length <= 3 && /\b(?:image|photo)\b/i.test(text) && /图片|照片|image|photo/i.test(text);
+}
+
+function looksLikeWeakOcrShareCardText(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  if (lines.length === 0 || lines.length > 2) return false;
+  if (looksLikeTextShareCardText(lines, rawText)) return false;
+  if (lines.some((line) => looksLikeUrlLikeText(line) || looksLikeTimestampOcrText(line))) return false;
+
+  const text = lines.join(" ").normalize("NFKC").trim();
+  const normalizedLines = lines.map(normalizeComparableText).filter(Boolean);
+  const combined = normalizedLines.join("");
+  if (!combined) return true;
+  if (combined.length <= 8) return true;
+
+  const first = normalizedLines[0] ?? "";
+  const secondText = lines[1] ?? "";
+  const second = normalizedLines[1] ?? "";
+  const hasSentenceCue = /[，,。！？；!?、:：]/.test(text);
+  const secondLooksLikeBrandFragment =
+    looksLikeArticleSourceFooter(secondText) || /^[A-Za-z0-9][A-Za-z0-9 ._-]{1,20}$/.test(secondText);
+
+  return (
+    lines.length === 2 &&
+    first.length <= 2 &&
+    second.length <= 18 &&
+    !hasSentenceCue &&
+    secondLooksLikeBrandFragment
+  );
 }
 
 function looksLikeArticleMetadataLine(text) {
@@ -343,7 +440,7 @@ function looksLikeVideoChannelText(rawText, rawLines = []) {
   const hasChannelCue = /视频号|video\s+channel/i.test(text);
   const socialCueMatches = text.match(/原声|时长|点赞|评论|转发|收藏|观看|播放|直播|封面|短视频|合集/g) ?? [];
 
-  return hasChannelCue || hasExplicitFollow || (hasExplicitFollow && hasVideoCue) || socialCueMatches.length >= 2;
+  return hasChannelCue || (hasExplicitFollow && hasVideoCue) || socialCueMatches.length >= 2;
 }
 
 function classifyOcrShareCardSkipReason(rawText, rawLines = []) {
@@ -352,6 +449,7 @@ function classifyOcrShareCardSkipReason(rawText, rawLines = []) {
   if (looksLikeMarkdownDocText(rawText, rawLines)) return "markdown_doc_card";
   if (looksLikeFileCardText(rawText)) return "file_card";
   if (looksLikeImageCardText(rawLines, rawText)) return "image_card";
+  if (looksLikeWeakOcrShareCardText(rawLines, rawText)) return "weak_ocr_card";
   if (looksLikeSingleArticleCardText(rawLines, rawText)) return null;
   if (looksLikePlainTextBlock(rawLines, rawText)) return "plain_text_block";
   if (/共\s*\d+\s*篇|\b\d+\s+articles?\b|multiple\s+articles?/i.test(rawText)) {
@@ -958,6 +1056,52 @@ function normalizeArticleSignatureLine(text) {
   return normalized;
 }
 
+function normalizeOcrConfusableArticleSignature(normalizedText) {
+  const value = String(normalizedText ?? "");
+  if (!/[a-z0-9]/i.test(value)) return value;
+  return value.replace(/[il1]/g, "i");
+}
+
+function addArticleFingerprintAlias(aliases, seen, alias) {
+  const value = String(alias ?? "").trim();
+  if (!value || seen.has(value)) return;
+  seen.add(value);
+  aliases.push(value);
+}
+
+function addArticleFingerprintFragmentAliases(aliases, seen, fragment, timestamp) {
+  const normalized = String(fragment ?? "");
+  if (normalized.length < 6) return;
+
+  const addFragment = (value) => {
+    if (!value || value.length < 6) return;
+    addArticleFingerprintAlias(aliases, seen, [timestamp, value].filter(Boolean).join("|"));
+    if (!timestamp) {
+      addArticleFingerprintAlias(aliases, seen, value);
+    }
+
+    const confusable = normalizeOcrConfusableArticleSignature(value);
+    if (confusable && confusable !== value) {
+      addArticleFingerprintAlias(aliases, seen, [timestamp, confusable].filter(Boolean).join("|"));
+      if (!timestamp) {
+        addArticleFingerprintAlias(aliases, seen, confusable);
+      }
+    }
+  };
+
+  for (const length of [18, 16, 14, 10]) {
+    addFragment(normalized.slice(0, length));
+  }
+
+  if (normalized.length >= 24) {
+    for (let start = 8; start <= normalized.length - 10; start += 2) {
+      addFragment(normalized.slice(start, start + 16));
+      addFragment(normalized.slice(start, start + 14));
+      addFragment(normalized.slice(start, start + 10));
+    }
+  }
+}
+
 function getBlockRawLines(block) {
   return Array.isArray(block?.rawLines)
     ? block.rawLines.map((line) => String(line ?? "").trim()).filter(Boolean)
@@ -1021,7 +1165,48 @@ function buildArticleFingerprintAliases(block) {
       : "",
   ].filter(Boolean);
 
-  return [...new Set(aliases)];
+  const seen = new Set(aliases);
+  for (const fragment of [primary, secondary, tertiary, ...signatureLines]) {
+    addArticleFingerprintFragmentAliases(aliases, seen, fragment, timestamp);
+  }
+
+  return aliases;
+}
+
+function buildExtractionArticleFingerprintAliases(extraction, block) {
+  const titleTexts = [
+    extraction?.viewerH1LineText,
+    extraction?.viewerTitleSource === "article_h1" ? extraction?.viewerTitleLineText : null,
+  ]
+    .map((text) => String(text ?? "").trim())
+    .filter(Boolean);
+  const aliases = [];
+  const seen = new Set();
+
+  for (const titleText of titleTexts) {
+    for (const alias of buildArticleFingerprintAliases({
+      timestampText: block?.timestampText ?? null,
+      shareCardTitle: titleText,
+      rawText: titleText,
+      rawLines: [titleText],
+      cardType: block?.cardType ?? "single_article_card",
+    })) {
+      addArticleFingerprintAlias(aliases, seen, alias);
+    }
+  }
+
+  return aliases;
+}
+
+function mergeArticleFingerprintAliases(...groups) {
+  const aliases = [];
+  const seen = new Set();
+  for (const group of groups) {
+    for (const alias of group ?? []) {
+      addArticleFingerprintAlias(aliases, seen, alias);
+    }
+  }
+  return aliases;
 }
 
 function isOcrOnlyBlock(block) {
@@ -1216,6 +1401,8 @@ function upsertArticleState(articleStates, articleFingerprints, updates) {
   const current =
     findExistingArticleState(articleStates, fingerprints)?.state ?? {
     status: "pending",
+    attemptCount: 0,
+    lastFailureReason: null,
     attempted: false,
     resolved: false,
     failed: false,
@@ -1228,6 +1415,32 @@ function upsertArticleState(articleStates, articleFingerprints, updates) {
     articleStates.set(fingerprint, next);
   }
   return next;
+}
+
+function isRetryableExtractionFailureReason(reason) {
+  return RETRYABLE_EXTRACTION_REASONS.has(String(reason ?? ""));
+}
+
+function isSoftOcrSkipReason(reason) {
+  return SOFT_OCR_SKIP_REASONS.has(String(reason ?? ""));
+}
+
+function canRetryArticleState(state) {
+  return (
+    state?.status === "failed" &&
+    isRetryableExtractionFailureReason(state.lastFailureReason) &&
+    Number(state.attemptCount ?? 0) < ARTICLE_RETRY_LIMIT
+  );
+}
+
+function duplicateSkipReasonForArticleState(state) {
+  if (state?.status === "resolved") return "article_already_resolved";
+  if (state?.status === "skipped") return "article_already_skipped";
+  if (state?.status === "pending") return "article_already_pending";
+  if (state?.status === "failed" && isRetryableExtractionFailureReason(state.lastFailureReason)) {
+    return "article_retry_limit_reached";
+  }
+  return "article_already_attempted";
 }
 
 function buildClusterRect(cluster) {
@@ -1352,7 +1565,8 @@ function hasCandidateForActionableShareCards(blocks, candidateMap) {
   return actionableBlocks.some((block) => candidateMap.has(block.blockId));
 }
 
-function classifyViewerContentSkipReason(ocrResult) {
+function classifyViewerContentSkipReason(ocrResult, ocrAnalysis = null) {
+  if (ocrAnalysis?.matched || ocrAnalysis?.articleShellLoaded) return null;
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const text = lines.map((line) => String(line?.text ?? "").trim()).filter(Boolean).join("\n");
   if (!text) return null;
@@ -1362,20 +1576,38 @@ function classifyViewerContentSkipReason(ocrResult) {
   return null;
 }
 
-function lineIntersectsOcrRect(line, rect) {
+function lineBelongsToOcrRect(line, rect) {
   const lineLeft = Number(line?.x ?? NaN);
   const lineTop = Number(line?.y ?? NaN);
-  const lineRight = lineLeft + Number(line?.width ?? 0);
-  const lineBottom = lineTop + Number(line?.height ?? 0);
+  const lineWidth = Number(line?.width ?? 0);
+  const lineHeight = Number(line?.height ?? 0);
+  const lineRight = lineLeft + lineWidth;
+  const lineBottom = lineTop + lineHeight;
   if (
     !Number.isFinite(lineLeft) ||
     !Number.isFinite(lineTop) ||
     !Number.isFinite(lineRight) ||
-    !Number.isFinite(lineBottom)
+    !Number.isFinite(lineBottom) ||
+    lineWidth <= 0 ||
+    lineHeight <= 0
   ) {
     return false;
   }
-  return lineRight >= rect.x && lineLeft <= rect.x + rect.width && lineBottom >= rect.y && lineTop <= rect.y + rect.height;
+
+  const centerX = lineLeft + lineWidth / 2;
+  const centerY = lineTop + lineHeight / 2;
+  if (centerX >= rect.x && centerX <= rect.x + rect.width && centerY >= rect.y && centerY <= rect.y + rect.height) {
+    return true;
+  }
+
+  const intersectLeft = Math.max(lineLeft, rect.x);
+  const intersectRight = Math.min(lineRight, rect.x + rect.width);
+  const intersectTop = Math.max(lineTop, rect.y);
+  const intersectBottom = Math.min(lineBottom, rect.y + rect.height);
+  const intersectWidth = Math.max(0, intersectRight - intersectLeft);
+  const intersectHeight = Math.max(0, intersectBottom - intersectTop);
+  const overlapRatio = (intersectWidth * intersectHeight) / (lineWidth * lineHeight);
+  return overlapRatio >= 0.6;
 }
 
 function buildOcrRectFromScreenRect(screenRect, screenBounds, ocrResult, paddingPx = 0) {
@@ -1403,13 +1635,91 @@ function buildOcrRectFromScreenRect(screenRect, screenBounds, ocrResult, padding
   };
 }
 
+function axisOverlap(start, size, candidateStart, candidateSize) {
+  const left = Math.max(start, candidateStart);
+  const right = Math.min(start + size, candidateStart + candidateSize);
+  return Math.max(0, right - left);
+}
+
+function chooseInferredScreenOrigin(axisStart, axisSize, boundsStart, boundsSize, inferredSize) {
+  const candidates = [
+    boundsStart,
+    0,
+    axisStart,
+    axisStart + axisSize - inferredSize,
+    boundsStart + boundsSize - inferredSize,
+  ].filter((value) => Number.isFinite(value));
+  let best = null;
+
+  for (const candidate of candidates) {
+    const overlap = axisOverlap(axisStart, axisSize, candidate, inferredSize);
+    const containsCenter =
+      axisStart + axisSize / 2 >= candidate && axisStart + axisSize / 2 <= candidate + inferredSize;
+    const score = overlap + (containsCenter ? inferredSize : 0) - Math.abs(candidate) / 10000;
+    if (!best || score > best.score) {
+      best = { value: candidate, score };
+    }
+  }
+
+  return best?.value ?? boundsStart;
+}
+
+function normalizeScreenBoundsForOcr(screenBounds, screenRect, ocrResult) {
+  const imageWidth = Number(ocrResult?.width ?? 0);
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const boundsX = Number(screenBounds?.x ?? 0);
+  const boundsY = Number(screenBounds?.y ?? 0);
+  const boundsWidth = Number(screenBounds?.width ?? 0);
+  const boundsHeight = Number(screenBounds?.height ?? 0);
+  const rectX = Number(screenRect?.x ?? boundsX);
+  const rectY = Number(screenRect?.y ?? boundsY);
+  const rectWidth = Number(screenRect?.width ?? 0);
+  const rectHeight = Number(screenRect?.height ?? 0);
+
+  if (
+    !screenBounds ||
+    imageWidth <= 0 ||
+    imageHeight <= 0 ||
+    boundsWidth <= 0 ||
+    boundsHeight <= 0 ||
+    ![boundsX, boundsY, rectX, rectY, rectWidth, rectHeight].every(Number.isFinite)
+  ) {
+    return screenBounds;
+  }
+
+  const scaleX = imageWidth / boundsWidth;
+  const scaleY = imageHeight / boundsHeight;
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+    return screenBounds;
+  }
+
+  const scaleRatio = scaleX / scaleY;
+  if (scaleRatio >= 0.85 && scaleRatio <= 1.15) {
+    return screenBounds;
+  }
+
+  const inferredWidth = imageWidth / scaleY;
+  if (!Number.isFinite(inferredWidth) || inferredWidth <= 0 || Math.abs(inferredWidth - boundsWidth) < 1) {
+    return screenBounds;
+  }
+
+  return {
+    ...screenBounds,
+    x: chooseInferredScreenOrigin(rectX, rectWidth, boundsX, boundsWidth, inferredWidth),
+    y: boundsY,
+    width: inferredWidth,
+    height: boundsHeight,
+  };
+}
+
 function filterOcrResultToScreenRect(ocrResult, screenRect, screenBounds, { paddingPx = 20 } = {}) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
-  const ocrRect = buildOcrRectFromScreenRect(screenRect, screenBounds, ocrResult, paddingPx);
+  const effectiveScreenBounds = normalizeScreenBoundsForOcr(screenBounds, screenRect, ocrResult);
+  const ocrRect = buildOcrRectFromScreenRect(screenRect, effectiveScreenBounds, ocrResult, paddingPx);
   if (!ocrRect) return ocrResult;
   return {
     ...ocrResult,
-    lines: lines.filter((line) => lineIntersectsOcrRect(line, ocrRect)),
+    lines: lines.filter((line) => lineBelongsToOcrRect(line, ocrRect)),
   };
 }
 
@@ -1419,8 +1729,10 @@ function countMeaningfulOcrLines(ocrResult) {
 }
 
 function buildViewerOcrContext(ocrResult, screenRect, screenBounds, candidate) {
-  const viewerOcrResult = filterOcrResultToScreenRect(ocrResult, screenRect, screenBounds);
+  const effectiveScreenBounds = normalizeScreenBoundsForOcr(screenBounds, screenRect, ocrResult);
+  const viewerOcrResult = filterOcrResultToScreenRect(ocrResult, screenRect, effectiveScreenBounds);
   return {
+    screenBounds: effectiveScreenBounds,
     viewerOcrResult,
     ocrAnalysis: analyzeViewerOcr(viewerOcrResult, candidate),
   };
@@ -1736,6 +2048,17 @@ export async function scanUiLinks(
   const artifactDir = runDir ? path.join(runDir, "artifacts") : null;
   const candidateArtifacts = [];
 
+  async function persistCandidateArtifacts() {
+    if (!artifactDir) return;
+    await writeJsonArtifact(path.join(artifactDir, "candidates.json"), candidateArtifacts);
+  }
+
+  async function pushCandidateArtifact(record) {
+    if (!record) return;
+    candidateArtifacts.push(record);
+    await persistCandidateArtifacts();
+  }
+
   function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
     if (!skipReason) return;
 
@@ -1946,7 +2269,7 @@ export async function scanUiLinks(
             artifactRecord.status = "pending";
             artifactRecord.reason = "missing_timestamp";
             artifactRecord.url = directRecords[0] ?? uncertainDirectRecords[0]?.url ?? null;
-            candidateArtifacts.push(artifactRecord);
+            await pushCandidateArtifact(artifactRecord);
           }
           if (articleFingerprints.length > 0) {
             upsertArticleState(articleStates, articleFingerprints, {
@@ -2029,7 +2352,7 @@ export async function scanUiLinks(
           artifactRecord.status = directRecords.length > 0 ? "resolved_direct_url" : "uncertain_direct_url";
           artifactRecord.url = directRecords[0] ?? uncertainDirectRecords[0]?.url ?? null;
           artifactRecord.reason = uncertainDirectRecords[0]?.confidenceReason ?? null;
-          candidateArtifacts.push(artifactRecord);
+          await pushCandidateArtifact(artifactRecord);
         }
         stats.uncertain_links_total += uncertainDirectRecords.length;
         upsertArticleState(articleStates, articleFingerprints, {
@@ -2048,7 +2371,7 @@ export async function scanUiLinks(
         if (artifactRecord) {
           artifactRecord.status = "skipped";
           artifactRecord.reason = directSkippedEntries[0]?.reason ?? "direct_url_skipped";
-          candidateArtifacts.push(artifactRecord);
+          await pushCandidateArtifact(artifactRecord);
         }
         for (const skippedEntry of directSkippedEntries) {
           pushSkippedRecord({
@@ -2073,12 +2396,16 @@ export async function scanUiLinks(
 
       const unsupportedSkipReason = classifyUnsupportedShareCardBlock(block);
       if (unsupportedSkipReason) {
+        const softUnsupportedSkip = isSoftOcrSkipReason(unsupportedSkipReason);
         if (artifactRecord) {
-          if (existingArticleState) {
+          if (
+            existingArticleState &&
+            (!softUnsupportedSkip || existingArticleState.resolved || existingArticleState.skipped)
+          ) {
             artifactRecord.status = "duplicate_skipped";
             artifactRecord.reason = "article_already_skipped";
             stats.duplicate_skipped += 1;
-            candidateArtifacts.push(artifactRecord);
+            await pushCandidateArtifact(artifactRecord);
             upsertArticleState(articleStates, articleFingerprints, {
               lastSeenPage: scrollCount,
               lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
@@ -2088,7 +2415,7 @@ export async function scanUiLinks(
 
           artifactRecord.status = "skipped";
           artifactRecord.reason = unsupportedSkipReason;
-          candidateArtifacts.push(artifactRecord);
+          await pushCandidateArtifact(artifactRecord);
         }
         incrementCount(stats.skipped_by_rule, unsupportedSkipReason);
         pushSkippedRecord({
@@ -2097,40 +2424,7 @@ export async function scanUiLinks(
           rawText: block.rawText,
           skipReason: unsupportedSkipReason,
         });
-        upsertArticleState(articleStates, articleFingerprints, {
-          status: "skipped",
-          attempted: true,
-          resolved: false,
-          failed: false,
-          skipped: true,
-          lastSeenPage: scrollCount,
-          lastSeenYBand: null,
-        });
-        continue;
-      }
-
-      if (!block.shareCardTitle || block.skipReason) {
-        if (artifactRecord && block.skipReason) {
-          if (existingArticleState) {
-            artifactRecord.status = "duplicate_skipped";
-            artifactRecord.reason = "article_already_skipped";
-            stats.duplicate_skipped += 1;
-            candidateArtifacts.push(artifactRecord);
-            upsertArticleState(articleStates, articleFingerprints, {
-              lastSeenPage: scrollCount,
-              lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
-            });
-            continue;
-          }
-          artifactRecord.status = "skipped";
-          artifactRecord.reason = block.skipReason;
-          candidateArtifacts.push(artifactRecord);
-          pushSkippedRecord({
-            messageTime,
-            title: block.shareCardTitle ?? "",
-            rawText: block.rawText,
-            skipReason: block.skipReason,
-          });
+        if (!softUnsupportedSkip) {
           upsertArticleState(articleStates, articleFingerprints, {
             status: "skipped",
             attempted: true,
@@ -2144,12 +2438,50 @@ export async function scanUiLinks(
         continue;
       }
 
+      if (!block.shareCardTitle || block.skipReason) {
+        if (artifactRecord && block.skipReason) {
+          const softBlockSkip = isSoftOcrSkipReason(block.skipReason);
+          if (existingArticleState && (!softBlockSkip || existingArticleState.resolved || existingArticleState.skipped)) {
+            artifactRecord.status = "duplicate_skipped";
+            artifactRecord.reason = "article_already_skipped";
+            stats.duplicate_skipped += 1;
+            await pushCandidateArtifact(artifactRecord);
+            upsertArticleState(articleStates, articleFingerprints, {
+              lastSeenPage: scrollCount,
+              lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
+            });
+            continue;
+          }
+          artifactRecord.status = "skipped";
+          artifactRecord.reason = block.skipReason;
+          await pushCandidateArtifact(artifactRecord);
+          pushSkippedRecord({
+            messageTime,
+            title: block.shareCardTitle ?? "",
+            rawText: block.rawText,
+            skipReason: block.skipReason,
+          });
+          if (!softBlockSkip) {
+            upsertArticleState(articleStates, articleFingerprints, {
+              status: "skipped",
+              attempted: true,
+              resolved: false,
+              failed: false,
+              skipped: true,
+              lastSeenPage: scrollCount,
+              lastSeenYBand: null,
+            });
+          }
+        }
+        continue;
+      }
+
       if (!messageTime && isOcrOnlyBlock(block)) {
         if (existingArticleState) {
           if (artifactRecord) {
             artifactRecord.status = "duplicate_skipped";
             artifactRecord.reason = "article_already_pending";
-            candidateArtifacts.push(artifactRecord);
+            await pushCandidateArtifact(artifactRecord);
           }
           stats.duplicate_skipped += 1;
           upsertArticleState(articleStates, articleFingerprints, {
@@ -2162,7 +2494,7 @@ export async function scanUiLinks(
         if (artifactRecord) {
           artifactRecord.status = "pending";
           artifactRecord.reason = "missing_timestamp";
-          candidateArtifacts.push(artifactRecord);
+          await pushCandidateArtifact(artifactRecord);
         }
         pushPendingRecord({
           title: block.shareCardTitle ?? "",
@@ -2182,16 +2514,11 @@ export async function scanUiLinks(
         continue;
       }
 
-      if (existingArticleState) {
+      if (existingArticleState && !canRetryArticleState(existingArticleState)) {
         if (artifactRecord) {
           artifactRecord.status = "duplicate_skipped";
-          artifactRecord.reason =
-            existingArticleState.status === "resolved"
-              ? "article_already_resolved"
-              : existingArticleState.status === "skipped"
-                ? "article_already_skipped"
-              : "article_already_attempted";
-          candidateArtifacts.push(artifactRecord);
+          artifactRecord.reason = duplicateSkipReasonForArticleState(existingArticleState);
+          await pushCandidateArtifact(artifactRecord);
         }
         stats.duplicate_skipped += 1;
         upsertArticleState(articleStates, articleFingerprints, {
@@ -2206,7 +2533,7 @@ export async function scanUiLinks(
         artifactRecord.click_x = candidate?.clickX ?? null;
         artifactRecord.click_y = candidate?.clickY ?? null;
         annotateCandidateArtifact(artifactRecord, candidate, page.window);
-        candidateArtifacts.push(artifactRecord);
+        await pushCandidateArtifact(artifactRecord);
       }
 
       if (!candidate) {
@@ -2215,6 +2542,7 @@ export async function scanUiLinks(
           ? "candidate_generation_failed"
           : "ocr_candidate_missing";
         stats.share_cards_unresolved += 1;
+        await persistCandidateArtifacts();
         continue;
       }
 
@@ -2231,12 +2559,16 @@ export async function scanUiLinks(
           lastSeenPage: scrollCount,
           lastSeenYBand: null,
         });
+        await persistCandidateArtifacts();
         continue;
       }
 
       const candidateYBand = buildCandidateYBand(candidate);
+      const nextAttemptCount = Number(existingArticleState?.attemptCount ?? 0) + 1;
       upsertArticleState(articleStates, articleFingerprints, {
         status: "attempted",
+        attemptCount: nextAttemptCount,
+        lastFailureReason: null,
         attempted: true,
         resolved: false,
         failed: false,
@@ -2262,6 +2594,7 @@ export async function scanUiLinks(
       stats.viewer_menu_wait_ms_total += extraction.timings?.viewer_menu_wait_ms ?? 0;
       stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
       stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
+      attachCopyDiagnostics(artifactRecord, extraction);
 
       if (extraction.status === "skipped" && extraction.reason) {
         incrementCount(stats.skipped_by_rule, extraction.reason);
@@ -2275,6 +2608,8 @@ export async function scanUiLinks(
         });
         upsertArticleState(articleStates, articleFingerprints, {
           status: "skipped",
+          attemptCount: nextAttemptCount,
+          lastFailureReason: null,
           attempted: true,
           resolved: false,
           failed: false,
@@ -2285,6 +2620,10 @@ export async function scanUiLinks(
       } else if (extraction.status === "ok" && extraction.url) {
         const canonicalUrl = canonicalizeUrl(extraction.url);
         const skipReason = classifySkipReason(canonicalUrl);
+        const resolvedArticleFingerprints = mergeArticleFingerprintAliases(
+          articleFingerprints,
+          buildExtractionArticleFingerprintAliases(extraction, block)
+        );
         if (skipReason) {
           incrementCount(stats.skipped_by_rule, skipReason);
           artifactRecord.status = "skipped";
@@ -2296,8 +2635,10 @@ export async function scanUiLinks(
             skipReason,
             rawUrl: canonicalUrl,
           });
-          upsertArticleState(articleStates, articleFingerprints, {
+          upsertArticleState(articleStates, resolvedArticleFingerprints, {
             status: "skipped",
+            attemptCount: nextAttemptCount,
+            lastFailureReason: null,
             attempted: true,
             resolved: false,
             failed: false,
@@ -2305,6 +2646,7 @@ export async function scanUiLinks(
             lastSeenPage: scrollCount,
             lastSeenYBand: candidateYBand,
           });
+          await persistCandidateArtifacts();
           continue;
         }
 
@@ -2332,8 +2674,10 @@ export async function scanUiLinks(
         artifactRecord.url = canonicalUrl;
         artifactRecord.used_browser_fallback = Boolean(extraction.usedBrowserFallback);
         stats.share_cards_resolved += 1;
-        upsertArticleState(articleStates, articleFingerprints, {
+        upsertArticleState(articleStates, resolvedArticleFingerprints, {
           status: "resolved",
+          attemptCount: nextAttemptCount,
+          lastFailureReason: null,
           attempted: true,
           resolved: true,
           failed: false,
@@ -2345,11 +2689,14 @@ export async function scanUiLinks(
           stats.browser_fallback_used += 1;
         }
       } else {
+        const failureReason = extraction.reason ?? "share_card_extractor_failed";
         artifactRecord.status = "unresolved";
-        artifactRecord.reason = extraction.reason ?? "share_card_extractor_failed";
+        artifactRecord.reason = failureReason;
         stats.share_cards_unresolved += 1;
         upsertArticleState(articleStates, articleFingerprints, {
           status: "failed",
+          attemptCount: nextAttemptCount,
+          lastFailureReason: failureReason,
           attempted: true,
           resolved: false,
           failed: true,
@@ -2358,6 +2705,8 @@ export async function scanUiLinks(
           lastSeenYBand: candidateYBand,
         });
       }
+
+      await persistCandidateArtifacts();
 
       if (stats.share_cards_attempted >= maxCandidates) {
         limitReached = true;
@@ -2383,13 +2732,7 @@ export async function scanUiLinks(
     }
   }
 
-  if (artifactDir) {
-    await fs.writeFile(
-      path.join(artifactDir, "candidates.json"),
-      JSON.stringify(candidateArtifacts, null, 2) + "\n",
-      "utf8"
-    );
-  }
+  await persistCandidateArtifacts();
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
   return { records, uncertainRecords, pendingRecords, skippedRecords, stats };
@@ -2555,8 +2898,9 @@ async function openViewerMenu(
       artifactDir != null
         ? path.join(artifactDir, `menu-screen-${stamp}.png`)
         : path.join(os.tmpdir(), `wechat-menu-screen-${stamp}.png`);
-    const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
+    const screenBounds = captureFullScreenScreenshotFn(screenshotPath, probeRect);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+    const menuScreenBounds = normalizeScreenBoundsForOcr(screenBounds, probeRect, ocrResult);
     const copyLine = findMenuActionLine(ocrResult.lines, COPY_LINK_LABELS);
     const browserLine = findMenuActionLine(ocrResult.lines, OPEN_IN_BROWSER_LABELS);
 
@@ -2575,7 +2919,7 @@ async function openViewerMenu(
     }
 
     if (copyLine || browserLine) {
-      return { copyLine, browserLine, ocrResult, screenBounds };
+      return { copyLine, browserLine, ocrResult, screenBounds: menuScreenBounds };
     }
 
     if (shouldStopViewerMenuProbing(viewerContext, getWeChatWindowsFn(), getFrontWeChatWindowFn())) {
@@ -2648,18 +2992,98 @@ function clickOcrLineInScreen(screenBounds, line, ocrResult, clickAtPointFn = cl
 }
 
 function waitForClipboardMpUrl(
-  { timeoutMs = 420, pollMs = 25 } = {},
+  { timeoutMs = 1500, pollMs = 25 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
 ) {
   const deadline = Date.now() + timeoutMs;
+  let attempts = 0;
+  let lastClipboardText = "";
   while (Date.now() < deadline) {
+    attempts += 1;
     const clipboard = readClipboardTextFn();
+    lastClipboardText = clipboard ?? "";
     if (clipboard && /^https:\/\/mp\.weixin\.qq\.com\//i.test(clipboard)) {
-      return clipboard;
+      return { url: clipboard, attempts, lastClipboardText };
     }
     sleepMsFn(pollMs);
   }
-  return null;
+  return { url: null, attempts, lastClipboardText };
+}
+
+function summarizeClipboardText(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return "empty";
+  if (/^(empty|non_url_text|url_host:)/.test(value)) return value;
+
+  try {
+    const parsed = new URL(value);
+    return `url_host:${parsed.host.toLowerCase()}`;
+  } catch {
+    return "non_url_text";
+  }
+}
+
+function attachCopyDiagnostics(artifactRecord, extraction) {
+  if (!artifactRecord || !extraction) return;
+  if (Number.isFinite(extraction.copyAttempts)) {
+    artifactRecord.copy_attempts = extraction.copyAttempts;
+  }
+  if (extraction.copyFailureReason) {
+    artifactRecord.copy_failure_reason = extraction.copyFailureReason;
+  }
+  if (Object.hasOwn(extraction, "copyLastClipboardText")) {
+    artifactRecord.copy_last_clipboard = summarizeClipboardText(extraction.copyLastClipboardText);
+  }
+  if (Object.hasOwn(extraction, "viewerReadyState")) {
+    artifactRecord.viewer_ready_state = extraction.viewerReadyState;
+  }
+  if (Object.hasOwn(extraction, "viewerTitleLineText")) {
+    artifactRecord.viewer_title_line_text = extraction.viewerTitleLineText;
+  }
+  if (Object.hasOwn(extraction, "viewerTitleMatched")) {
+    artifactRecord.viewer_title_matched = extraction.viewerTitleMatched;
+  }
+  if (Object.hasOwn(extraction, "viewerTitleSource")) {
+    artifactRecord.viewer_title_source = extraction.viewerTitleSource;
+  }
+  if (Object.hasOwn(extraction, "viewerH1LineText")) {
+    artifactRecord.viewer_h1_line_text = extraction.viewerH1LineText;
+  }
+  if (Object.hasOwn(extraction, "viewerChromeTitleLineText")) {
+    artifactRecord.viewer_chrome_title_line_text = extraction.viewerChromeTitleLineText;
+  }
+  if (Object.hasOwn(extraction, "viewerArticleShellLoaded")) {
+    artifactRecord.viewer_article_shell_loaded = extraction.viewerArticleShellLoaded;
+  }
+  if (Number.isFinite(extraction.viewerContentLines)) {
+    artifactRecord.viewer_content_lines = extraction.viewerContentLines;
+  }
+  if (Number.isFinite(extraction.viewerMetadataLines)) {
+    artifactRecord.viewer_metadata_lines = extraction.viewerMetadataLines;
+  }
+  if (Number.isFinite(extraction.viewerReadyAttempts)) {
+    artifactRecord.viewer_ready_attempts = extraction.viewerReadyAttempts;
+  }
+  if (Number.isFinite(extraction.viewerReadyWaitMs)) {
+    artifactRecord.viewer_ready_wait_ms = extraction.viewerReadyWaitMs;
+  }
+}
+
+function buildViewerDiagnostics(viewerContext, readyState = null) {
+  const ocrAnalysis = viewerContext?.ocrAnalysis ?? {};
+  return {
+    viewerReadyState: readyState ?? (viewerContext ? viewerContextReadyState(viewerContext) : "unknown"),
+    viewerTitleLineText: ocrAnalysis.titleLine?.text ?? null,
+    viewerTitleMatched: Boolean(ocrAnalysis.titleMatched),
+    viewerTitleSource: ocrAnalysis.titleSource ?? "unknown",
+    viewerH1LineText: ocrAnalysis.h1Line?.text ?? null,
+    viewerChromeTitleLineText: ocrAnalysis.chromeTitleLine?.text ?? null,
+    viewerArticleShellLoaded: Boolean(ocrAnalysis.articleShellLoaded),
+    viewerContentLines: Number(ocrAnalysis.contentLines ?? 0),
+    viewerMetadataLines: Number(ocrAnalysis.metadataLines ?? 0),
+    viewerReadyAttempts: Number(viewerContext?.viewerReadyAttempts ?? 0),
+    viewerReadyWaitMs: Number(viewerContext?.viewerReadyWaitMs ?? 0),
+  };
 }
 
 function viewerLooksLoading(ocrResult) {
@@ -2671,9 +3095,9 @@ function viewerContextReadyState(viewerContext) {
   const scopedOcrResult = viewerContext?.viewerOcrResult ?? viewerContext?.ocrResult;
   const ocrAnalysis = viewerContext?.ocrAnalysis ?? {};
 
+  if (ocrAnalysis.matched || ocrAnalysis.articleShellLoaded) return "ready";
   if (viewerLooksLoading(scopedOcrResult)) return "loading";
-  if (ocrAnalysis.matched) return "ready";
-  if (classifyViewerContentSkipReason(scopedOcrResult)) return "ready";
+  if (classifyViewerContentSkipReason(scopedOcrResult, ocrAnalysis)) return "ready";
   if (ocrAnalysis.titleLine) return "partial_title";
   return "unknown";
 }
@@ -2792,10 +3216,53 @@ function buildTextShareViewerTitleAliases(candidate) {
   return aliases;
 }
 
-function buildViewerTitleAliases(candidate) {
+function buildOcrFallbackViewerTitleAliases(candidate, { includeWeak = false } = {}) {
+  if (candidate?.cardType !== "single_article_card") return [];
+
+  const lines = String(candidate?.rawText ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.normalize("NFKC").trim())
+    .filter(Boolean);
+
+  const aliases = [];
+  const seen = new Set();
+  const addAlias = (value, { allowLong = false } = {}) => {
+    const alias = String(value ?? "").normalize("NFKC").replace(/[⋯…]+/g, "").trim();
+    const normalized = normalizeComparableText(alias);
+    if (normalized.length < 4 || (!allowLong && normalized.length > 24)) return;
+    if (seen.has(normalized)) return;
+    if (looksLikeTimestampOcrText(alias) || looksLikeUrlLikeText(alias)) return;
+    if (/[=＝]|[，,。！？；!?、]/.test(alias)) return;
+    seen.add(normalized);
+    aliases.push(alias);
+  };
+
+  lines.forEach((line, index) => {
+    if (lines.length >= 3 && index >= lines.length - 2 && looksLikeArticleSourceFooter(line)) {
+      return;
+    }
+
+    const strippedEllipsis = line.replace(/(?:\.{3}|[⋯…]+)/g, "").trim();
+    addAlias(strippedEllipsis, { allowLong: true });
+
+    if (includeWeak) {
+      const beforeYear = strippedEllipsis.replace(/\s*(?:19|20)\d{2}.*$/u, "").trim();
+      addAlias(beforeYear);
+    }
+
+    const prefix = strippedEllipsis.slice(0, 16).trim();
+    addAlias(prefix);
+  });
+
+  return aliases;
+}
+
+function buildViewerTitleAliases(candidate, { includeWeak = false } = {}) {
   const base = [candidate?.title ?? candidate?.rawText ?? ""];
   if (looksLikeTextShareCandidate(candidate)) {
     base.push(...buildTextShareViewerTitleAliases(candidate));
+  } else {
+    base.push(...buildOcrFallbackViewerTitleAliases(candidate, { includeWeak }));
   }
 
   const seen = new Set();
@@ -2809,10 +3276,10 @@ function buildViewerTitleAliases(candidate) {
   return aliases;
 }
 
-function findViewerTitleLine(ocrResult, candidate) {
+function findViewerTitleLine(ocrResult, candidate, { includeWeak = false } = {}) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const imageHeight = Number(ocrResult?.height ?? 0);
-  const titleAliases = buildViewerTitleAliases(candidate);
+  const titleAliases = buildViewerTitleAliases(candidate, { includeWeak });
   if (titleAliases.length === 0) return null;
 
   let best = null;
@@ -2847,19 +3314,118 @@ function findViewerTitleLine(ocrResult, candidate) {
   return best?.line ?? null;
 }
 
+function looksLikeViewerChromeLine(text) {
+  const value = String(text ?? "").normalize("NFKC").trim();
+  if (!value) return true;
+  if (/^(?:x|×|close|search|summary|ok)$/i.test(value)) return true;
+  if (/summary provided|provided by|yuanbao|loading|微信|WeChat|search/i.test(value)) return true;
+  if (FILE_HELPER_NAMES.some((name) => normalizeComparableText(value) === normalizeComparableText(name))) return true;
+  if (looksLikeUrlLikeText(value)) return true;
+  if (/^\W+$/.test(value)) return true;
+  return false;
+}
+
+function findLikelyArticleTitleCandidate(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const imageWidth = Number(ocrResult?.width ?? 0);
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const titleZone = imageHeight > 0 ? imageHeight * 0.45 : Number.POSITIVE_INFINITY;
+  const firstArticleMetadataY = lines
+    .filter((line) => line?.text && looksLikeLoadedArticleMetadataLine(line.text))
+    .map((line) => Number(line.y ?? Number.POSITIVE_INFINITY))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0];
+  const candidates = [];
+
+  for (const line of lines) {
+    if (!line?.text) continue;
+    if (line.y > titleZone) continue;
+    if (Number.isFinite(firstArticleMetadataY) && line.y > firstArticleMetadataY + 20) continue;
+    if (looksLikeViewerChromeLine(line.text)) continue;
+    if (looksLikeLoadedArticleMetadataLine(line.text)) continue;
+
+    const normalized = normalizeComparableText(line.text);
+    if (normalized.length < 6) continue;
+    if (Number(line.width ?? 0) < 120 && normalized.length < 10) continue;
+
+    const widthRatio = imageWidth > 0 ? Number(line.width ?? 0) / imageWidth : 0;
+    const yRatio = imageHeight > 0 ? Number(line.y ?? 0) / imageHeight : 0.2;
+    const score =
+      Math.min(24, widthRatio * 56) +
+      (Number(line.height ?? 0) >= 24 ? 8 : 0) +
+      Math.min(16, normalized.length) +
+      (yRatio >= 0.07 ? 8 : 0);
+    candidates.push({ line, score });
+  }
+
+  candidates.sort((a, b) => b.score - a.score || a.line.y - b.line.y);
+  const articleH1 = candidates[0]?.line ?? null;
+  const chromeTitle =
+    articleH1 == null
+      ? null
+      : candidates.find((candidate) => {
+          const line = candidate.line;
+          if (line === articleH1) return false;
+          if (imageHeight > 0 && line.y > imageHeight * 0.08) return false;
+          if (line.y >= articleH1.y) return false;
+          return Number(line.width ?? 0) < Number(articleH1.width ?? 0) * 0.8;
+        })?.line ?? null;
+
+  return {
+    line: articleH1,
+    h1Line: articleH1,
+    chromeTitleLine: chromeTitle,
+    source: articleH1 ? "article_h1" : "unknown",
+  };
+}
+
+function looksLikeLoadedArticleMetadataLine(text) {
+  const value = String(text ?? "");
+  if (/summary provided|yuanbao/i.test(value)) return false;
+  return /原创|original|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}/i.test(value);
+}
+
 function analyzeViewerOcr(ocrResult, candidate) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const imageWidth = Number(ocrResult?.width ?? 0);
   const imageHeight = Number(ocrResult?.height ?? 0);
-  const titleLine = findViewerTitleLine(ocrResult, candidate);
+  const matchedTitleLine = findViewerTitleLine(ocrResult, candidate);
+  const weakTitleLine = matchedTitleLine ? null : findViewerTitleLine(ocrResult, candidate, { includeWeak: true });
+  const likelyArticleTitle = findLikelyArticleTitleCandidate(ocrResult);
+  let titleLine = matchedTitleLine ?? weakTitleLine ?? likelyArticleTitle.line;
+  let titleSource = matchedTitleLine ? "matched_title" : weakTitleLine ? "weak_title_alias" : likelyArticleTitle.source;
+  if (
+    likelyArticleTitle.line &&
+    titleLine &&
+    likelyArticleTitle.line !== titleLine &&
+    likelyArticleTitle.line.y > titleLine.y + 40 &&
+    Number(likelyArticleTitle.line.width ?? 0) > Number(titleLine.width ?? 0) * 1.35
+  ) {
+    titleLine = likelyArticleTitle.line;
+    titleSource = "article_h1";
+  } else if (likelyArticleTitle.line && likelyArticleTitle.line === titleLine) {
+    titleSource = "article_h1";
+  }
+  const chromeTitleLine =
+    likelyArticleTitle.chromeTitleLine ??
+    (titleSource !== "article_h1" && titleLine && imageHeight > 0 && titleLine.y <= imageHeight * 0.08
+      ? titleLine
+      : null);
+  const h1Line = titleSource === "article_h1" ? titleLine : likelyArticleTitle.h1Line;
   const chatHistoryModal = lines.some((line) => /chat history with/i.test(line.text));
   if (!titleLine || chatHistoryModal) {
     return {
       matched: false,
+      titleMatched: false,
       titleLine,
+      titleSource: titleLine ? titleSource : "unknown",
+      h1Line,
+      chromeTitleLine,
       chatHistoryModal,
       contentLines: 0,
       metadataLines: 0,
+      articleMetadataLines: 0,
+      articleShellLoaded: false,
     };
   }
 
@@ -2879,13 +3445,29 @@ function analyzeViewerOcr(ocrResult, candidate) {
       line.y <= titleLine.y + 120 &&
       /原创|original|summary provided|年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}|数字生命|yuanbao/i.test(line.text)
   ).length;
+  const articleMetadataLines = lines.filter(
+    (line) =>
+      line.text &&
+      line.y >= titleLine.y - 24 &&
+      line.y <= titleLine.y + 120 &&
+      looksLikeLoadedArticleMetadataLine(line.text)
+  ).length;
 
   return {
-    matched: contentLines >= 4 && (metadataLines >= 1 || titleLine.width >= imageWidth * 0.2),
+    matched:
+      (Boolean(matchedTitleLine && titleLine === matchedTitleLine) || titleSource === "article_h1") &&
+      contentLines >= 4 &&
+      (metadataLines >= 1 || titleLine.width >= imageWidth * 0.2),
+    titleMatched: Boolean(matchedTitleLine && titleLine === matchedTitleLine),
     titleLine,
+    titleSource,
+    h1Line,
+    chromeTitleLine,
     chatHistoryModal,
     contentLines,
     metadataLines,
+    articleMetadataLines,
+    articleShellLoaded: articleMetadataLines >= 1 || (titleSource === "article_h1" && contentLines >= 4),
   };
 }
 
@@ -2913,6 +3495,12 @@ async function detectViewerContext(
   while (Date.now() < deadline) {
     const currentWindows = getWeChatWindowsFn();
     const frontWindow = getFrontWeChatWindowFn();
+    const newWindow =
+      currentWindows.length > beforeWindows.length
+        ? currentWindows.find((window) => !beforeSignatures.has(windowSignature(window)))
+        : null;
+    const frontWindowChanged = frontWindow && windowSignature(frontWindow) !== beforeFrontSignature;
+    const preferredScreenshotRect = newWindow ?? (frontWindowChanged ? frontWindow : null) ?? beforeFrontWindow ?? null;
 
     const stamp = `${Date.now()}`;
     const screenshotPath =
@@ -2920,7 +3508,7 @@ async function detectViewerContext(
         ? path.join(artifactDir, `viewer-detect-${stamp}.png`)
         : path.join(os.tmpdir(), `wechat-viewer-detect-${stamp}.png`);
 
-    const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
+    const screenBounds = captureFullScreenScreenshotFn(screenshotPath, preferredScreenshotRect);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
     const fullScreenOcrAnalysis = analyzeViewerOcr(ocrResult, candidate);
 
@@ -2930,50 +3518,46 @@ async function detectViewerContext(
       await fs.rm(screenshotPath, { force: true }).catch(() => {});
     }
 
-    const newWindow =
-      currentWindows.length > beforeWindows.length
-        ? currentWindows.find((window) => !beforeSignatures.has(windowSignature(window)))
-        : null;
     if (newWindow) {
-      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, newWindow, screenBounds, candidate);
+      const viewerOcrContext = buildViewerOcrContext(ocrResult, newWindow, screenBounds, candidate);
       return {
         mode: "new_window",
         screenRect: newWindow,
-        screenBounds,
+        screenBounds: viewerOcrContext.screenBounds,
         window: newWindow,
         ocrResult,
-        viewerOcrResult,
-        ocrAnalysis,
+        viewerOcrResult: viewerOcrContext.viewerOcrResult,
+        ocrAnalysis: viewerOcrContext.ocrAnalysis,
       };
     }
 
-    if (frontWindow && windowSignature(frontWindow) !== beforeFrontSignature) {
-      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, frontWindow, screenBounds, candidate);
+    if (frontWindowChanged) {
+      const viewerOcrContext = buildViewerOcrContext(ocrResult, frontWindow, screenBounds, candidate);
       return {
         mode: "front_window_changed",
         screenRect: frontWindow,
-        screenBounds,
+        screenBounds: viewerOcrContext.screenBounds,
         window: frontWindow,
         ocrResult,
-        viewerOcrResult,
-        ocrAnalysis,
+        viewerOcrResult: viewerOcrContext.viewerOcrResult,
+        ocrAnalysis: viewerOcrContext.ocrAnalysis,
       };
     }
 
-    if (fullScreenOcrAnalysis.matched) {
+    if (fullScreenOcrAnalysis.matched || fullScreenOcrAnalysis.articleShellLoaded) {
       if (debug) {
         console.log("[debug] Detected article viewer via full-screen OCR");
       }
       const ocrDetectedRect = frontWindow ?? screenBounds;
-      const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, ocrDetectedRect, screenBounds, candidate);
+      const viewerOcrContext = buildViewerOcrContext(ocrResult, ocrDetectedRect, screenBounds, candidate);
       return {
         mode: "ocr_detected",
         screenRect: ocrDetectedRect,
-        screenBounds,
+        screenBounds: viewerOcrContext.screenBounds,
         window: frontWindow ?? null,
         ocrResult,
-        viewerOcrResult,
-        ocrAnalysis,
+        viewerOcrResult: viewerOcrContext.viewerOcrResult,
+        ocrAnalysis: viewerOcrContext.ocrAnalysis,
       };
     }
 
@@ -2995,23 +3579,34 @@ async function waitForViewerReady(
   } = {}
 ) {
   let currentContext = viewerContext;
+  const readyStartedAt = Date.now();
+  let attempts = 0;
   const initiallyReady = viewerContextReadyState(currentContext) === "ready";
 
   if (initiallyReady) {
-    return currentContext;
+    return {
+      ...currentContext,
+      viewerReadyAttempts: attempts,
+      viewerReadyWaitMs: Date.now() - readyStartedAt,
+    };
   }
 
   if (!viewerContextStillLoading(currentContext)) {
-    return currentContext;
+    return {
+      ...currentContext,
+      viewerReadyAttempts: attempts,
+      viewerReadyWaitMs: Date.now() - readyStartedAt,
+    };
   }
 
   if (debug) {
     console.log("[debug] Waiting for article viewer to finish loading...");
   }
 
-  const deadline = Date.now() + timeoutMs;
+  const deadline = readyStartedAt + timeoutMs;
   while (Date.now() < deadline) {
     sleepMsFn(pollMs);
+    attempts += 1;
 
     const stamp = `${Date.now()}`;
     const screenshotPath =
@@ -3019,20 +3614,22 @@ async function waitForViewerReady(
         ? path.join(artifactDir, `viewer-ready-${stamp}.png`)
         : path.join(os.tmpdir(), `wechat-viewer-ready-${stamp}.png`);
 
-    const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
-    const ocrResult = await recognizeTextFromImageFn(screenshotPath);
     const frontWindow = getFrontWeChatWindowFn();
-    const screenRect = currentContext.screenRect ?? frontWindow ?? screenBounds;
-    const { viewerOcrResult, ocrAnalysis } = buildViewerOcrContext(ocrResult, screenRect, screenBounds, candidate);
+    const screenRect = currentContext.screenRect ?? frontWindow ?? currentContext.screenBounds;
+    const screenBounds = captureFullScreenScreenshotFn(screenshotPath, screenRect);
+    const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+    const viewerOcrContext = buildViewerOcrContext(ocrResult, screenRect, screenBounds, candidate);
 
     currentContext = {
       ...currentContext,
-      screenBounds,
+      screenBounds: viewerOcrContext.screenBounds,
       screenRect,
       window: frontWindow ?? currentContext.window ?? null,
       ocrResult,
-      viewerOcrResult,
-      ocrAnalysis,
+      viewerOcrResult: viewerOcrContext.viewerOcrResult,
+      ocrAnalysis: viewerOcrContext.ocrAnalysis,
+      viewerReadyAttempts: attempts,
+      viewerReadyWaitMs: Date.now() - readyStartedAt,
     };
 
     if (artifactDir != null) {
@@ -3050,7 +3647,11 @@ async function waitForViewerReady(
     }
   }
 
-  return currentContext;
+  return {
+    ...currentContext,
+    viewerReadyAttempts: attempts,
+    viewerReadyWaitMs: Date.now() - readyStartedAt,
+  };
 }
 
 function viewerContextLooksMismatched(viewerContext, candidate) {
@@ -3189,7 +3790,12 @@ export async function extractShareCardUrl(
   timings.viewer_open_wait_ms = Date.now() - openStartedAt;
 
   if (!viewerContext) {
-    return { status: "failed", reason: "share_card_viewer_not_opened", timings };
+    return {
+      status: "failed",
+      reason: "share_card_viewer_not_opened",
+      timings,
+      ...buildViewerDiagnostics(null, "not_opened"),
+    };
   }
 
   const readyStartedAt = Date.now();
@@ -3206,19 +3812,30 @@ export async function extractShareCardUrl(
   );
   timings.viewer_ready_wait_ms = Date.now() - readyStartedAt;
 
+  const readyState = viewerContextReadyState(readyViewerContext);
+  const viewerDiagnostics = buildViewerDiagnostics(readyViewerContext, readyState);
+
   if (artifactDir != null) {
     await writeJsonArtifact(path.join(artifactDir, "viewer-context.json"), {
       mode: readyViewerContext.mode,
       screen_rect: readyViewerContext.screenRect,
       screen_bounds: readyViewerContext.screenBounds,
       window: readyViewerContext.window,
+      ready_state: readyState,
       title_line_text: readyViewerContext.ocrAnalysis?.titleLine?.text ?? null,
+      title_matched: Boolean(readyViewerContext.ocrAnalysis?.titleMatched),
+      title_source: readyViewerContext.ocrAnalysis?.titleSource ?? "unknown",
+      h1_line_text: readyViewerContext.ocrAnalysis?.h1Line?.text ?? null,
+      chrome_title_line_text: readyViewerContext.ocrAnalysis?.chromeTitleLine?.text ?? null,
       content_lines: readyViewerContext.ocrAnalysis?.contentLines ?? 0,
       metadata_lines: readyViewerContext.ocrAnalysis?.metadataLines ?? 0,
+      article_metadata_lines: readyViewerContext.ocrAnalysis?.articleMetadataLines ?? 0,
+      article_shell_loaded: Boolean(readyViewerContext.ocrAnalysis?.articleShellLoaded),
+      ready_attempts: readyViewerContext.viewerReadyAttempts ?? 0,
+      ready_wait_ms: readyViewerContext.viewerReadyWaitMs ?? timings.viewer_ready_wait_ms,
     });
   }
 
-  const readyState = viewerContextReadyState(readyViewerContext);
   if (readyState === "loading" || readyState === "partial_title") {
     const closeStartedAt = Date.now();
     const closeResult = normalizeCloseViewerResult(
@@ -3244,6 +3861,7 @@ export async function extractShareCardUrl(
         url: null,
         usedBrowserFallback: false,
         timings,
+        ...viewerDiagnostics,
       };
     }
     return {
@@ -3252,6 +3870,7 @@ export async function extractShareCardUrl(
       url: null,
       usedBrowserFallback: false,
       timings,
+      ...viewerDiagnostics,
     };
   }
 
@@ -3280,6 +3899,7 @@ export async function extractShareCardUrl(
         url: null,
         usedBrowserFallback: false,
         timings,
+        ...viewerDiagnostics,
       };
     }
     return {
@@ -3288,10 +3908,14 @@ export async function extractShareCardUrl(
       url: null,
       usedBrowserFallback: false,
       timings,
+      ...viewerDiagnostics,
     };
   }
 
-  const viewerSkipReason = classifyViewerContentSkipReason(readyViewerContext.viewerOcrResult ?? readyViewerContext.ocrResult);
+  const viewerSkipReason = classifyViewerContentSkipReason(
+    readyViewerContext.viewerOcrResult ?? readyViewerContext.ocrResult,
+    readyViewerContext.ocrAnalysis
+  );
   if (viewerSkipReason) {
     const closeStartedAt = Date.now();
     const closeResult = normalizeCloseViewerResult(
@@ -3317,6 +3941,7 @@ export async function extractShareCardUrl(
         url: null,
         usedBrowserFallback: false,
         timings,
+        ...viewerDiagnostics,
       };
     }
     return {
@@ -3325,6 +3950,7 @@ export async function extractShareCardUrl(
       url: null,
       usedBrowserFallback: false,
       timings,
+      ...viewerDiagnostics,
     };
   }
 
@@ -3332,10 +3958,13 @@ export async function extractShareCardUrl(
   let usedBrowserFallback = false;
   let reason = "viewer_detected_but_menu_not_found";
   let status = "failed";
+  let copyAttempts = 0;
+  let copyLastClipboardText = "";
+  let copyFailureReason = null;
 
   try {
     const menuStartedAt = Date.now();
-    const menu = await openViewerMenuFn(
+    let menu = await openViewerMenuFn(
       readyViewerContext,
       { debug, artifactDir },
       {
@@ -3360,13 +3989,33 @@ export async function extractShareCardUrl(
       if (VIEWER_COPY_SETTLE_MS > 0) {
         sleepMsFn(VIEWER_COPY_SETTLE_MS);
       }
-      url = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
+      const copyResult = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
+      url = copyResult.url;
+      copyAttempts = copyResult.attempts;
+      copyLastClipboardText = copyResult.lastClipboardText;
       timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (url) {
         status = "ok";
       }
       if (!url) {
         reason = "copy_link_failed";
+        copyFailureReason = "clipboard_timeout";
+        if (allowBrowserFallback) {
+          const fallbackMenuStartedAt = Date.now();
+          menu = await openViewerMenuFn(
+            readyViewerContext,
+            { debug, artifactDir },
+            {
+              clickAtPointFn,
+              getWeChatWindowsFn,
+              getFrontWeChatWindowFn,
+              captureFullScreenScreenshotFn,
+              recognizeTextFromImageFn,
+              sleepMsFn,
+            }
+          );
+          timings.viewer_menu_wait_ms += Date.now() - fallbackMenuStartedAt;
+        }
       }
     }
 
@@ -3420,5 +4069,15 @@ export async function extractShareCardUrl(
     timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
   }
 
-  return { status, reason, usedBrowserFallback, url, timings };
+  return {
+    status,
+    reason,
+    usedBrowserFallback,
+    url,
+    timings,
+    copyAttempts,
+    copyLastClipboardText: summarizeClipboardText(copyLastClipboardText),
+    copyFailureReason,
+    ...viewerDiagnostics,
+  };
 }

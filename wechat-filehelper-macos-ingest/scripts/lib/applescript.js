@@ -305,6 +305,17 @@ export function captureRectScreenshot(rect, outputPath) {
   });
 }
 
+function captureScreenBoundsScreenshot(rect, outputPath) {
+  const x = Math.round(rect.x);
+  const y = Math.round(rect.y);
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  execFileSync("screencapture", ["-x", "-R", `${x},${y},${width},${height}`, outputPath], {
+    timeout: DEFAULT_TIMEOUT_MS,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+}
+
 /**
  * Capture the current front WeChat window.
  */
@@ -315,10 +326,7 @@ export function captureWindowScreenshot(window, outputPath) {
   captureRectScreenshot(window, outputPath);
 }
 
-/**
- * Return the main desktop screen bounds in logical points.
- */
-export function getMainScreenBounds() {
+function parseFinderDesktopBounds() {
   const result = runAppleScript('tell application "Finder" to get bounds of window of desktop');
   const parts = String(result)
     .split(",")
@@ -335,15 +343,107 @@ export function getMainScreenBounds() {
     y: top,
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top),
+    isMain: true,
   };
 }
 
+export function getScreenBoundsList() {
+  try {
+    const result = runJxa(`
+      ObjC.import("AppKit");
+
+      function rectFromFrame(frame) {
+        return {
+          x: Number(frame.origin.x),
+          y: Number(frame.origin.y),
+          width: Number(frame.size.width),
+          height: Number(frame.size.height),
+        };
+      }
+
+      const mainFrame = rectFromFrame($.NSScreen.mainScreen.frame);
+      const screens = $.NSScreen.screens;
+      const values = [];
+      for (let i = 0; i < screens.count; i += 1) {
+        const frame = rectFromFrame(screens.objectAtIndex(i).frame);
+        frame.isMain =
+          frame.x === mainFrame.x &&
+          frame.y === mainFrame.y &&
+          frame.width === mainFrame.width &&
+          frame.height === mainFrame.height;
+        values.push(frame);
+      }
+      JSON.stringify(values);
+    `);
+
+    const screens = JSON.parse(result)
+      .map((screen) => ({
+        x: Number(screen.x),
+        y: Number(screen.y),
+        width: Number(screen.width),
+        height: Number(screen.height),
+        isMain: Boolean(screen.isMain),
+      }))
+      .filter((screen) =>
+        [screen.x, screen.y, screen.width, screen.height].every(Number.isFinite) &&
+        screen.width > 0 &&
+        screen.height > 0
+      );
+
+    if (screens.length > 0) return screens;
+  } catch {
+    // Fall through to the older Finder-based fallback.
+  }
+
+  return [parseFinderDesktopBounds()];
+}
+
+function overlapArea(left, right) {
+  if (!left || !right) return 0;
+  const overlapLeft = Math.max(Number(left.x ?? 0), Number(right.x ?? 0));
+  const overlapTop = Math.max(Number(left.y ?? 0), Number(right.y ?? 0));
+  const overlapRight = Math.min(
+    Number(left.x ?? 0) + Number(left.width ?? 0),
+    Number(right.x ?? 0) + Number(right.width ?? 0)
+  );
+  const overlapBottom = Math.min(
+    Number(left.y ?? 0) + Number(left.height ?? 0),
+    Number(right.y ?? 0) + Number(right.height ?? 0)
+  );
+  return Math.max(0, overlapRight - overlapLeft) * Math.max(0, overlapBottom - overlapTop);
+}
+
+export function selectScreenBoundsForRect(preferredRect = null, screens = getScreenBoundsList()) {
+  const candidates = Array.isArray(screens) ? screens.filter((screen) => screen?.width > 0 && screen?.height > 0) : [];
+  if (candidates.length === 0) return parseFinderDesktopBounds();
+  if (!preferredRect) return candidates.find((screen) => screen.isMain) ?? candidates[0];
+
+  let best = null;
+  for (const screen of candidates) {
+    const score = overlapArea(screen, preferredRect);
+    if (!best || score > best.score || (score === best.score && screen.isMain && !best.screen.isMain)) {
+      best = { screen, score };
+    }
+  }
+
+  if (best?.score > 0) return best.screen;
+  return candidates.find((screen) => screen.isMain) ?? candidates[0];
+}
+
 /**
- * Capture the current main screen to a file and return the captured bounds.
+ * Return the main desktop screen bounds in logical points.
  */
-export function captureFullScreenScreenshot(outputPath) {
-  const screenBounds = getMainScreenBounds();
-  captureRectScreenshot(screenBounds, outputPath);
+export function getMainScreenBounds() {
+  return selectScreenBoundsForRect(null);
+}
+
+/**
+ * Capture the screen containing the preferred rect, or the main screen when no
+ * rect is available, and return the captured bounds.
+ */
+export function captureFullScreenScreenshot(outputPath, preferredRect = null) {
+  const screenBounds = selectScreenBoundsForRect(preferredRect);
+  captureScreenBoundsScreenshot(screenBounds, outputPath);
   return screenBounds;
 }
 
