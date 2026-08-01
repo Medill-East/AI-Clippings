@@ -14,7 +14,7 @@
    `obsidian-web-clipper-ingest/local/inputs/2026-08-01-filehelper-links.txt`。
 4. 执行并发 10 批处理，命令为：
    `OBSIDIAN_CLIPPER_MAX_CONCURRENCY=10 node ./scripts/clip-links.js --input local/inputs/2026-08-01-filehelper-links.txt`。
-5. 首轮 manifest（`2026-08-01T02-47-44-536Z`）出现 1 条失败：`https://mp.weixin.qq.com/s/Pt_vpsZ_noq2GvtYAo6q_Q`。
+5. 首轮并发任务（`2026-08-01T02-47-44-536Z`）最终显示 26 条全部成功，`https://mp.weixin.qq.com/s/Pt_vpsZ_noq2GvtYAo6q_Q` 为 `attempt: 2`（内置重试已恢复）。
 6. 对该条以并发 1 重试：
    `OBSIDIAN_CLIPPER_MAX_CONCURRENCY=1 node ./scripts/clip-links.js "https://mp.weixin.qq.com/s/Pt_vpsZ_noq2GvtYAo6q_Q"`。
 7. 重试 manifest（`2026-08-01T02-52-46-745Z`）显示该条成功。
