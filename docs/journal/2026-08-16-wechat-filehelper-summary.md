@@ -106,3 +106,10 @@
 
 - 用真实视频号卡片运行一次 `npm run process:videos -- --duration <实际时长>`，确认系统权限、播放时序和摘要质量。
 - 根据真实转录长度调整默认捕获时长；如需 B 站/其他视频卡片，再单独扩展 provider 和预跳过策略。
+
+## 统一 collect 入口修正
+
+- 用户反馈不希望为了视频再运行第二条命令。
+- `collect` 现默认为统一入口：扫描并写入本次视频 pending 后，在同一进程内调用共享的 `processPendingVideos` 编排器；文章继续原分支，视频只在内部切换到捕获/ASR/Obsidian 分支。
+- `process:videos` 保留为历史 pending 或失败记录的重试入口；`--skip-video-processing` 可让 collect 只入队。
+- 新增 collect 编排测试，确认视频记录会传给 video pipeline，且原有无视频扫描路径不受影响。

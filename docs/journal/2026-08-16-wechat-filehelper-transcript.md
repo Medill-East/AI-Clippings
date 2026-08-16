@@ -93,3 +93,10 @@
 - 需要用户手动打开/播放视频并指定捕获时长；当前不自动点击历史 pending 卡片，也不自动检测播放结束。
 - 捕获的是目标屏幕的系统混音，处理时应避免其他声音；完整视频不会留存。
 - 视频号分支已可用，B 站视频仍保留原有跳过策略，后续如需支持再扩展 provider。
+
+## 用户反馈后的入口调整
+
+- 用户指出不应让文章处理和视频处理变成两条需要手动串联的命令。
+- 将视频编排抽成共享 `processPendingVideos`，由 `collect-links.js` 在本次扫描写入索引后自动调用；只有发现本次扫描的视频卡片时才进入提示、捕获和 ASR，普通文章扫描保持原路径。
+- `process-videos.js` 继续复用同一编排器，定位为历史 pending/失败记录的补救命令，而不是常规入口。
+- 新增 `runCollect` 集成测试和 `processPendingVideos` 编排测试；增加 `--video-duration`、`--video-no-prompt`、`--skip-video-processing` 等 collect 兼容参数。

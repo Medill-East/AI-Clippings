@@ -87,6 +87,8 @@ npm run collect -- \
   --format md
 ```
 
+`collect` 是文章和视频的统一入口。扫描本次时间范围时发现视频号卡片后，它会在同一进程内切换到视频分支，提示你准备播放并完成音频捕获、V2T 转录和 Obsidian 写回，不需要再运行第二条命令。视频默认捕获 `120` 秒，可用 `--video-duration N` 调整；如只想先入队，使用 `--skip-video-processing`。
+
 等价脚本：
 
 ```bash
@@ -106,15 +108,15 @@ node scripts/query-links.js \
   --format md
 ```
 
-### 5. 处理视频号并写入 Obsidian
+### 5. 视频分支与失败重试
 
-扫描完成后，视频号卡片会留在独立 pending 队列。准备好在微信中打开目标视频后运行：
+正常情况下视频由上面的 `collect` 自动处理。此前已入队但未完成的记录，可以单独重试：
 
 ```bash
 npm run process:videos -- --duration 120
 ```
 
-命令会等待按 Enter，然后捕获指定时长的系统音频，调用本机 V2T 的 `qwen3-asr-0.6b`，再把摘要和完整转录写入当前打开的 Obsidian vault 的 `Video Clips/` 目录。中间只会生成短暂的低分辨率 MP4 作为音频容器，转换为 WAV 后立即删除，不保存视频文件。
+该重试命令会等待按 Enter，然后捕获指定时长的系统音频，调用本机 V2T 的 `qwen3-asr-0.6b`，再把摘要和完整转录写入当前打开的 Obsidian vault 的 `Video Clips/` 目录。中间只会生成短暂的低分辨率 MP4 作为音频容器，转换为 WAV 后立即删除，不保存视频文件。
 
 常用参数：
 

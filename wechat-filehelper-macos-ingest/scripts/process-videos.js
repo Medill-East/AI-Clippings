@@ -117,77 +117,105 @@ export function formatVideoProcessUsage() {
   ].join("\n");
 }
 
-async function main() {
+export async function processPendingVideos({
+  indexPath,
+  records = null,
+  durationSeconds = 120,
+  limit = 1,
+  noPrompt = false,
+  outputDir = "",
+  vaultPath = "",
+  vaultName = "",
+  folder = process.env.OBSIDIAN_VIDEO_FOLDER || "Video Clips",
+  modelId = process.env.VIDEO_ASR_MODEL || "qwen3-asr-0.6b",
+  modelRoot = process.env.V2T_MODEL_ROOT || "",
+  statusPath = process.env.V2T_MODEL_STATUS_PATH || "",
+  v2tRoot = process.env.V2T_ROOT || "",
+  workerPath = process.env.V2T_ASR_WORKER_PATH || "",
+  llmBaseUrl = process.env.VIDEO_LLM_BASE_URL || "http://127.0.0.1:11434/v1",
+  llmModel = process.env.VIDEO_LLM_MODEL || "",
+  listPendingFn = listPendingVideoRecords,
+  resolveVaultFn = resolveObsidianVaultPath,
+  resolveAsrFn = resolveVideoAsrConfig,
+  processRecordFn = processVideoRecord,
+  getWindowFn = getFrontWeChatWindow,
+  promptFn = promptForVideo,
+  log = console,
+} = {}) {
   if (process.platform !== "darwin") {
     throw new Error(`视频处理仅支持 macOS，当前平台为 ${process.platform}`);
   }
+  if (!indexPath) throw new Error("视频处理缺少 indexPath");
 
-  const opts = parseVideoProcessArgs(process.argv);
-  if (opts.help) {
-    console.log(formatVideoProcessUsage());
-    return;
-  }
-
-  const pending = await listPendingVideoRecords(opts.indexPath);
+  const pending = records ?? (await listPendingFn(indexPath));
   if (pending.length === 0) {
-    console.log("没有待处理的视频号记录。先运行 npm run collect 完成 UI 扫描。");
-    return;
+    log.log("没有待处理的视频号记录。");
+    return { pendingCount: 0, selectedCount: 0, resolvedCount: 0, failedCount: 0, results: [] };
   }
 
-  const outputDir = opts.outputDir || "";
-  const vaultPath = outputDir
+  const resolvedVaultPath = outputDir
     ? ""
-    : await resolveObsidianVaultPath({ vaultPath: opts.vaultPath, preferredName: opts.vaultName });
-  const asrConfig = await resolveVideoAsrConfig({
-    modelRoot: opts.modelRoot || undefined,
-    modelId: opts.modelId,
-    statusPath: opts.statusPath || undefined,
-    v2tRoot: opts.v2tRoot || undefined,
-    workerPath: opts.workerPath || undefined,
+    : await resolveVaultFn({ vaultPath, preferredName: vaultName });
+  const asrConfig = await resolveAsrFn({
+    modelRoot: modelRoot || undefined,
+    modelId,
+    statusPath: statusPath || undefined,
+    v2tRoot: v2tRoot || undefined,
+    workerPath: workerPath || undefined,
   });
 
-  const selected = pending.slice(0, opts.limit);
-  console.log(`待处理视频 ${pending.length} 条，本次处理 ${selected.length} 条。`);
-  console.log(`ASR: ${asrConfig.modelId}`);
-  console.log(`输出: ${outputDir || vaultPath}`);
+  const selected = pending.slice(0, limit);
+  log.log(`待处理视频 ${pending.length} 条，本次处理 ${selected.length} 条。`);
+  log.log(`ASR: ${asrConfig.modelId}`);
+  log.log(`输出: ${outputDir || resolvedVaultPath}`);
+  const results = [];
 
   for (const record of selected) {
-    if (!opts.noPrompt) await promptForVideo(record, opts.durationSeconds);
+    if (!noPrompt) await promptFn(record, durationSeconds);
 
     let screenRect = null;
     try {
-      screenRect = getFrontWeChatWindow();
+      screenRect = getWindowFn();
     } catch {
       // ScreenCaptureKit will fall back to the main display when window bounds are unavailable.
     }
 
-    const result = await processVideoRecord(record, {
-      indexPath: opts.indexPath,
-      durationSeconds: opts.durationSeconds,
+    const result = await processRecordFn(record, {
+      indexPath,
+      durationSeconds,
       screenRect,
       modelConfig: asrConfig,
       workerPath: asrConfig.workerPath,
       modelId: asrConfig.modelId,
       summaryFn: ({ title, transcript }) =>
-        summarizeTranscript({ title, transcript, baseUrl: opts.llmBaseUrl, model: opts.llmModel }),
+        summarizeTranscript({ title, transcript, baseUrl: llmBaseUrl, model: llmModel }),
       noteOptions: {
-        vaultPath,
+        vaultPath: resolvedVaultPath,
         outputDir,
-        folder: opts.folder,
+        folder,
       },
     });
+    results.push(result);
 
     if (result.error) {
-      console.error(`处理失败：${record.title || "未命名视频"}`);
-      console.error(`  ${result.error.code || "video_processing_failed"}: ${result.error.message}`);
+      log.error(`处理失败：${record.title || "未命名视频"}`);
+      log.error(`  ${result.error.code || "video_processing_failed"}: ${result.error.message}`);
       continue;
     }
-    console.log(`已完成：${record.title || "未命名视频"}`);
-    console.log(`  Note: ${result.notePath}`);
+    log.log(`已完成：${record.title || "未命名视频"}`);
+    log.log(`  Note: ${result.notePath}`);
   }
+
+  return {
+    pendingCount: pending.length,
+    selectedCount: selected.length,
+    resolvedCount: results.filter((result) => !result.error).length,
+    failedCount: results.filter((result) => result.error).length,
+    results,
+  };
 }
 
-async function promptForVideo(record, durationSeconds) {
+export async function promptForVideo(record, durationSeconds) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("当前终端不是交互终端；请使用 --no-prompt，或在终端中运行此命令。\n" + formatVideoProcessUsage());
   }
@@ -207,6 +235,36 @@ function parsePositiveNumber(value, flag, maximum) {
     throw new Error(`${flag} 必须是 0 到 ${maximum} 之间的数字。`);
   }
   return parsed;
+}
+
+async function main() {
+  if (process.platform !== "darwin") {
+    throw new Error(`视频处理仅支持 macOS，当前平台为 ${process.platform}`);
+  }
+
+  const opts = parseVideoProcessArgs(process.argv);
+  if (opts.help) {
+    console.log(formatVideoProcessUsage());
+    return;
+  }
+
+  await processPendingVideos({
+    indexPath: opts.indexPath,
+    durationSeconds: opts.durationSeconds,
+    limit: opts.limit,
+    noPrompt: opts.noPrompt,
+    outputDir: opts.outputDir,
+    vaultPath: opts.vaultPath,
+    vaultName: opts.vaultName,
+    folder: opts.folder,
+    modelId: opts.modelId,
+    modelRoot: opts.modelRoot,
+    statusPath: opts.statusPath,
+    v2tRoot: opts.v2tRoot,
+    workerPath: opts.workerPath,
+    llmBaseUrl: opts.llmBaseUrl,
+    llmModel: opts.llmModel,
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

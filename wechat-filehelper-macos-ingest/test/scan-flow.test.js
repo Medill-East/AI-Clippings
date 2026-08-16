@@ -7,6 +7,7 @@ import path from "node:path";
 import { parseClipboardText, scanClipboardLinks } from "../scripts/lib/chat.js";
 import { runScan } from "../scripts/lib/scan.js";
 import { probeWeChatStore } from "../scripts/lib/store.js";
+import { parseCollectArgs, runCollect } from "../scripts/collect-links.js";
 import {
   createReadableWeChatHome,
   createUnreadableWeChatHome,
@@ -27,6 +28,70 @@ async function makeTempDir(prefix) {
 }
 
 describe("scan flow", () => {
+  it("runs the video branch inside the shared collect command", async () => {
+    const skillRoot = await makeTempDir("wechat-filehelper-collect-video-");
+    const videoRecord = {
+      record_type: "pending_item",
+      content_type: "video",
+      video_status: "pending",
+      dedupe_key: "collect-video-1",
+      title: "内置视频分支",
+    };
+    let processOptions = null;
+    const opts = parseCollectArgs([
+      "node",
+      "collect-links.js",
+      "--since",
+      "2026-03-28T07:00:00+08:00",
+      "--until",
+      "2026-03-28T08:00:00+08:00",
+      "--source",
+      "ui",
+      "--video-duration",
+      "9",
+    ]);
+
+    const result = await runCollect(opts, {
+      skillRoot,
+      runScanFn: async () => ({
+        newRecords: [],
+        uncertainRecords: [],
+        pendingRecords: [videoRecord],
+        skippedRecords: [],
+      }),
+      listPendingVideoRecordsFn: async () => [videoRecord],
+      processPendingVideosFn: async (options) => {
+        processOptions = options;
+        return { pendingCount: 1, selectedCount: 1, resolvedCount: 1, failedCount: 0 };
+      },
+      runQueryFn: async () => ({
+        records: [],
+        uncertainLinks: [],
+        pendingItems: [],
+        videos: [videoRecord],
+        skippedCards: [],
+        rendered: "collect-result",
+      }),
+      log: { log() {}, error() {} },
+    });
+
+    assert.equal(processOptions.durationSeconds, 9);
+    assert.equal(processOptions.records[0].dedupe_key, videoRecord.dedupe_key);
+    assert.equal(result.videoProcessResult.resolvedCount, 1);
+    assert.equal(result.queryResult.rendered, "collect-result");
+
+    const skipOpts = parseCollectArgs([
+      "node",
+      "collect-links.js",
+      "--since",
+      "2026-03-28T07:00:00+08:00",
+      "--until",
+      "2026-03-28T08:00:00+08:00",
+      "--skip-video-processing",
+    ]);
+    assert.equal(skipOpts.processVideos, false);
+  });
+
   it("auto selects ui when the UI probe is ready", async () => {
     const skillRoot = await makeTempDir("wechat-filehelper-skill-");
     let capturedUiOptions = null;

@@ -19,6 +19,7 @@ import {
   summarizeTranscript,
 } from "../scripts/lib/video-pipeline.js";
 import { captureSystemAudioToWav } from "../scripts/lib/video-capture.js";
+import { processPendingVideos } from "../scripts/process-videos.js";
 
 const tempDirs = [];
 
@@ -284,5 +285,34 @@ describe("video helpers", () => {
     assert.equal(commands.length, 1);
     assert.equal((await fs.stat(outputPath)).size, 100);
     assert.equal((await fs.readdir(root)).includes("capture-helper"), true);
+  });
+
+  it("orchestrates pending video processing for the shared collect command", async () => {
+    const root = await makeTempDir("wechat-filehelper-video-orchestrator-");
+    const record = createPendingVideoRecord({ title: "collect 内置视频", videoFingerprint: "collect-video" });
+    const logs = [];
+    const result = await processPendingVideos({
+      indexPath: path.join(root, "links.jsonl"),
+      records: [record],
+      durationSeconds: 7,
+      limit: Number.POSITIVE_INFINITY,
+      noPrompt: true,
+      outputDir: path.join(root, "notes"),
+      resolveAsrFn: async () => ({ modelId: "test-asr", workerPath: "/tmp/test-worker.js" }),
+      getWindowFn: () => ({ x: 1, y: 2, width: 300, height: 200 }),
+      processRecordFn: async (input, options) => {
+        assert.equal(input.dedupe_key, record.dedupe_key);
+        assert.equal(options.durationSeconds, 7);
+        assert.deepEqual(options.screenRect, { x: 1, y: 2, width: 300, height: 200 });
+        return { record: { ...input, record_type: "video", video_status: "resolved" }, notePath: "/tmp/test-note.md" };
+      },
+      log: { log: (message) => logs.push(message), error: (message) => logs.push(message) },
+    });
+
+    assert.equal(result.pendingCount, 1);
+    assert.equal(result.selectedCount, 1);
+    assert.equal(result.resolvedCount, 1);
+    assert.equal(result.failedCount, 0);
+    assert.ok(logs.some((message) => String(message).includes("待处理视频 1 条")));
   });
 });
