@@ -1,6 +1,6 @@
 ---
 name: wechat-filehelper-macos-ingest
-description: 通过 macOS 微信桌面客户端优先走 UI-first 单篇文章扫描、必要时回退到剪贴板兜底，提取「文件传输助手」指定时间段内的链接并维护本地索引。
+description: 通过 macOS 微信桌面客户端优先走 UI-first 单篇文章扫描、必要时回退到剪贴板兜底，提取「文件传输助手」指定时间段内的文章链接，并把视频号卡片路由到独立待处理队列。
 ---
 
 # WeChat FileHelper macOS Ingest
@@ -13,6 +13,7 @@ description: 通过 macOS 微信桌面客户端优先走 UI-first 单篇文章�
 - `auto` 会先探测 UI-first 路径是否可用；可用就走 `ui`
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
+- 明确识别的视频号卡片不再打开文章 viewer；会写入 `pending_item`，等待独立的视频采集、ASR 和总结流程
 
 ## 平台要求
 
@@ -123,6 +124,8 @@ node scripts/query-links.js \
 }
 ```
 
+视频号待处理项还会包含 `content_type: "video"`、`provider: "wechat_channels"`、`video_status: "pending"` 和 `pending_reason: "video_content_not_processed"`。目前不保存完整视频或临时媒体 URL。
+
 ## manifest 重点字段
 
 每次扫描会写入 `local/runs/<timestamp>/manifest.json`，重点关注：
@@ -136,12 +139,13 @@ node scripts/query-links.js \
 - `share_cards_attempted`
 - `share_cards_resolved`
 - `share_cards_unresolved`
+- `video_cards_pending`
 - `browser_fallback_used`
 - `skipped_by_rule`
 
-## 跳过规则
+## 内容分流规则
 
-- 视频号卡片：跳过
+- 视频号卡片：进入独立视频 pending 队列，不打开文章 viewer
 - B 站视频卡片和 `b23.tv` 短链：跳过
 - 微信内部登录/跳转 URL：跳过
 - 聊天记录合并卡片：第一版明确跳过

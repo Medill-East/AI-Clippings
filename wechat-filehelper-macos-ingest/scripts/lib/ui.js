@@ -34,6 +34,7 @@ import {
   parseWeChatTimestamp,
 } from "./common.js";
 import { probeVisionAvailability, recognizeTextFromImage } from "./ocr.js";
+import { createPendingVideoRecord } from "./video.js";
 
 const FILE_HELPER_NAMES = [
   FILE_HELPER_CHAT_NAME,
@@ -2041,6 +2042,7 @@ export async function scanUiLinks(
     viewer_menu_wait_ms_total: 0,
     viewer_copy_wait_ms_total: 0,
     viewer_close_wait_ms_total: 0,
+    video_cards_pending: 0,
   };
 
   const records = [];
@@ -2117,6 +2119,32 @@ export async function scanUiLinks(
       pending_window_since: since.toISOString(),
       pending_window_until: until.toISOString(),
     });
+  }
+
+  function pushPendingVideoRecord({
+    messageTime = null,
+    title = "",
+    rawText = "",
+    shareUrl = "",
+    videoFingerprint = "",
+  }) {
+    const record = createPendingVideoRecord({
+      capturedAt,
+      messageTime,
+      chatName: FILE_HELPER_CHAT_NAME,
+      title,
+      rawText,
+      shareUrl,
+      videoFingerprint,
+      captureSessionId: sessionId,
+      source: "ui",
+      pendingWindowSince: since.toISOString(),
+      pendingWindowUntil: until.toISOString(),
+    });
+    if (seenPendingKeys.has(record.dedupe_key)) return;
+    seenPendingKeys.add(record.dedupe_key);
+    pendingRecords.push(record);
+    stats.video_cards_pending += 1;
   }
 
   if (artifactDir) {
@@ -2232,7 +2260,9 @@ export async function scanUiLinks(
             reason: skipReason,
             confidenceReason: entry.confidenceReason ?? null,
           });
-          incrementCount(stats.skipped_by_rule, skipReason);
+          if (skipReason !== "video_channel") {
+            incrementCount(stats.skipped_by_rule, skipReason);
+          }
           continue;
         }
         const directKey = `${entry.confidence}:${canonicalUrl}`;
@@ -2296,13 +2326,23 @@ export async function scanUiLinks(
         }
 
         for (const skippedEntry of directSkippedEntries) {
-          pushSkippedRecord({
-            messageTime,
-            title: block.shareCardTitle ?? skippedEntry.url,
-            rawText: block.rawText,
-            skipReason: skippedEntry.reason,
-            rawUrl: skippedEntry.url,
-          });
+          if (skippedEntry.reason === "video_channel") {
+            pushPendingVideoRecord({
+              messageTime,
+              title: block.shareCardTitle ?? skippedEntry.url,
+              rawText: block.rawText,
+              shareUrl: skippedEntry.url,
+              videoFingerprint: articleFingerprint,
+            });
+          } else {
+            pushSkippedRecord({
+              messageTime,
+              title: block.shareCardTitle ?? skippedEntry.url,
+              rawText: block.rawText,
+              skipReason: skippedEntry.reason,
+              rawUrl: skippedEntry.url,
+            });
+          }
         }
 
         const messageTimeIso = (messageTime ?? referenceNow).toISOString();
@@ -2383,13 +2423,23 @@ export async function scanUiLinks(
           await pushCandidateArtifact(artifactRecord);
         }
         for (const skippedEntry of directSkippedEntries) {
-          pushSkippedRecord({
-            messageTime,
-            title: block.shareCardTitle ?? skippedEntry.url,
-            rawText: block.rawText,
-            skipReason: skippedEntry.reason,
-            rawUrl: skippedEntry.url,
-          });
+          if (skippedEntry.reason === "video_channel") {
+            pushPendingVideoRecord({
+              messageTime,
+              title: block.shareCardTitle ?? skippedEntry.url,
+              rawText: block.rawText,
+              shareUrl: skippedEntry.url,
+              videoFingerprint: articleFingerprint,
+            });
+          } else {
+            pushSkippedRecord({
+              messageTime,
+              title: block.shareCardTitle ?? skippedEntry.url,
+              rawText: block.rawText,
+              skipReason: skippedEntry.reason,
+              rawUrl: skippedEntry.url,
+            });
+          }
         }
         upsertArticleState(articleStates, articleFingerprints, {
           status: "skipped",
@@ -2405,6 +2455,20 @@ export async function scanUiLinks(
 
       const unsupportedSkipReason = classifyUnsupportedShareCardBlock(block);
       if (unsupportedSkipReason) {
+        if (unsupportedSkipReason === "video_channel") {
+          if (artifactRecord) {
+            artifactRecord.status = "pending";
+            artifactRecord.reason = "video_content_not_processed";
+            await pushCandidateArtifact(artifactRecord);
+          }
+          pushPendingVideoRecord({
+            messageTime,
+            title: block.shareCardTitle ?? "",
+            rawText: block.rawText,
+            videoFingerprint: articleFingerprint,
+          });
+          continue;
+        }
         const softUnsupportedSkip = isSoftOcrSkipReason(unsupportedSkipReason);
         if (artifactRecord) {
           if (
@@ -2449,6 +2513,18 @@ export async function scanUiLinks(
 
       if (!block.shareCardTitle || block.skipReason) {
         if (artifactRecord && block.skipReason) {
+          if (block.skipReason === "video_channel") {
+            artifactRecord.status = "pending";
+            artifactRecord.reason = "video_content_not_processed";
+            await pushCandidateArtifact(artifactRecord);
+            pushPendingVideoRecord({
+              messageTime,
+              title: block.shareCardTitle ?? "",
+              rawText: block.rawText,
+              videoFingerprint: articleFingerprint,
+            });
+            continue;
+          }
           const softBlockSkip = isSoftOcrSkipReason(block.skipReason);
           if (existingArticleState && (!softBlockSkip || existingArticleState.resolved || existingArticleState.skipped)) {
             artifactRecord.status = "duplicate_skipped";

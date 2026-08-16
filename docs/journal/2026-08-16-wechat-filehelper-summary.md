@@ -59,3 +59,16 @@
 - 分阶段落地：先完成分流和 `pending_video` 记录，再接入一次性分享链接/metadata，最后接入临时音频捕获、ASR 和 PKM 发布。
 
 证据记录：[2026-08-16 会话记录](2026-08-16-wechat-filehelper-transcript.md)
+
+## V2T 本地 ASR 落地
+
+- 已确认 V2T 本地安装了 `qwen3-asr-0.6b`、FunASR Nano 和 SenseVoice 模型；本轮默认使用 Qwen3 ASR，不复制模型文件、不新增下载。
+- 新增独立 `video.js`：视频号卡片写入 `content_type=video`、`provider=wechat_channels`、`video_status=pending` 的 pending item；文章 viewer 提链不再处理这类卡片。
+- `video.js` 可从本机 V2T 项目根目录解析 `asrTranscriptionWorker.js`，通过 IPC 传入 WAV 字节和 CPU runtime；V2T worker 内部按 20 秒分片并清理临时文件。
+- 真实 smoke test 已通过：使用现有 Qwen3 测试 WAV，实际 worker 返回 `transcript_chars=235`。
+- 回归验证：`npm test` 155 项全部通过，`node --test test/ui.test.js` 91 项通过，`node --test test/video.test.js test/scan-flow.test.js` 9 项通过，`git diff --check` 通过。
+
+## 当前边界
+
+- 本轮完成的是分流、待处理记录和本地 ASR 适配边界；还没有自动捕获视频播放音频，也没有把转录交给 Obsidian 总结。
+- 下一阶段应单独实现“微信播放时临时捕获音频 -> V2T 转录 -> 临时 transcript/总结 -> 清理”的 video worker，不改变已经稳定的文章分支。

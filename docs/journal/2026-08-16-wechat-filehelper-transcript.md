@@ -51,3 +51,16 @@
 - 视频 worker 自己管理 `pending`、`processing`、`resolved`、`failed`，避免视频失败污染文章去重或重试状态。
 - 共享的只有输入卡片指纹、时间范围、运行记录和最终 Obsidian 发布接口；媒体捕获、ASR、清理逻辑完全隔离。
 - 默认先实现分流和待处理记录，再逐步加入 metadata、临时音频转录和临时 transcript 页面。
+
+## 本轮 V2T 实现记录
+
+- 用户确认可以把文章和视频号拆成两条处理线，并指出之前 V2T 项目应已有本地 ASR 模型。
+- 检查到 V2T 的 `sherpa-onnx` worker 和本地模型状态可用；默认选择 `qwen3-asr-0.6b`。没有读取或记录 V2T 的云端凭据文件。
+- 在 macOS ingest 中新增 `scripts/lib/video.js`，隔离视频 pending record、V2T worker 路径/模型解析、WAV IPC 转录和错误码；`ui.js` 只负责把明确视频号 OCR 卡片路由进去，不再打开文章 viewer。
+- 更新扫描 manifest 和 skill 文档，记录 `video_cards_pending`，并说明视频号目前只进入 pending 队列，不保存完整视频或临时媒体 URL。
+- 新增视频 helper、worker 路径、runtime 传递和 UI 分流测试；修正一条原有时间归组测试，使中间视频号卡片的预期改为 pending 而不是 skipped。
+- 实际运行本地 Qwen3 V2T worker 处理已有测试 WAV，输出 235 个转录字符；项目完整测试 155 项通过。
+
+## 当前未完成
+
+- 尚未实现微信视频播放音频的临时捕获、ASR 后摘要和 Obsidian 写回。这些应作为独立 video worker 继续开发，避免重新触碰文章提链主链路。

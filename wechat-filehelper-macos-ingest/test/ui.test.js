@@ -1350,6 +1350,59 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_attempted, 0);
   });
 
+  it("routes OCR video-channel cards to pending video processing without opening the article viewer", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-08-16T00:00:00.000Z"),
+      new Date("2026-08-16T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "ocr-video-0",
+                timestampText: "2026年8月16日 10:00",
+                rawLines: ["视频号标题", "+关注", "原声"],
+                rawText: "视频号标题 +关注 原声",
+                directUrls: [],
+                shareCardTitle: "视频号标题",
+                skipReason: "video_channel",
+                cardType: null,
+                ocrCluster: [{ text: "视频号标题", x: 900, y: 500, width: 240, height: 32 }],
+              },
+            ],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 0, skipped_by_rule: { video_channel: 1 } },
+          },
+          candidateMap: new Map(),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return { status: "failed", reason: "should_not_run" };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.skippedRecords.length, 0);
+    assert.equal(result.pendingRecords.length, 1);
+    assert.equal(result.pendingRecords[0].content_type, "video");
+    assert.equal(result.pendingRecords[0].video_status, "pending");
+    assert.equal(result.pendingRecords[0].source_url, null);
+    assert.equal(result.stats.video_cards_pending, 1);
+  });
+
   it("does not reopen or re-record the same skipped bilibili card across pages", async () => {
     let extractorCalls = 0;
     let captureCalls = 0;
@@ -2867,7 +2920,9 @@ describe("scanUiLinks", () => {
 
     assert.equal(extractorCalls, 1);
     assert.equal(result.records.length, 1);
-    assert.equal(result.pendingRecords.length, 0);
+    assert.equal(result.pendingRecords.length, 1);
+    assert.equal(result.pendingRecords[0].content_type, "video");
+    assert.equal(result.pendingRecords[0].video_status, "pending");
     assert.equal(result.records[0].url, "https://mp.weixin.qq.com/s/inferred-timestamp-grouped-1");
   });
 

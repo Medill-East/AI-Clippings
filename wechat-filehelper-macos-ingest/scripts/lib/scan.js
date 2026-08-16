@@ -231,6 +231,7 @@ export async function runScan(
     collected: newRecords.length,
     uncertain_links_total: uncertainRecords.length,
     pending_items_total: pendingRecords.length,
+    video_cards_pending: scanResult.stats.video_cards_pending ?? 0,
     skipped_cards_total: skippedRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,

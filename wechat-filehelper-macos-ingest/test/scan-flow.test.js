@@ -89,6 +89,7 @@ describe("scan flow", () => {
             share_cards_unresolved: 0,
             uncertain_links_total: 1,
             browser_fallback_used: 0,
+            video_cards_pending: 0,
               skipped_by_rule: {},
             },
           };
@@ -105,6 +106,7 @@ describe("scan flow", () => {
     assert.equal(result.manifest.share_cards_attempted, 1);
     assert.equal(result.manifest.share_cards_resolved, 1);
     assert.equal(result.manifest.uncertain_links_total, 1);
+    assert.equal(result.manifest.video_cards_pending, 0);
     assert.equal(result.manifest.max_candidates, 1);
     assert.equal(capturedUiOptions.maxCandidates, 1);
     assert.equal(result.newRecords[0].source, "ui");
