@@ -34,4 +34,13 @@
 - 先确认视频号 viewer 菜单是否能复制稳定链接。
 - 为视频链接设计独立的 `pending_video`/视频内容记录，再接入字幕或 ASR 适配器。
 
+## 视频号公开方案调研
+
+- 现有公开实现普遍区分 `https://weixin.qq.com/sph/<id>` 分享链接和真正的 `finder.video.qq.com` 媒体地址；前者可作为记录标识，后者通常是带签名、会过期的播放资源。
+- `ltaoo/wx_channels_download` 提供 macOS/Windows 本地捕获方案：微信 PC 播放视频时，通过本地代理/证书捕获媒体请求；其 `parse_sph` 接口也支持从分享链接解析详情，但文档要求配置元宝 Web 登录态 cookie。
+- 另有项目通过公开 metadata API 获取视频号描述、封面、时长和作者信息，但不获取 mp4；这条路径可以先支持“元数据摘要”，不能替代音频转录。
+- 本项目建议先尝试一次卡片/消息菜单复制 `sph` 分享链接，成功则记录 `pending_video`；只有明确启用本地媒体捕获时，才引入代理、证书和 ASR 风险。
+
+参考：[wx_channels_download](https://github.com/ltaoo/wx_channels_download)、[parse_sph 文档](https://github.com/ltaoo/wx_channels_download/blob/main/docs/public/openapi/channels/parse_sph.json)、[weixin-articles-mcp 的 Channels 说明](https://github.com/jj-cheng25/weixin-articles-mcp#why-no-channels-mp4)
+
 证据记录：[2026-08-16 会话记录](2026-08-16-wechat-filehelper-transcript.md)

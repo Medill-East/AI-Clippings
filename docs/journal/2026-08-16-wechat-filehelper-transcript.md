@@ -28,3 +28,11 @@
 ## 待确认
 
 - 首批平台、是否保存完整转录、是否允许外部转录服务，以及视频号无法取得 URL 时是否接受人工处理队列。
+
+## 视频号公开方案调研
+
+- 使用 agent-reach 的网页搜索、GitHub 搜索和网页阅读核对公开实现。
+- 公开方案有两类：从视频号分享链接 `weixin.qq.com/sph/<id>` 解析详情/媒体；或在已登录微信 PC 播放时用本地代理捕获媒体请求。
+- `ltaoo/wx_channels_download` 的公开文档显示，macOS 也受支持，但首次运行需要管理员权限和证书/代理路径；`parse_sph` 文档要求配置元宝 Web cookie。cookie 不应写入代码、日志或发送给第三方。
+- `weixin-articles-mcp` 的公开说明认为视频号 mp4 受 finder 协议和加密保护；它选择调用公开 metadata 接口提供封面、描述、时长等信息，而不是获取 mp4。
+- 对当前项目的建议是：先做一次性分享 URL 捕获并记录 `pending_video`，不要默认启用 MITM；若要总结，先走 metadata，真正需要音频内容时再单独启用本地媒体捕获和 ASR。
