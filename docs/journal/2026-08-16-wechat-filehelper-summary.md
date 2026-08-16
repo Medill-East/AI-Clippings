@@ -43,4 +43,11 @@
 
 参考：[wx_channels_download](https://github.com/ltaoo/wx_channels_download)、[parse_sph 文档](https://github.com/ltaoo/wx_channels_download/blob/main/docs/public/openapi/channels/parse_sph.json)、[weixin-articles-mcp 的 Channels 说明](https://github.com/jj-cheng25/weixin-articles-mcp#why-no-channels-mp4)
 
+## 轻量视频总结方案
+
+- 用户不需要保存完整视频；可在微信播放时捕获音频，交给 ffmpeg 和分段 ASR，使用内存/短时临时片段作为缓冲，完成后删除媒体片段，只保留转录摘要和原始分享标识。
+- 如果不想先解决分享 URL，视频 worker 可以按 FileHelper 卡片指纹启动一次播放捕获；分享 URL 只作为可选的来源字段。
+- 为复用现有 Obsidian Web Clipper，可生成短时本地 transcript 页面，让 clipper 总结该文本并写入 PKM，成功后删除临时页面。
+- 需要在“本地 ASR（隐私好、首次模型较重）”和“外部 ASR（本机轻、会发送音频）”之间做选择；没有音频字节就无法生成基于语音内容的摘要。
+
 证据记录：[2026-08-16 会话记录](2026-08-16-wechat-filehelper-transcript.md)
