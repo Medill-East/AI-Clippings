@@ -14,6 +14,7 @@ description: 通过 macOS 微信桌面客户端优先走 UI-first 单篇文章�
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
 - 明确识别的视频号卡片不再打开文章 viewer；会写入 `pending_item`，等待独立的视频采集、ASR 和总结流程
+- 视频处理使用 ScreenCaptureKit 捕获微信播放时的系统音频，不保存完整视频；转录完成后只保留 Markdown 笔记和索引状态
 
 ## 平台要求
 
@@ -105,6 +106,26 @@ node scripts/query-links.js \
   --format md
 ```
 
+### 5. 处理视频号并写入 Obsidian
+
+扫描完成后，视频号卡片会留在独立 pending 队列。准备好在微信中打开目标视频后运行：
+
+```bash
+npm run process:videos -- --duration 120
+```
+
+命令会等待按 Enter，然后捕获指定时长的系统音频，调用本机 V2T 的 `qwen3-asr-0.6b`，再把摘要和完整转录写入当前打开的 Obsidian vault 的 `Video Clips/` 目录。中间只会生成短暂的低分辨率 MP4 作为音频容器，转换为 WAV 后立即删除，不保存视频文件。
+
+常用参数：
+
+- `--duration N`：视频语音时长，默认 `120` 秒
+- `--all`：连续处理所有 pending 视频，每条都会单独等待准备
+- `--output-dir DIR`：不解析 Obsidian 配置，直接把笔记写入指定目录
+- `--vault-path DIR`：显式指定 Obsidian vault
+- `--llm-base-url http://127.0.0.1:11434/v1 --llm-model <model>`：本地 OpenAI-compatible 摘要服务；默认探测本机 Ollama 并自动选择模型，不可用时使用转录句子的本地兜底摘要
+
+视频处理要求终端具有**屏幕录制**权限，微信视频在捕获窗口内播放，并且本机已安装 `ffmpeg`。音频捕获只选取微信窗口所在屏幕；无法读取窗口位置时退回主屏。
+
 ## 索引格式
 
 `local/index/links.jsonl` 每行一条记录。新增字段：
@@ -124,7 +145,7 @@ node scripts/query-links.js \
 }
 ```
 
-视频号待处理项还会包含 `content_type: "video"`、`provider: "wechat_channels"`、`video_status: "pending"` 和 `pending_reason: "video_content_not_processed"`。目前不保存完整视频或临时媒体 URL。
+视频号待处理项还会包含 `content_type: "video"`、`provider: "wechat_channels"`、`video_status: "pending"` 和 `pending_reason: "video_content_not_processed"`。处理成功后变为 `record_type: "video"`、`video_status: "resolved"`，并记录 `note_path`、`transcript_chars`、`summary_method`；失败项保留在 pending 队列并可重试。目前不保存完整视频或临时媒体 URL。
 
 ## manifest 重点字段
 

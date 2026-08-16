@@ -87,6 +87,7 @@ async function main() {
       queryResult.records.length > 0 ||
       (queryResult.uncertainLinks?.length ?? 0) > 0 ||
       (queryResult.pendingItems?.length ?? 0) > 0 ||
+      (queryResult.videos?.length ?? 0) > 0 ||
       (queryResult.skippedCards?.length ?? 0) > 0
     )
   ) {

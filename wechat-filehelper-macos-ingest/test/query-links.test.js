@@ -20,6 +20,45 @@ async function makeTempDir(prefix) {
 }
 
 describe("query-links.js", () => {
+  it("shows resolved video notes separately from URL records", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-video-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      `${JSON.stringify({
+        record_type: "video",
+        content_type: "video",
+        video_status: "resolved",
+        title: "视频号测试",
+        message_time: "2026-03-28T07:10:00.000Z",
+        note_path: "/vault/Video Clips/test.md",
+        summary_excerpt: "视频摘要",
+        dedupe_key: "video-query-1",
+      })}\n`,
+      "utf8"
+    );
+
+    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
+    const output = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--since",
+        "2026-03-28T07:00:00.000Z",
+        "--until",
+        "2026-03-28T08:00:00.000Z",
+        "--format",
+        "json",
+      ],
+      { encoding: "utf8", env: { ...process.env, WECHAT_FILEHELPER_INDEX_PATH: indexPath } }
+    );
+
+    const parsed = JSON.parse(output);
+    assert.equal(parsed.records.length, 0);
+    assert.equal(parsed.videos.length, 1);
+    assert.equal(parsed.videos[0].note_path, "/vault/Video Clips/test.md");
+  });
+
   it("keeps the new source field in JSON output", async () => {
     const dir = await makeTempDir("wechat-filehelper-query-");
     const indexPath = path.join(dir, "links.jsonl");

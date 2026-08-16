@@ -55,6 +55,7 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
       records: [],
       uncertainLinks: [],
       pendingItems: [],
+      videos: [],
       skippedCards: [],
       rendered: "Index is empty. Run scan-links.js first.",
       indexPath: resolvedIndexPath,
@@ -65,9 +66,11 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   const seenUncertain = new Set();
   const seenSkipped = new Set();
   const seenPending = new Set();
+  const seenVideos = new Set();
   const deduped = [];
   const uncertainLinks = [];
   const pendingItems = [];
+  const videos = [];
   const skippedCards = [];
 
   for (const record of all) {
@@ -86,6 +89,14 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
       if (seenPending.has(pendingKey)) continue;
       seenPending.add(pendingKey);
       pendingItems.push(record);
+      continue;
+    }
+
+    if (record?.record_type === "video") {
+      const videoKey = record.dedupe_key ?? `${record.message_time}|${record.title ?? ""}`;
+      if (seenVideos.has(videoKey)) continue;
+      seenVideos.add(videoKey);
+      videos.push(record);
       continue;
     }
 
@@ -109,9 +120,10 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
     records: deduped,
     uncertainLinks: filteredUncertainLinks,
     pendingItems,
+    videos,
     skippedCards,
     rendered: renderQueryResults(
-      { records: deduped, uncertainLinks: filteredUncertainLinks, pendingItems, skippedCards },
+      { records: deduped, uncertainLinks: filteredUncertainLinks, pendingItems, videos, skippedCards },
       { since, until, format }
     ),
     indexPath: resolvedIndexPath,
@@ -119,7 +131,7 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
 }
 
 function recordMatchesTimeRange(record, since, until) {
-  if (record?.record_type === "pending_item") {
+  if (record?.record_type === "pending_item" || record?.record_type === "video") {
     const pendingSince = record?.pending_window_since ? new Date(record.pending_window_since) : null;
     const pendingUntil = record?.pending_window_until ? new Date(record.pending_window_until) : null;
     if (
@@ -153,17 +165,23 @@ function formatTimeConfidenceNote(record) {
 }
 
 export function renderQueryResults(
-  { records, uncertainLinks = [], pendingItems = [], skippedCards = [] },
+  { records, uncertainLinks = [], pendingItems = [], videos = [], skippedCards = [] },
   { since, until, format }
 ) {
-  if (records.length === 0 && uncertainLinks.length === 0 && pendingItems.length === 0 && skippedCards.length === 0) {
+  if (
+    records.length === 0 &&
+    uncertainLinks.length === 0 &&
+    pendingItems.length === 0 &&
+    videos.length === 0 &&
+    skippedCards.length === 0
+  ) {
     return "No links found in the specified time range.";
   }
 
   switch (format) {
     case "json":
       return JSON.stringify(
-        { records, uncertain_links: uncertainLinks, pending_items: pendingItems, skipped_cards: skippedCards },
+        { records, uncertain_links: uncertainLinks, pending_items: pendingItems, videos, skipped_cards: skippedCards },
         null,
         2
       );
@@ -201,6 +219,20 @@ export function renderQueryResults(
           lines.push(`- ${record.title || "(untitled pending item)"}`);
           lines.push(`  > ${formatDisplayTime(record.message_time)}`);
           lines.push(`  > ${record.pending_reason ?? "pending"}`);
+        }
+      }
+
+      lines.push("");
+      lines.push("## 已处理视频");
+      lines.push("");
+      if (videos.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of videos) {
+          lines.push(`- ${record.title || "(untitled video)"}`);
+          lines.push(`  > ${formatDisplayTime(record.message_time)}`);
+          lines.push(`  > ${record.note_path || "note unavailable"}`);
+          if (record.summary_excerpt) lines.push(`  > ${record.summary_excerpt.replace(/\s+/g, " ")}`);
         }
       }
 
@@ -244,6 +276,15 @@ export function renderQueryResults(
       for (const record of pendingItems) {
         lines.push(`[${formatDisplayTime(record.message_time)}] ${record.title || "(untitled pending item)"}`);
         lines.push(`  pending: ${record.pending_reason ?? "pending"}`);
+        lines.push("");
+      }
+
+      lines.push(`Videos ${videos.length} item(s):`);
+      lines.push("");
+      for (const record of videos) {
+        lines.push(`[${formatDisplayTime(record.message_time)}] ${record.title || "(untitled video)"}`);
+        lines.push(`  note: ${record.note_path || "(unavailable)"}`);
+        if (record.summary_excerpt) lines.push(`  summary: ${record.summary_excerpt.replace(/\s+/g, " ")}`);
         lines.push("");
       }
 

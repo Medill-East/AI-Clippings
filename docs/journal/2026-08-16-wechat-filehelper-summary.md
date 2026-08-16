@@ -72,3 +72,37 @@
 
 - 本轮完成的是分流、待处理记录和本地 ASR 适配边界；还没有自动捕获视频播放音频，也没有把转录交给 Obsidian 总结。
 - 下一阶段应单独实现“微信播放时临时捕获音频 -> V2T 转录 -> 临时 transcript/总结 -> 清理”的 video worker，不改变已经稳定的文章分支。
+
+## 视频分支可用闭环（本次会话）
+
+### 当前状态
+
+- 视频号 pending 队列已经可以独立处理：`pending -> processing -> resolved/failed`。
+- 文章 UI OCR、viewer ready、菜单提链主链路没有改动；视频仍不打开文章 viewer。
+- `npm run process:videos` 现在可以在微信播放视频时捕获系统音频，调用本机 V2T，生成 Obsidian Markdown 笔记，并更新 `local/index/links.jsonl`。
+
+### 决策与理由
+
+- 不保存完整视频：使用 ScreenCaptureKit 选择微信窗口所在屏幕，生成短暂的 16x16/低帧率 MP4 音频容器；`ffmpeg` 转成 16 kHz 单声道 WAV 后立即删除 MP4，V2T 完成后删除 WAV。
+- 不依赖视频号 URL：视频号分享 URL 可能不稳定或无法复制，pending 记录以卡片指纹、标题和时间窗口为主，播放会话本身作为内容来源。
+- Obsidian 直接写 Markdown：从 macOS Obsidian 配置选择当前打开的 vault，默认写入 `Video Clips/`；没有 vault 时可用 `--output-dir` 指定输出目录。
+- 摘要默认只访问本机 OpenAI-compatible 服务（默认探测 Ollama）；模型不可用时保留可读的转录句子兜底摘要，不访问外网。
+
+### 改动与验证
+
+- 新增 `scripts/lib/system-audio-capture.swift`、`scripts/lib/video-capture.js`、`scripts/lib/video-pipeline.js` 和 `scripts/process-videos.js`。
+- 更新 `scripts/lib/query.js`、`scripts/collect-links.js`、`package.json`、`SKILL.md`，增加已处理视频查询和 `process:videos` 命令。
+- 增加视频状态、Obsidian 写笔记、失败重试、摘要模型发现、临时容器清理测试。
+- ScreenCaptureKit helper 已实际编译；1 秒系统音频捕获成功生成 16 kHz 单声道 WAV。
+- 使用本机语音合成测试音频跑过真实 `qwen3-asr-0.6b` worker，完成“WAV -> V2T -> Markdown -> resolved 索引”闭环；本机 LLM 首次加载约 8 秒后成功生成模型摘要。
+
+### 已知边界
+
+- 当前工作流需要用户在微信中打开目标视频，按 Enter 后立即播放；捕获时长由 `--duration` 指定，暂未自动判断视频结束。
+- ScreenCaptureKit 目前按屏幕捕获系统输出音频，不能只过滤微信单个进程；处理时应避免同时播放其他声音。
+- 当前 UI 分流重点支持明确的视频号卡片；B 站视频仍遵守原有跳过规则，尚未纳入同一 pending 队列。
+
+### 下一步
+
+- 用真实视频号卡片运行一次 `npm run process:videos -- --duration <实际时长>`，确认系统权限、播放时序和摘要质量。
+- 根据真实转录长度调整默认捕获时长；如需 B 站/其他视频卡片，再单独扩展 provider 和预跳过策略。

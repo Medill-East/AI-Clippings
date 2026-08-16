@@ -11,6 +11,14 @@ import {
   resolveV2tWorkerPath,
   transcribeWavWithV2t,
 } from "../scripts/lib/video.js";
+import {
+  buildHeuristicSummary,
+  listPendingVideoRecords,
+  processVideoRecord,
+  resolveObsidianVaultPath,
+  summarizeTranscript,
+} from "../scripts/lib/video-pipeline.js";
+import { captureSystemAudioToWav } from "../scripts/lib/video-capture.js";
 
 const tempDirs = [];
 
@@ -114,5 +122,167 @@ describe("video helpers", () => {
     assert.equal(sentMessage.modelId, "qwen3-asr-0.6b");
     assert.equal(sentMessage.sherpaModelType, "qwen3Asr");
     assert.deepEqual(sentMessage.runtime, { provider: "cpu", numThreads: 1 });
+  });
+
+  it("resolves the active macOS Obsidian vault and writes a usable video note", async () => {
+    const root = await makeTempDir("wechat-filehelper-video-vault-");
+    const vaultPath = path.join(root, "MyVault");
+    await fs.mkdir(vaultPath);
+    const configPath = path.join(root, "obsidian.json");
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        vaults: {
+          active: { path: vaultPath, open: true, ts: 2 },
+        },
+      })
+    );
+
+    assert.equal(await resolveObsidianVaultPath({ configPath }), vaultPath);
+
+    const indexPath = path.join(root, "links.jsonl");
+    const record = createPendingVideoRecord({
+      capturedAt: "2026-08-16T01:00:00.000Z",
+      messageTime: "2026-08-16T00:59:00.000Z",
+      title: "视频号测试标题",
+      rawText: "视频号测试标题",
+      videoFingerprint: "video-note-test",
+    });
+    await fs.writeFile(indexPath, `${JSON.stringify(record)}\n`);
+
+    const result = await processVideoRecord(record, {
+      indexPath,
+      durationSeconds: 3,
+      modelConfig: { modelId: "qwen3-asr-0.6b", modelPath: "/tmp/model" },
+      workerPath: "/tmp/worker.js",
+      captureFn: async ({ outputPath }) => {
+        await fs.writeFile(outputPath, Buffer.from([1, 2, 3]));
+        return { outputPath };
+      },
+      transcribeFn: async (audio) => {
+        assert.deepEqual([...audio], [1, 2, 3]);
+        return { text: "这是视频中的第一句话。这里是第二个要点。" };
+      },
+      noteOptions: { vaultPath },
+    });
+
+    assert.equal(result.record.record_type, "video");
+    assert.equal(result.record.video_status, "resolved");
+    assert.equal(result.record.transcript_chars, 20);
+    assert.match(result.notePath, /Video Clips/);
+    const note = await fs.readFile(result.notePath, "utf8");
+    assert.match(note, /这是视频中的第一句话/);
+    assert.match(note, /summary_method: "heuristic"/);
+    assert.equal((await listPendingVideoRecords(indexPath)).length, 0);
+  });
+
+  it("marks a failed video as retryable instead of losing the pending record", async () => {
+    const root = await makeTempDir("wechat-filehelper-video-failure-");
+    const indexPath = path.join(root, "links.jsonl");
+    const record = createPendingVideoRecord({ title: "待重试视频", videoFingerprint: "video-failure-test" });
+    await fs.writeFile(indexPath, `${JSON.stringify(record)}\n`);
+
+    const result = await processVideoRecord(record, {
+      indexPath,
+      captureFn: async () => {
+        const error = new Error("没有系统音频权限");
+        error.code = "capture_permission_denied";
+        throw error;
+      },
+    });
+
+    assert.equal(result.record.record_type, "pending_item");
+    assert.equal(result.record.video_status, "failed");
+    assert.equal(result.record.video_error_code, "capture_permission_denied");
+    assert.equal((await listPendingVideoRecords(indexPath)).length, 1);
+  });
+
+  it("uses a local OpenAI-compatible summary when available and falls back without it", async () => {
+    assert.match(buildHeuristicSummary("第一句。第二句。"), /第一句/);
+    const result = await summarizeTranscript({
+      title: "测试",
+      transcript: "视频转录",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      model: "local-model",
+      fetchFn: async (url, options) => {
+        assert.equal(url, "http://127.0.0.1:11434/v1/chat/completions");
+        const body = JSON.parse(options.body);
+        assert.equal(body.model, "local-model");
+        return {
+          ok: true,
+          async json() {
+            return { choices: [{ message: { content: "本地模型摘要" } }] };
+          },
+        };
+      },
+    });
+    assert.equal(result.method, "local_llm");
+    assert.equal(result.summary, "本地模型摘要");
+  });
+
+  it("discovers the first local model when no summary model is configured", async () => {
+    const requested = [];
+    const result = await summarizeTranscript({
+      transcript: "测试转录",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      fetchFn: async (url, options) => {
+        requested.push(url);
+        if (url.endsWith("/models")) {
+          return { ok: true, async json() { return { data: [{ id: "local-first-model" }] }; } };
+        }
+        const body = JSON.parse(options.body);
+        assert.equal(body.model, "local-first-model");
+        return { ok: true, async json() { return { choices: [{ message: { content: "自动模型摘要" } }] }; } };
+      },
+    });
+    assert.deepEqual(requested, [
+      "http://127.0.0.1:11434/v1/models",
+      "http://127.0.0.1:11434/v1/chat/completions",
+    ]);
+    assert.equal(result.summary, "自动模型摘要");
+  });
+
+  it("converts the transient capture container to WAV and removes the container", async () => {
+    const root = await makeTempDir("wechat-filehelper-video-capture-");
+    const sourcePath = path.join(root, "capture.swift");
+    const binaryPath = path.join(root, "capture-helper");
+    const outputPath = path.join(root, "audio.wav");
+    await fs.writeFile(sourcePath, "source");
+
+    const commands = [];
+    const fakeExecFile = async (_command, args) => {
+      commands.push(args);
+      await fs.writeFile(args.at(-1), "binary");
+    };
+    const fakeSpawn = (command, args) => {
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      queueMicrotask(async () => {
+        if (command === binaryPath) {
+          const moviePath = args[args.indexOf("--output") + 1];
+          await fs.writeFile(moviePath, "temporary movie");
+        } else {
+          await fs.writeFile(args.at(-1), Buffer.alloc(100));
+        }
+        child.emit("close", 0, null);
+      });
+      return child;
+    };
+
+    await captureSystemAudioToWav({
+      outputPath,
+      durationSeconds: 2,
+      screenRect: { x: 10, y: 20, width: 300, height: 200 },
+      platform: "darwin",
+      sourcePath,
+      binaryPath,
+      ffmpegPath: "ffmpeg-test",
+      execFileFn: fakeExecFile,
+      spawnFn: fakeSpawn,
+    });
+
+    assert.equal(commands.length, 1);
+    assert.equal((await fs.stat(outputPath)).size, 100);
+    assert.equal((await fs.readdir(root)).includes("capture-helper"), true);
   });
 });

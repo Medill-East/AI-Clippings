@@ -64,3 +64,32 @@
 ## 当前未完成
 
 - 尚未实现微信视频播放音频的临时捕获、ASR 后摘要和 Obsidian 写回。这些应作为独立 video worker 继续开发，避免重新触碰文章提链主链路。
+
+## 本次继续实现：视频分支闭环
+
+### 用户目标
+
+- 用户要求把前面确认的独立视频号处理线完善到可用：不下载完整视频，利用本机 V2T 的 ASR，最终总结到 PKM/Obsidian。
+
+### 实现过程
+
+- 检查到 macOS 有 ScreenCaptureKit SDK、`ffmpeg` 和已有 V2T 本地模型；没有虚拟声卡，因此采用系统音频捕获而不是 AVFoundation 麦克风输入。
+- 新增 Swift helper：按传入的微信窗口矩形选择重叠面积最大的屏幕，使用 ScreenCaptureKit 的 `capturesAudio` 录制极低分辨率短时 MP4。Node wrapper 编译并缓存 helper，调用 `ffmpeg` 提取 WAV，最后清理整个临时目录。
+- 新增视频 pipeline：读取 `content_type=video` 的 pending 记录，先写 processing 状态；捕获失败、ASR 失败或写笔记失败时写回 failed 状态和可重试错误码；成功时改成 `record_type=video/video_status=resolved`，只在索引保留摘要摘录、笔记路径和转录字符数。
+- 新增 `npm run process:videos`。默认处理一条 pending 视频，提示用户在微信中准备并播放目标视频；支持 `--duration`、`--all`、`--vault-path`、`--output-dir`。
+- Obsidian vault 从 macOS 配置自动选择当前打开的 vault，默认目录为 `Video Clips/`。摘要默认探测本机 Ollama 的 OpenAI-compatible API 并自动选择第一个模型，也支持 `--llm-base-url`/`--llm-model`；本地服务不可用时使用确定性的转录句子兜底摘要。
+- 查询输出增加 `videos`/“已处理视频”区域，文章记录仍按原有 URL 逻辑输出。
+
+### 验证记录
+
+- Swift helper 编译成功。
+- 实际执行 1 秒 ScreenCaptureKit 捕获，成功得到带音频轨的临时 MP4，并转出 16 kHz 单声道 WAV。
+- 用系统语音合成生成的测试 WAV 跑真实 Qwen3 ASR，实际完成转录、Markdown 写入和索引 resolved 更新。
+- 本地 Ollama 摘要调用首次加载约 8 秒成功；摘要超时仍可回退，不阻塞 note 写入逻辑。
+- 视频和查询定向测试通过；最终完整测试与 `git diff --check` 在提交前复跑。
+
+### 当前限制与后续
+
+- 需要用户手动打开/播放视频并指定捕获时长；当前不自动点击历史 pending 卡片，也不自动检测播放结束。
+- 捕获的是目标屏幕的系统混音，处理时应避免其他声音；完整视频不会留存。
+- 视频号分支已可用，B 站视频仍保留原有跳过策略，后续如需支持再扩展 provider。
