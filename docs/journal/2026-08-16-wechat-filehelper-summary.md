@@ -50,4 +50,12 @@
 - 为复用现有 Obsidian Web Clipper，可生成短时本地 transcript 页面，让 clipper 总结该文本并写入 PKM，成功后删除临时页面。
 - 需要在“本地 ASR（隐私好、首次模型较重）”和“外部 ASR（本机轻、会发送音频）”之间做选择；没有音频字节就无法生成基于语音内容的摘要。
 
+## 分支架构决策
+
+- 文字文章继续沿用现有 OCR、viewer ready、菜单复制和 Obsidian clipping 链路；视频功能不得改变文章分支的判定和重试语义。
+- 在卡片分类处将 `video_channel` 路由到独立 video pipeline，维护独立的采集、转录、总结、发布和失败状态。
+- 视频分支可共享卡片指纹、时间窗口、run manifest 和 Obsidian 发布器，但不共享文章标题匹配、文章菜单坐标和 article retry state。
+- 视频记录建议使用 `record_type=video`、`status=pending|processing|resolved|failed`、`provider=wechat_channels`，媒体临时地址只在运行时存在，不作为长期来源字段。
+- 分阶段落地：先完成分流和 `pending_video` 记录，再接入一次性分享链接/metadata，最后接入临时音频捕获、ASR 和 PKM 发布。
+
 证据记录：[2026-08-16 会话记录](2026-08-16-wechat-filehelper-transcript.md)
