@@ -252,9 +252,18 @@ function canAcceptIsolatedArticleSourceFooter(cluster) {
   if (looksLikeSingleArticleCardText(rawLines, rawText)) return false;
 
   return rawLines.some((line) => {
+    const signature = normalizeArticleSignatureLine(line);
+    if (signature.length < 8) return false;
+    if (looksLikeSingleLineArticleTitleCue(line)) return true;
     if (looksLikeArticleSourceFooter(line)) return false;
-    return normalizeArticleSignatureLine(line).length >= 8;
+    return true;
   });
+}
+
+function looksLikeSingleLineArticleTitleCue(text) {
+  const value = String(text ?? "").normalize("NFKC").trim();
+  if (!value) return false;
+  return /《[^》]{2,}》/.test(value) || (/[|｜]/.test(value) && normalizeComparableText(value).length >= 8);
 }
 
 function mergeIsolatedArticleFooterClusters(clusters) {

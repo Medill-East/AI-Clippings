@@ -545,6 +545,32 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates.length, 1);
   });
 
+  it("keeps a single-line article title with an isolated source footer actionable", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [],
+      },
+      ocrResult: {
+        width: 1470,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 43, width: 172, height: 27 },
+          { text: "［Link］ 新书推荐|《论游戏》.", x: 233, y: 813, width: 327, height: 30 },
+          { text: "新书推荐|《论游戏》雅克•亨里约", x: 845, y: 1336, width: 418, height: 35 },
+          { text: "婴 第七艺术 ART TIME", x: 850, y: 1503, width: 247, height: 27 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 1470, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].skipReason, null);
+    assert.equal(snapshot.ocrFallbackBlocks[0].cardType, "single_article_card");
+    assert.match(snapshot.ocrFallbackBlocks[0].shareCardTitle, /新书推荐/);
+    assert.match(snapshot.ocrFallbackBlocks[0].rawText, /第七艺术 ART TIME/);
+    assert.equal(snapshot.candidates.length, 1);
+  });
+
   it("does not skip official-account articles just because the title contains video", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
