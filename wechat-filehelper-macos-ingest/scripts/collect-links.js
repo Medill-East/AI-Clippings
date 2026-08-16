@@ -6,6 +6,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline/promises";
 
 import { formatQueryUsage, runQuery } from "./lib/query.js";
 import { formatScanUsage, parseScanArgs, runScan } from "./lib/scan.js";
@@ -110,56 +111,94 @@ export async function runCollect(
     runQueryFn = runQuery,
     listPendingVideoRecordsFn = listPendingVideoRecords,
     processPendingVideosFn = processPendingVideos,
+    confirmVideoProcessingFn = confirmVideoProcessing,
     log = console,
   } = {}
 ) {
   const root = rootOverride;
   const scanResult = await runScanFn(opts, { skillRoot: root });
 
-  let videoProcessResult = null;
   const videoKeys = new Set(
     (scanResult.pendingRecords ?? [])
       .filter((record) => record?.content_type === "video" && record?.dedupe_key)
       .map((record) => record.dedupe_key)
   );
-  if (opts.processVideos && videoKeys.size > 0) {
-    const indexPath = path.join(root, "local/index/links.jsonl");
-    const indexedPendingVideos = await listPendingVideoRecordsFn(indexPath);
-    const currentPendingVideos = indexedPendingVideos.filter((record) => videoKeys.has(record.dedupe_key));
-    if (currentPendingVideos.length > 0) {
-      log.log("");
-      log.log(`发现 ${currentPendingVideos.length} 条视频内容，切换到视频处理分支。`);
-      try {
-        videoProcessResult = await processPendingVideosFn({
-          indexPath,
-          records: currentPendingVideos,
-          durationSeconds: opts.videoDurationSeconds,
-          limit: opts.videoLimit,
-          noPrompt: opts.videoNoPrompt,
-          outputDir: opts.videoOutputDir,
-          vaultPath: opts.videoVaultPath,
-          vaultName: opts.videoVaultName,
-          folder: opts.videoFolder,
-          modelId: opts.videoModelId,
-          llmBaseUrl: opts.videoLlmBaseUrl,
-          llmModel: opts.videoLlmModel,
-          log,
-        });
-      } catch (error) {
-        log.error(`视频分支暂未执行：${error.message}`);
-        log.error("视频卡片已保留在 pending 队列，可稍后重试。\n");
-        videoProcessResult = { error };
-      }
-    }
-  }
 
-  const queryResult = await runQueryFn({
+  let queryResult = await runQueryFn({
     skillRoot: root,
     since: opts.since,
     until: opts.until,
     format: opts.format,
   });
 
+  printCollectQueryResult({ log, scanResult, queryResult });
+
+  let videoProcessResult = null;
+  if (opts.processVideos && videoKeys.size > 0) {
+    const indexPath = path.join(root, "local/index/links.jsonl");
+    const indexedPendingVideos = await listPendingVideoRecordsFn(indexPath);
+    const currentPendingVideos = indexedPendingVideos.filter((record) => videoKeys.has(record.dedupe_key));
+    if (currentPendingVideos.length > 0) {
+      const shouldProcess = opts.videoNoPrompt || (await confirmVideoProcessingFn(currentPendingVideos.length));
+      if (!shouldProcess) {
+        log.log("已跳过视频处理，视频卡片保留在 pending 队列。\n");
+        videoProcessResult = { skipped: true, pendingCount: currentPendingVideos.length };
+      } else {
+        log.log("");
+        log.log(`开始处理 ${currentPendingVideos.length} 条视频内容。`);
+        try {
+          videoProcessResult = await processPendingVideosFn({
+            indexPath,
+            records: currentPendingVideos,
+            durationSeconds: opts.videoDurationSeconds,
+            limit: opts.videoLimit,
+            noPrompt: opts.videoNoPrompt,
+            outputDir: opts.videoOutputDir,
+            vaultPath: opts.videoVaultPath,
+            vaultName: opts.videoVaultName,
+            folder: opts.videoFolder,
+            modelId: opts.videoModelId,
+            llmBaseUrl: opts.videoLlmBaseUrl,
+            llmModel: opts.videoLlmModel,
+            log,
+          });
+        } catch (error) {
+          log.error(`视频分支暂未执行：${error.message}`);
+          log.error("视频卡片已保留在 pending 队列，可稍后重试。\n");
+          videoProcessResult = { error };
+        }
+      }
+    }
+  }
+
+  if (videoProcessResult && !videoProcessResult.skipped && !videoProcessResult.error) {
+    queryResult = await runQueryFn({
+      skillRoot: root,
+      since: opts.since,
+      until: opts.until,
+      format: opts.format,
+    });
+    log.log("");
+    log.log("视频处理完成，下面是更新后的索引结果：");
+    log.log(queryResult.rendered);
+  }
+  return { scanResult, videoProcessResult, queryResult };
+}
+
+export async function confirmVideoProcessing(videoCount, { input = process.stdin, output = process.stdout } = {}) {
+  if (!input.isTTY || !output.isTTY) return false;
+  const prompt = readline.createInterface({ input, output });
+  try {
+    const answer = await prompt.question(
+      `已输出文章和文本链接。请先交给另一个 AI 处理；准备好后按 Enter 继续处理 ${videoCount} 条视频，输入 n 跳过：`
+    );
+    return !/^\s*n(?:o)?\s*$/i.test(answer);
+  } finally {
+    prompt.close();
+  }
+}
+
+function printCollectQueryResult({ log, scanResult, queryResult }) {
   log.log("");
   if (
     (scanResult.newRecords?.length ?? 0) === 0 &&
@@ -178,7 +217,6 @@ export async function runCollect(
     log.log("");
   }
   log.log(queryResult.rendered);
-  return { scanResult, videoProcessResult, queryResult };
 }
 
 async function main() {

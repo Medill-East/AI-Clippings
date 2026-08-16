@@ -51,6 +51,7 @@ describe("scan flow", () => {
       "9",
     ]);
 
+    const messages = [];
     const result = await runCollect(opts, {
       skillRoot,
       runScanFn: async () => ({
@@ -64,6 +65,11 @@ describe("scan flow", () => {
         processOptions = options;
         return { pendingCount: 1, selectedCount: 1, resolvedCount: 1, failedCount: 0 };
       },
+      confirmVideoProcessingFn: async (count) => {
+        assert.equal(count, 1);
+        assert.ok(messages.includes("collect-result"));
+        return true;
+      },
       runQueryFn: async () => ({
         records: [],
         uncertainLinks: [],
@@ -72,7 +78,12 @@ describe("scan flow", () => {
         skippedCards: [],
         rendered: "collect-result",
       }),
-      log: { log() {}, error() {} },
+      log: {
+        log(message = "") {
+          messages.push(message);
+        },
+        error() {},
+      },
     });
 
     assert.equal(processOptions.durationSeconds, 9);
@@ -90,6 +101,51 @@ describe("scan flow", () => {
       "--skip-video-processing",
     ]);
     assert.equal(skipOpts.processVideos, false);
+  });
+
+  it("keeps current video cards pending when the post-link confirmation is declined", async () => {
+    const skillRoot = await makeTempDir("wechat-filehelper-collect-video-skip-");
+    const videoRecord = {
+      record_type: "pending_item",
+      content_type: "video",
+      video_status: "pending",
+      dedupe_key: "collect-video-skip-1",
+      title: "暂不处理的视频",
+    };
+    let processCalled = false;
+    const opts = parseCollectArgs([
+      "node",
+      "collect-links.js",
+      "--since",
+      "2026-03-28T07:00:00+08:00",
+      "--until",
+      "2026-03-28T08:00:00+08:00",
+      "--source",
+      "ui",
+    ]);
+
+    const result = await runCollect(opts, {
+      skillRoot,
+      runScanFn: async () => ({ pendingRecords: [videoRecord] }),
+      listPendingVideoRecordsFn: async () => [videoRecord],
+      confirmVideoProcessingFn: async () => false,
+      processPendingVideosFn: async () => {
+        processCalled = true;
+        throw new Error("should not process after decline");
+      },
+      runQueryFn: async () => ({
+        records: [],
+        uncertainLinks: [],
+        pendingItems: [],
+        videos: [videoRecord],
+        skippedCards: [],
+        rendered: "links-before-video",
+      }),
+      log: { log() {}, error() {} },
+    });
+
+    assert.equal(processCalled, false);
+    assert.deepEqual(result.videoProcessResult, { skipped: true, pendingCount: 1 });
   });
 
   it("auto selects ui when the UI probe is ready", async () => {

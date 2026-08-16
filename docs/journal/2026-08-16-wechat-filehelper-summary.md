@@ -113,3 +113,9 @@
 - `collect` 现默认为统一入口：扫描并写入本次视频 pending 后，在同一进程内调用共享的 `processPendingVideos` 编排器；文章继续原分支，视频只在内部切换到捕获/ASR/Obsidian 分支。
 - `process:videos` 保留为历史 pending 或失败记录的重试入口；`--skip-video-processing` 可让 collect 只入队。
 - 新增 collect 编排测试，确认视频记录会传给 video pipeline，且原有无视频扫描路径不受影响。
+
+## 文章链接先交付，再确认视频处理
+
+- 用户明确不希望文章链接还没交给另一个 AI 时就开始视频捕获；同一个 `collect` 命令仍保留，但时序改为先扫描、写入索引并输出文章/文本查询结果。
+- 当前扫描发现的视频 pending 记录会在链接输出后询问：用户可以先把链接交给另一个 AI，准备好后按 Enter 进入视频捕获；输入 `n` 则本次跳过，记录继续留在 pending 队列。
+- `--skip-video-processing` 仍可无提示地只入队；`process:videos` 作为历史 pending、失败或稍后处理记录的重试入口。

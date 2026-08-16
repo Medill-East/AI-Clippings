@@ -87,7 +87,7 @@ npm run collect -- \
   --format md
 ```
 
-`collect` 是文章和视频的统一入口。扫描本次时间范围时发现视频号卡片后，它会在同一进程内切换到视频分支，提示你准备播放并完成音频捕获、V2T 转录和 Obsidian 写回，不需要再运行第二条命令。视频默认捕获 `120` 秒，可用 `--video-duration N` 调整；如只想先入队，使用 `--skip-video-processing`。
+`collect` 是文章和视频的统一入口。它会先完成扫描并输出文章、文本链接，让你先交给另一个 AI 处理；如果本次发现视频号卡片，随后在同一进程内询问是否继续视频分支。你准备好后按 Enter，脚本会提示播放视频并完成音频捕获、V2T 转录和 Obsidian 写回；输入 `n` 则跳过，视频仍保留在 pending 队列，不需要重新扫描。视频默认捕获 `120` 秒，可用 `--video-duration N` 调整；如确定只入队，使用 `--skip-video-processing`。
 
 等价脚本：
 
@@ -110,7 +110,7 @@ node scripts/query-links.js \
 
 ### 5. 视频分支与失败重试
 
-正常情况下视频由上面的 `collect` 自动处理。此前已入队但未完成的记录，可以单独重试：
+正常情况下视频由上面的 `collect` 在文章链接输出并确认后处理。此前已入队但未完成的记录，或本次输入 `n` 暂不处理的记录，可以单独重试：
 
 ```bash
 npm run process:videos -- --duration 120

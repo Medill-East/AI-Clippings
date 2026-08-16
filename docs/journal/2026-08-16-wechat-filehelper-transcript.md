@@ -100,3 +100,9 @@
 - 将视频编排抽成共享 `processPendingVideos`，由 `collect-links.js` 在本次扫描写入索引后自动调用；只有发现本次扫描的视频卡片时才进入提示、捕获和 ASR，普通文章扫描保持原路径。
 - `process-videos.js` 继续复用同一编排器，定位为历史 pending/失败记录的补救命令，而不是常规入口。
 - 新增 `runCollect` 集成测试和 `processPendingVideos` 编排测试；增加 `--video-duration`、`--video-no-prompt`、`--skip-video-processing` 等 collect 兼容参数。
+
+## 视频处理确认时序调整
+
+- 用户进一步明确：文章/文本链接应先完整输出，以便立即交给另一个 AI 处理；视频号不能在这之前开始捕获、ASR 或写入 Obsidian。
+- `collect` 仍是单一入口，但改为先打印当前查询结果，再提示“按 Enter 继续处理视频，输入 n 跳过”。确认后才调用共享的 `processPendingVideos`；跳过时不丢弃 pending 记录。
+- 这样文章分支和视频分支仍然是两条独立处理线，但用户不需要再启动第二条扫描命令；`process:videos` 只负责历史 pending/失败项的重试。
