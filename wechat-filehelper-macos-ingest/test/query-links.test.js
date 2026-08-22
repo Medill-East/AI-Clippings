@@ -4,8 +4,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import { runQuery } from "../scripts/lib/query.js";
 
 const tempDirs = [];
+const queryScriptPath = fileURLToPath(
+  new URL("../scripts/query-links.js", import.meta.url),
+);
 
 afterEach(async () => {
   while (tempDirs.length > 0) {
@@ -20,6 +26,38 @@ async function makeTempDir(prefix) {
 }
 
 describe("query-links.js", () => {
+  it("routes SPH links to the background video group instead of article records", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-video-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          message_time: "2026-08-22T07:00:00.000Z",
+          title: "Article",
+          url: "https://mp.weixin.qq.com/s/Article1",
+        }),
+        JSON.stringify({
+          message_time: "2026-08-22T07:01:00.000Z",
+          title: "Video",
+          url: "https://weixin.qq.com/sph/Video1",
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const result = await runQuery({
+      skillRoot: dir,
+      indexPath,
+      since: new Date("2026-08-22T06:00:00.000Z"),
+      until: new Date("2026-08-22T08:00:00.000Z"),
+      format: "json",
+    });
+    const parsed = JSON.parse(result.rendered);
+    assert.equal(parsed.records.length, 1);
+    assert.equal(parsed.video_channels.length, 1);
+    assert.equal(parsed.video_channels[0].url, "https://weixin.qq.com/sph/Video1");
+  });
+
   it("keeps the new source field in JSON output", async () => {
     const dir = await makeTempDir("wechat-filehelper-query-");
     const indexPath = path.join(dir, "links.jsonl");
@@ -41,11 +79,10 @@ describe("query-links.js", () => {
       "utf8"
     );
 
-    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
     const output = execFileSync(
       process.execPath,
       [
-        scriptPath,
+        queryScriptPath,
         "--since",
         "2026-03-28T07:00:00.000Z",
         "--until",
@@ -102,11 +139,10 @@ describe("query-links.js", () => {
       "utf8"
     );
 
-    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
     const output = execFileSync(
       process.execPath,
       [
-        scriptPath,
+        queryScriptPath,
         "--since",
         "2026-03-28T07:00:00.000Z",
         "--until",
@@ -162,11 +198,10 @@ describe("query-links.js", () => {
       "utf8"
     );
 
-    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
     const output = execFileSync(
       process.execPath,
       [
-        scriptPath,
+        queryScriptPath,
         "--since",
         "2026-03-28T07:00:00.000Z",
         "--until",
@@ -226,11 +261,10 @@ describe("query-links.js", () => {
       "utf8"
     );
 
-    const scriptPath = "/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/scripts/query-links.js";
     const jsonOutput = execFileSync(
       process.execPath,
       [
-        scriptPath,
+        queryScriptPath,
         "--since",
         "2026-03-28T07:00:00.000Z",
         "--until",
@@ -255,7 +289,7 @@ describe("query-links.js", () => {
     const mdOutput = execFileSync(
       process.execPath,
       [
-        scriptPath,
+        queryScriptPath,
         "--since",
         "2026-03-28T07:00:00.000Z",
         "--until",

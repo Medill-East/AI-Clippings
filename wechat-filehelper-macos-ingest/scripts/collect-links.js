@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { formatQueryUsage, runQuery } from "./lib/query.js";
 import { formatScanUsage, parseScanArgs, runScan } from "./lib/scan.js";
+import { runVideoBatch } from "./lib/video-channel-batch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const skillRoot = path.resolve(__dirname, "..");
@@ -17,6 +18,7 @@ function parseCollectArgs(argv) {
   const args = argv.slice(2);
   const scanArgs = [argv[0], argv[1]];
   let format = "md";
+  let processVideos = true;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--format") {
@@ -28,11 +30,16 @@ function parseCollectArgs(argv) {
       continue;
     }
 
+    if (args[i] === "--skip-videos") {
+      processVideos = false;
+      continue;
+    }
+
     scanArgs.push(args[i]);
   }
 
   const scanOpts = parseScanArgs(scanArgs);
-  return { ...scanOpts, format };
+  return { ...scanOpts, format, processVideos };
 }
 
 function formatCollectUsage() {
@@ -46,6 +53,7 @@ function formatCollectUsage() {
     "  --max-scrolls N       Maximum upward scrolls for UI/clipboard scanning (default 50, max 200)",
     "  --reindex             Clear existing index before scan",
     "  --debug               Print verbose debug output",
+    "  --skip-videos         Do not run background Video Channels processing",
   ].join("\n");
 }
 
@@ -84,6 +92,7 @@ async function main() {
     (scanResult.skippedRecords?.length ?? 0) === 0 &&
     (
       queryResult.records.length > 0 ||
+      (queryResult.videoChannels?.length ?? 0) > 0 ||
       (queryResult.uncertainLinks?.length ?? 0) > 0 ||
       (queryResult.skippedCards?.length ?? 0) > 0
     )
@@ -92,6 +101,36 @@ async function main() {
     console.log("");
   }
   console.log(queryResult.rendered);
+
+  if (opts.processVideos) {
+    const videoResult = await runVideoBatch(
+      {
+        skillRoot,
+        since: opts.since,
+        until: opts.until,
+      },
+      {
+        onEvent: (event) => {
+          const prefix = `[video ${event.index}/${event.total}]`;
+          if (event.type === "task_state") {
+            console.log(`${prefix} ${event.state}`);
+          } else if (event.type === "asr_progress") {
+            console.log(`${prefix} ASR ${event.current}/${event.chunks}`);
+          } else if (event.type === "task_finished" && event.state === "failed") {
+            console.log(`${prefix} failed: ${event.errorCode}`);
+          }
+        },
+      },
+    );
+    if (videoResult.counts.selected > 0) {
+      console.log("");
+      console.log(
+        `视频号后台处理：written=${videoResult.counts.written}，skipped=${videoResult.counts.skipped}，failed=${videoResult.counts.failed}`,
+      );
+      console.log(`视频号 manifest：${videoResult.manifestPath}`);
+    }
+    if (videoResult.counts.failed > 0) process.exitCode = 2;
+  }
 }
 
 main().catch((err) => {

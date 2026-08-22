@@ -1,11 +1,11 @@
 ---
 name: wechat-filehelper-macos-ingest
-description: 通过 macOS 微信桌面客户端优先走 UI-first 单卡片扫描、必要时回退到剪贴板兜底，提取「文件传输助手」指定时间段内的文章与视频号分享链接并维护本地索引。
+description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的文章与视频号；视频号短时提链后在后台解析、下载、用本机 V2T 转写、由 Codex 生成摘要与要点并写入 Obsidian。
 ---
 
 # WeChat FileHelper macOS Ingest
 
-这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」里提取指定时间段内的文章与视频号分享链接，并写入本地 JSONL 索引。
+这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」提取指定时间段内的文章与视频号。文章链接写入本地 JSONL 索引；视频号只在前台短时打开以复制 `/sph/` 链接，随后在后台完成媒体解析、本机转写、Codex 摘要和 Obsidian 写入，不等待播放器播完。
 
 当前实现采用 **UI-first + clipboard fallback**：
 
@@ -13,6 +13,8 @@ description: 通过 macOS 微信桌面客户端优先走 UI-first 单卡片扫�
 - `auto` 会先探测 UI-first 路径是否可用；可用就走 `ui`
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
+- `/sph/` 视频号链接由独立状态机处理：`pending → resolving → downloading → transcribing → summarizing → written`
+- 元宝登录态只承担腾讯域内短链解析，不使用元宝总结或聊天产物
 
 ## 平台要求
 
@@ -21,6 +23,11 @@ description: 通过 macOS 微信桌面客户端优先走 UI-first 单卡片扫�
 - 微信桌面版已安装并登录
 - 若需要 UI-first 或 clipboard fallback，终端应用要有辅助功能权限
 - 若需要 UI-first，终端应用还需要屏幕录制权限
+- `ffmpeg` / `ffprobe`（当前默认路径 `/opt/homebrew/bin/`）
+- 本机 V2T 已安装可用的 sherpa-onnx 模型
+- 已登录的 Codex CLI（用于我们自己的结构化摘要）
+- Obsidian 已有可解析的 vault；优先复用最近一次 Web Clipper 成功笔记的目录
+- Playwright 复用仓库内 `obsidian-web-clipper-ingest` 的既有依赖
 
 ## 推荐流程
 
@@ -95,6 +102,34 @@ node scripts/collect-links.js \
   --format md
 ```
 
+`collect` 默认会在微信扫描结束、viewer 全部关闭后继续后台处理该时间段的视频号。后台阶段不会操作微信或鼠标；文章与视频号会在查询结果中分组，`/sph/` 不会再进入文章 Web Clipper 数组。只有明确不想处理视频号时才加 `--skip-videos`。
+
+### 首次建立元宝解析登录态
+
+只需首次使用或登录过期时执行：
+
+```bash
+npm run video:auth
+```
+
+窗口出现后用微信扫码。登录信息只保存在 `local/yuanbao-profile/`，不得提交到 Git。
+
+### 单独处理或重试视频号
+
+```bash
+npm run video:process -- \
+  --since 2026-03-28T15:00:00+08:00 \
+  --until 2026-03-28T23:59:59+08:00
+```
+
+也可只处理一条：
+
+```bash
+npm run video:process -- --url 'https://weixin.qq.com/sph/...'
+```
+
+成功任务再次运行会直接计入 `skipped`，不会重复下载、转写或写笔记。临时 MP4、WAV 和逐字稿在结束后默认删除；只有诊断时显式使用 `--keep-artifacts`。
+
 ### 4. 查询索引
 
 ```bash
@@ -139,9 +174,21 @@ node scripts/query-links.js \
 - `browser_fallback_used`
 - `skipped_by_rule`
 
+视频号批处理另写入 `local/video-channel/runs/<timestamp>/manifest.json`；每条任务的可恢复状态在 `local/video-channel/tasks/<task-id>/task.json`，自动化失败追加到 `local/video-channel/automation-failures.log`。重点核对：
+
+- `counts.selected / written / skipped / failed`
+- `state`
+- `failed_stage`
+- `error_code`（如 `auth_required`、`parse_rejected`、`media_missing`、`asr_empty`、`summary_invalid_json`）
+- `media_bytes / media_duration_seconds`
+- `transcript_chars / summary_chars / key_points_count`
+- `note_path`
+
+manifest 和 task 不保存解析 token、媒体签名 URL 或逐字稿正文。
+
 ## 跳过规则
 
-- 视频号分享卡片：UI-first 会自动打开，使用视频号分享面板复制 `https://weixin.qq.com/sph/...`，随后立即关闭 viewer；本 skill 尚不负责媒体下载、转写或摘要
+- 视频号分享卡片：UI-first 自动打开，复制 `https://weixin.qq.com/sph/...` 后立即关闭 viewer；`collect` 随后在后台下载、转写、摘要并写入 Obsidian
 - `channels.weixin.qq.com` 裸内部地址与 `mp.weixin.qq.com/mp/wma`：仍按不可直接消费的视频号内部 URL 跳过
 - B 站视频卡片和 `b23.tv` 短链：跳过
 - 微信内部登录/跳转 URL：跳过
@@ -184,3 +231,18 @@ node scripts/inspect-accessibility.js [--depth N] [--window N]
 - 先用 `node scripts/diagnose-filehelper.js --json` 看 `ui_probe_status`
 - UI-first 就绪时，文章卡片会走文章 viewer 菜单；视频号卡片会走底部分享面板并接受 `/sph/` 分享链接
 - clipboard fallback 仍然只负责真实文本 URL，不会伪造文章卡片成功
+
+### 视频号显示 `auth_required`
+
+- 执行 `npm run video:auth`，在独立窗口重新扫码
+- 再用同一时间范围运行 `npm run video:process -- ...`
+- 不要把 `auth_required` 当作“没有视频内容”；解析失败与内容不存在是不同状态
+
+### 视频号后台失败
+
+- 先看最新 `local/video-channel/runs/*/manifest.json` 的 `failed_stage` 与 `error_code`
+- `parse_rejected`：元宝未公开解析接口可能漂移；不要返回空摘要兜底
+- `media_missing` / `media_invalid`：官方 feed 没有可验证媒体，不能把封面 JPEG 冒充视频
+- `asr_*`：检查 V2T 设置、模型文件和 `ffmpeg`
+- `summary_*`：检查 Codex CLI 登录态与 JSON Schema 输出
+- 默认失败也会清理临时媒体；确需诊断时用 `--keep-artifacts`

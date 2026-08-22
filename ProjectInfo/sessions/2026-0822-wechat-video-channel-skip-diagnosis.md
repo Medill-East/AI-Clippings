@@ -57,14 +57,6 @@
 
 原始对话：dialogues/2026-0822.md「1355 视频号技术方案审计」
 
-## 1315 视频号全自动处理调试与实现
-
-决策：無涘 ｜ 记录：codex（自动）｜ session 01a027da-4e12-76c3-a39e-34d494386966
-
-诊断确认视频号跳过并非回归，而是处理链路从未实现。用户要求打通全自动处理：自动打开视频号卡片、捕获链接、转写、摘要并写入 Obsidian。实施中修复了微信主窗口系统截图屏蔽（双层蒙层退出）、中文界面“File Transfer”识别、视频号 viewer 类型误判（含“视频号”容错）、鼠标取色浮层干扰卡片聚类等问题，新增视频号专用分享面板复制链接分支。端到端尚未完成：卡片定位仍需人工切到目标位置，多次真实点击未拿到链接。下一步需完成预检自动定位、端到端验证复制 /sph/ 链接并关闭窗口。
-
-原始对话：dialogues/2026-0822.md
-
 ## 1549 视频号提链真实验收完成，后台解析停在一次登录
 
 决策：無涘（视频号必须全自动、前台占用不随时长增长；最终产物暂定「链接 + 高质量摘要 + 要点」；不采用元宝总结） ｜ 记录：Codex
@@ -103,3 +95,44 @@
 - `ProjectInfo/ProjectProgress.md`
 
 原始对话：dialogues/2026-0822.md「1549 视频号提链真实验收与后台解析边界」
+
+## 1315 全自动提链已实现，后台解析需登录元宝
+
+决策：無涘 ｜ 记录：codex（自动）｜ session 01a027da-4e12-76c3-a39e-34d494386966
+
+诊断确认视频号卡片被跳过系代码自 3 月起按 video_channel 规则截留，并非回归。完成从自动点开卡片到提取公开 /sph/ 链接、自动关闭并写入索引的全自动化链路，真实运行成功（1 resolved，0 unresolved）。后台媒体解析因腾讯官方接口需登录态而阻塞，匿名路径、缓存提取均未获完整视频地址。用户授权使用元宝网页仅作为短链解析凭据，不调用元宝总结。下一步将利用该登录态通过官方 API 获取媒体，再经本机 V2T 转写并生成自有摘要写入 Obsidian。
+
+原始对话：dialogues/2026-0822.md
+
+## 1642 元宝解析、本机转写、自有摘要与 Obsidian 全链路完成
+
+决策：無涘（允许登录元宝；最终产物为原始链接 + 高质量摘要 + 要点；不采用元宝总结） ｜ 记录：Codex
+
+### 结论
+
+- 無涘完成独立元宝 profile 的微信扫码登录。强验真结果为：元宝解析 HTTP 200 / code 0，视频号官方 feed HTTP 201 / errCode 0，媒体 Range 返回 HTTP 206 `video/mp4`；没有把界面登录假象当作成功。
+- 正式实现 `video-channel-resolver / runtime / pipeline / batch`：元宝只换取临时 `token + eid`，官方 feed 提供媒体；状态机逐步持久化，失败记录 `failed_stage + error_code` 并追加 failure log。
+- 本机真实 V2T 探针处理同一条 328.21 秒视频：下载 11,475,719 字节，Qwen3-ASR 完成 19/19 分片并产出 1,295 字逐字稿。探针结束后临时媒体与逐字稿已删除。
+- 完整端到端运行 `local/video-channel/runs/2026-08-22T08-34-38-009Z/manifest.json`：`selected=1 / written=1 / failed=0`；Codex 固定 JSON Schema 输出 601 字摘要和 8 条具体要点，Obsidian 回读验证源链接、两类正文区块与临时文件清理均通过。
+- 幂等复跑在 1 秒内返回 `skipped=1`，未重复下载、转写或写笔记。
+- `collect` 已默认接入后台视频处理；query 将 `/sph/` 单列为「视频号（后台处理）」，避免误交文章 Web Clipper。显式 `--skip-videos` 才跳过。
+- 全模块最终新鲜测试 126/126 通过。此前两项 query 失败来自测试硬编码另一个 checkout，改为相对当前测试文件寻址后全绿；新增 Obsidian 目标缺失分支保证 manifest 不会停在 `running`。
+
+### 风险与边界
+
+- 元宝解析是未公开 Web 接口，可能漂移；已区分 `auth_required / parse_rejected / feed_rejected / media_missing` 等错误，不做空结果兜底。
+- 本机 V2T 顺序转写不会抢占桌面，但 5 分 28 秒样本约需数分钟计算；真实多视频批次尚未做耐久验收。
+- Codex 摘要会把临时逐字稿交给用户已登录的 Codex 服务；元宝只看到原始公开分享链接。
+- 默认不保留 MP4、WAV 或逐字稿；最终笔记没有逐字稿章节。
+
+### 产出
+
+- `wechat-filehelper-macos-ingest/scripts/process-video-channels.js`
+- `wechat-filehelper-macos-ingest/scripts/lib/video-channel-{resolver,runtime,pipeline,batch}.js`
+- `wechat-filehelper-macos-ingest/references/video-summary.schema.json`
+- 4 份视频号后台处理测试与 query 路由回归测试
+- `wechat-filehelper-macos-ingest/SKILL.md`
+- `ProjectInfo/ProjectProgress.md`
+- `ProjectInfo/roadmap.md`
+
+原始对话：dialogues/2026-0822.md「1607 视频号元宝登录与后台全链路验收」

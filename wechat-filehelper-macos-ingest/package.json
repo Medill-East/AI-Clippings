@@ -9,6 +9,8 @@
     "diagnose": "node ./scripts/diagnose-filehelper.js",
     "probe-store": "node ./scripts/probe-store.js",
     "collect": "node ./scripts/collect-links.js",
+    "video:auth": "node ./scripts/process-video-channels.js auth",
+    "video:process": "node ./scripts/process-video-channels.js process",
     "scan": "node ./scripts/scan-links.js",
     "query": "node ./scripts/query-links.js",
     "inspect": "node ./scripts/inspect-accessibility.js",

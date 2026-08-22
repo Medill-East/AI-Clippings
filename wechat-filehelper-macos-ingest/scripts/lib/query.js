@@ -53,6 +53,7 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   if (all.length === 0) {
     return {
       records: [],
+      videoChannels: [],
       uncertainLinks: [],
       skippedCards: [],
       rendered: "Index is empty. Run scan-links.js first.",
@@ -64,9 +65,11 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   const seenUrls = new Set();
   const seenUncertain = new Set();
   const seenSkipped = new Set();
+  const seenVideos = new Set();
   const deduped = [];
   const uncertainLinks = [];
   const skippedCards = [];
+  const videoChannels = [];
 
   for (const record of results) {
     if (record?.record_type === "skipped_card") {
@@ -85,6 +88,13 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
       continue;
     }
 
+    if (isVideoChannelShareUrl(record?.url)) {
+      if (seenVideos.has(record.url)) continue;
+      seenVideos.add(record.url);
+      videoChannels.push(record);
+      continue;
+    }
+
     if (!record?.url || shouldSkipUrl(record.url)) continue;
     if (seenUrls.has(record.url)) continue;
     seenUrls.add(record.url);
@@ -95,24 +105,42 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
 
   return {
     records: deduped,
+    videoChannels,
     uncertainLinks: filteredUncertainLinks,
     skippedCards,
     rendered: renderQueryResults(
-      { records: deduped, uncertainLinks: filteredUncertainLinks, skippedCards },
+      { records: deduped, videoChannels, uncertainLinks: filteredUncertainLinks, skippedCards },
       { since, until, format }
     ),
     indexPath: resolvedIndexPath,
   };
 }
 
-export function renderQueryResults({ records, uncertainLinks = [], skippedCards = [] }, { since, until, format }) {
-  if (records.length === 0 && uncertainLinks.length === 0 && skippedCards.length === 0) {
+export function renderQueryResults(
+  { records, videoChannels = [], uncertainLinks = [], skippedCards = [] },
+  { since, until, format },
+) {
+  if (
+    records.length === 0 &&
+    videoChannels.length === 0 &&
+    uncertainLinks.length === 0 &&
+    skippedCards.length === 0
+  ) {
     return "No links found in the specified time range.";
   }
 
   switch (format) {
     case "json":
-      return JSON.stringify({ records, uncertain_links: uncertainLinks, skipped_cards: skippedCards }, null, 2);
+      return JSON.stringify(
+        {
+          records,
+          video_channels: videoChannels,
+          uncertain_links: uncertainLinks,
+          skipped_cards: skippedCards,
+        },
+        null,
+        2,
+      );
     case "md": {
       const lines = [`# 文件传输助手链接（${since.toISOString()} ~ ${until.toISOString()}）`, ""];
       lines.push("## 已收集链接");
@@ -121,6 +149,19 @@ export function renderQueryResults({ records, uncertainLinks = [], skippedCards 
         lines.push("- 无");
       } else {
         for (const record of records) {
+          const title = record.title || record.url;
+          lines.push(`- [${title}](${record.url})`);
+          lines.push(`  > ${record.message_time}`);
+        }
+      }
+
+      lines.push("");
+      lines.push("## 视频号（后台处理）");
+      lines.push("");
+      if (videoChannels.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of videoChannels) {
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
           lines.push(`  > ${record.message_time}`);
@@ -164,6 +205,14 @@ export function renderQueryResults({ records, uncertainLinks = [], skippedCards 
         lines.push("");
       }
 
+      lines.push(`Video Channels ${videoChannels.length} background task(s):`);
+      lines.push("");
+      for (const record of videoChannels) {
+        lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
+        lines.push(`  ${record.url}`);
+        lines.push("");
+      }
+
       lines.push(`Uncertain ${uncertainLinks.length} external link(s):`);
       lines.push("");
       for (const record of uncertainLinks) {
@@ -182,5 +231,19 @@ export function renderQueryResults({ records, uncertainLinks = [], skippedCards 
       }
       return lines.join("\n").trimEnd();
     }
+  }
+}
+
+function isVideoChannelShareUrl(value) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return (
+      ["weixin.qq.com", "www.weixin.qq.com"].includes(
+        parsed.hostname.toLowerCase(),
+      ) && /^\/sph\/[A-Za-z0-9]+\/?$/.test(parsed.pathname)
+    );
+  } catch {
+    return false;
   }
 }
