@@ -6,6 +6,10 @@
 import { execFileSync, execSync } from "node:child_process";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const WECHAT_SCREENSHOT_ACTIVATE_SETTLE_MS = 500;
+const WECHAT_SCREENSHOT_OVERLAY_SETTLE_MS = 800;
+const WECHAT_SCREENSHOT_CLOSE_SETTLE_MS = 100;
+const WECHAT_SCREENSHOT_FINAL_SETTLE_MS = 300;
 
 /**
  * Run a short AppleScript snippet via `osascript -e`.
@@ -207,6 +211,20 @@ export function clickAtPoint(x, y, { processName = "WeChat", repeat = 1 } = {}) 
 }
 
 /**
+ * Move the pointer without clicking.
+ */
+export function moveMouseToPoint(x, y) {
+  const pointX = Math.round(x);
+  const pointY = Math.round(y);
+  runJxa(`
+    ObjC.import("ApplicationServices");
+    const point = { x: ${pointX}, y: ${pointY} };
+    const moveEvt = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point, $.kCGMouseButtonLeft);
+    $.CGEventPost($.kCGHIDEventTap, moveEvt);
+  `);
+}
+
+/**
  * Scroll at a specific screen coordinate using native wheel events.
  * Positive lineDelta scrolls upward (toward older chat history).
  */
@@ -308,11 +326,36 @@ export function captureRectScreenshot(rect, outputPath) {
 /**
  * Capture the current front WeChat window.
  */
-export function captureWindowScreenshot(window, outputPath) {
+export function captureWindowScreenshot(
+  window,
+  outputPath,
+  {
+    activateWeChatFn = activateWeChat,
+    moveMouseToPointFn = moveMouseToPoint,
+    sendSystemKeystrokeFn = sendSystemKeystroke,
+    sendSystemKeyCodeFn = sendSystemKeyCode,
+    sleepMsFn = sleepMs,
+    captureRectScreenshotFn = captureRectScreenshot,
+  } = {}
+) {
   if (!window) {
     throw new Error("No WeChat window is available for screenshot capture.");
   }
-  captureRectScreenshot(window, outputPath);
+
+  activateWeChatFn();
+  sleepMsFn(WECHAT_SCREENSHOT_ACTIVATE_SETTLE_MS);
+  moveMouseToPointFn(window.x + 80, window.y + 80);
+  sendSystemKeystrokeFn("a", ["control down", "command down"]);
+  sleepMsFn(WECHAT_SCREENSHOT_OVERLAY_SETTLE_MS);
+
+  try {
+    captureRectScreenshotFn(window, outputPath);
+  } finally {
+    sendSystemKeyCodeFn(53); // First Escape closes the magnifier/selection state.
+    sleepMsFn(WECHAT_SCREENSHOT_CLOSE_SETTLE_MS);
+    sendSystemKeyCodeFn(53); // Second Escape closes the screenshot overlay itself.
+    sleepMsFn(WECHAT_SCREENSHOT_FINAL_SETTLE_MS);
+  }
 }
 
 /**

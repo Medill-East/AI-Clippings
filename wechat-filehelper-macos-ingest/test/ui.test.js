@@ -72,6 +72,37 @@ describe("ui helpers", () => {
     assert.equal(snapshot.candidates[0].clickY, 434);
   });
 
+  it("treats video-channel share cards as actionable candidates", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [
+          {
+            blockId: "video-card-1",
+            timestampText: "10:30",
+            rawLines: ["[链接] 视频号卡片", "视频号"],
+            rawText: "[链接] 视频号卡片\n视频号",
+            directUrls: [],
+            shareCardTitle: "视频号卡片",
+            skipReason: "video_channel",
+          },
+        ],
+      },
+      ocrResult: {
+        width: 900,
+        height: 700,
+        lines: [
+          { text: "文件传输助手", x: 240, y: 20, width: 120, height: 24 },
+          { text: "视频号卡片", x: 180, y: 220, width: 180, height: 28 },
+          { text: "视频号", x: 180, y: 255, width: 80, height: 24 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 900, height: 700 },
+    });
+
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].itemKey, "video-card-1");
+  });
+
   it("falls back to OCR-only share-card discovery when clipboard has no share cards", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
@@ -97,6 +128,28 @@ describe("ui helpers", () => {
     assert.equal(snapshot.effectiveBlocks[0].timestampText, "Yesterday 18:05");
     assert.equal(snapshot.candidates.length, 1);
     assert.equal(snapshot.candidates[0].itemKey, snapshot.effectiveBlocks[0].blockId);
+  });
+
+  it("keeps an OCR-only card attached to its own right-pane cluster", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { items: [] },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "徐总", x: 1050, y: 565, width: 34, height: 22 },
+          { text: "W", x: 980, y: 590, width: 35, height: 27 },
+          { text: "岑军拿奖了吗", x: 1018, y: 584, width: 162, height: 33 },
+          { text: "[3] Kitty 猫爪爪：[Link] 报告标题", x: 230, y: 1305, width: 340, height: 28 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].matchReason, "cluster_fallback");
+    assert.ok(snapshot.candidates[0].clickX > 900);
   });
 
   it("does not turn URL-like OCR text into fallback share cards when clipboard already has a direct URL block", () => {
@@ -963,6 +1016,73 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_attempted, 0);
   });
 
+  it("opens video-channel cards with the existing viewer flow and records the share URL", async () => {
+    let extractorCalls = 0;
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [
+              {
+                blockId: "video-card-1",
+                timestampText: "Yesterday 18:05",
+                rawLines: ["[链接] 视频号卡片", "视频号"],
+                rawText: "[链接] 视频号卡片\n视频号",
+                directUrls: [],
+                shareCardTitle: "视频号卡片",
+                skipReason: "video_channel",
+              },
+            ],
+            stats: {
+              share_cards_seen: 1,
+              share_cards_unresolved: 0,
+              skipped_by_rule: { video_channel: 1 },
+            },
+          },
+          candidateMap: new Map([
+            [
+              "video-card-1",
+              {
+                itemKey: "video-card-1",
+                title: "视频号卡片",
+                clickX: 500,
+                clickY: 400,
+              },
+            ],
+          ]),
+        }),
+        extractShareCardUrlFn: async () => {
+          extractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://weixin.qq.com/sph/abc123",
+            usedBrowserFallback: false,
+          };
+        },
+      }
+    );
+
+    assert.equal(extractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].url, "https://weixin.qq.com/sph/abc123");
+    assert.equal(result.stats.share_cards_attempted, 1);
+    assert.equal(result.stats.share_cards_resolved, 1);
+    assert.equal(result.stats.skipped_by_rule.video_channel, undefined);
+  });
+
   it("does not reopen or re-record the same skipped bilibili card across pages", async () => {
     let extractorCalls = 0;
     let captureCalls = 0;
@@ -1351,6 +1471,155 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.url, "https://mp.weixin.qq.com/s/abc123");
     assert.ok(result.timings);
     assert.equal(typeof result.timings.viewer_open_wait_ms, "number");
+  });
+
+  it("returns a video-channel share URL when copy-link succeeds", async () => {
+    let windowsCall = 0;
+    const result = await extractShareCardUrl(
+      { title: "视频号卡片", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          if (windowsCall === 1) return [{ name: "main", x: 0, y: 0, width: 800, height: 600 }];
+          return [
+            { name: "main", x: 0, y: 0, width: 800, height: 600 },
+            { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+          ];
+        },
+        getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({ width: 2880, height: 1800, lines: [] }),
+        openViewerMenuFn: async () => ({
+          copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+          browserLine: null,
+          ocrResult: { lines: [] },
+        }),
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "https://weixin.qq.com/sph/abc123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.usedBrowserFallback, false);
+    assert.equal(result.url, "https://weixin.qq.com/sph/abc123");
+  });
+
+  it("uses the video-channel share panel instead of the article menu", async () => {
+    const clicks = [];
+    const capturedRects = [];
+    const mainWindow = { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 };
+    const viewerWindow = { name: "WeChat (Window)", x: 50, y: 40, width: 900, height: 700 };
+    const viewerContext = {
+      mode: "new_window",
+      screenRect: viewerWindow,
+      screenBounds: { ...MAIN_SCREEN_BOUNDS },
+      window: viewerWindow,
+      ocrResult: {
+        width: 2880,
+        height: 1800,
+        lines: [{ text: "W 视频号", x: 400, y: 24, width: 100, height: 30 }],
+      },
+      ocrAnalysis: {},
+    };
+
+    const result = await extractShareCardUrl(
+      { title: "视频号卡片", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: (x, y) => clicks.push({ x: Math.round(x), y: Math.round(y) }),
+        getWeChatWindowsFn: () => [mainWindow],
+        getFrontWeChatWindowFn: () => mainWindow,
+        detectViewerContextFn: async () => viewerContext,
+        waitForViewerReadyFn: async (context) => context,
+        captureFullScreenScreenshotFn: () => {
+          throw new Error("video-channel menu should not capture the multi-display desktop");
+        },
+        captureRectScreenshotFn: (rect) => capturedRects.push(rect),
+        recognizeTextFromImageFn: async () => ({
+          width: 1800,
+          height: 1400,
+          lines: [{ text: "复制链接", x: 1000, y: 1200, width: 200, height: 40 }],
+        }),
+        openViewerMenuFn: async () => {
+          throw new Error("article menu should not be used for a video-channel viewer");
+        },
+        readClipboardTextFn: () => "https://weixin.qq.com/sph/video123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://weixin.qq.com/sph/video123");
+    assert.deepEqual(capturedRects, [viewerWindow]);
+    assert.deepEqual(clicks, [
+      { x: 500, y: 400 },
+      { x: 752, y: 691 },
+      { x: 600, y: 650 },
+    ]);
+  });
+
+  it("retries above an OCR cluster when its text-center click misses the viewer", async () => {
+    const clicks = [];
+    let detectCalls = 0;
+    const mainWindow = { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 };
+    const viewerWindow = { name: "viewer", x: 50, y: 40, width: 900, height: 700 };
+    const viewerContext = {
+      mode: "new_window",
+      screenRect: viewerWindow,
+      screenBounds: { ...MAIN_SCREEN_BOUNDS },
+      window: viewerWindow,
+      ocrResult: { width: 2880, height: 1800, lines: [] },
+      ocrAnalysis: {},
+    };
+
+    const result = await extractShareCardUrl(
+      {
+        title: "OCR 卡片",
+        clickX: 500,
+        clickY: 400,
+        matchReason: "cluster_fallback",
+      },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: (x, y) => clicks.push({ x: Math.round(x), y: Math.round(y) }),
+        getWeChatWindowsFn: () => [mainWindow],
+        getFrontWeChatWindowFn: () => mainWindow,
+        detectViewerContextFn: async () => {
+          detectCalls += 1;
+          return detectCalls === 1 ? null : viewerContext;
+        },
+        waitForViewerReadyFn: async (context) => context,
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({ width: 2880, height: 1800, lines: [] }),
+        openViewerMenuFn: async () => ({
+          copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+          browserLine: null,
+          ocrResult: { width: 2880, height: 1800, lines: [] },
+          screenBounds: { ...MAIN_SCREEN_BOUNDS },
+        }),
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/retry123",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(detectCalls, 2);
+    assert.deepEqual(clicks.slice(0, 2), [
+      { x: 500, y: 400 },
+      { x: 500, y: 300 },
+    ]);
   });
 
   it("skips OCR recovery verification when fast close returns to a known pre-view window", async () => {

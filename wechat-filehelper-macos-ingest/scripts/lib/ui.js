@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   activateWeChat,
   captureFullScreenScreenshot,
+  captureRectScreenshot,
   captureWindowScreenshot,
   clearClipboardText,
   clickAtPoint,
@@ -74,6 +75,11 @@ const VIEWER_BROWSER_SETTLE_MS = 500;
 const VIEWER_CLOSE_INITIAL_SETTLE_MS = 5;
 const VIEWER_CLOSE_ESCAPE_SETTLE_MS = 20;
 const VIEWER_CLOSE_CMD_W_SETTLE_MS = 35;
+const VIDEO_CHANNEL_SHARE_SETTLE_MS = 450;
+const VIDEO_CHANNEL_SHARE_X_RATIO = 0.78;
+const VIDEO_CHANNEL_SHARE_Y_RATIO = 0.93;
+const OCR_CLUSTER_OPEN_RETRY_OFFSET_POINTS = 100;
+const VIDEO_CHANNEL_VIEWER_LABELS = ["视频号", "channels"];
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -941,11 +947,15 @@ function buildFallbackCandidateFromCluster(block, windowBounds, ocrResult) {
 }
 
 function hasCandidateForActionableShareCards(blocks, candidateMap) {
-  const actionableBlocks = blocks.filter(
-    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
-  );
+  const actionableBlocks = blocks.filter(isActionableShareCardBlock);
   if (actionableBlocks.length === 0) return true;
   return actionableBlocks.some((block) => candidateMap.has(block.blockId));
+}
+
+function isActionableShareCardBlock(block) {
+  return Boolean(block?.shareCardTitle) &&
+    getBlockDirectUrlEntries(block).length === 0 &&
+    (!block.skipReason || block.skipReason === "video_channel");
 }
 
 export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) {
@@ -963,14 +973,20 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
         .filter((block) => !shouldFilterOcrFallbackBlock(block, blocks));
   const effectiveBlocks = clipboardHasShareCards ? blocks : [...blocks, ...ocrFallbackBlocks];
   const effectiveItems = effectiveBlocks.map(blockToSnapshotItem).filter(Boolean);
-  const shareCardBlocks = effectiveBlocks.filter(
-    (block) => block.shareCardTitle && getBlockDirectUrlEntries(block).length === 0 && !block.skipReason
-  );
+  const shareCardBlocks = effectiveBlocks.filter(isActionableShareCardBlock);
   const candidates = [];
   const usedLineIndexes = new Set();
   let lastMatchedY = -1;
 
   for (const block of shareCardBlocks) {
+    if (Array.isArray(block.ocrCluster) && block.ocrCluster.length > 0) {
+      const clusterCandidate = buildFallbackCandidateFromCluster(block, windowBounds, ocrResult);
+      if (clusterCandidate) {
+        candidates.push(clusterCandidate);
+      }
+      continue;
+    }
+
     const match = findBestShareCardLine({
       item: {
         title: block.shareCardTitle,
@@ -1341,6 +1357,7 @@ export async function scanUiLinks(
 
     stats.share_cards_seen += pageBlocks.filter((block) => Boolean(block.shareCardTitle)).length;
     for (const [reason, count] of Object.entries(page.clipboardSnapshot.stats.skipped_by_rule)) {
+      if (reason === "video_channel") continue;
       incrementCount(stats.skipped_by_rule, reason, count);
     }
 
@@ -1516,7 +1533,7 @@ export async function scanUiLinks(
         continue;
       }
 
-      if (!block.shareCardTitle || block.skipReason) {
+      if (!isActionableShareCardBlock(block)) {
         if (artifactRecord && block.skipReason) {
           if (existingArticleState) {
             artifactRecord.status = "duplicate_skipped";
@@ -1850,6 +1867,62 @@ export async function captureVisibleUiPage(
   };
 }
 
+function isVideoChannelViewer(viewerContext) {
+  const ocrResult = viewerContext?.ocrResult;
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const normalizedLabels = new Set(VIDEO_CHANNEL_VIEWER_LABELS.map(normalizeComparableText));
+
+  return lines.some((line) => {
+    if (!line?.text) return false;
+    if (imageHeight > 0 && line.y > imageHeight * 0.15) return false;
+    const normalized = normalizeComparableText(line.text);
+    return [...normalizedLabels].some(
+      (label) => normalized.includes(label) && normalized.length <= label.length + 4
+    );
+  });
+}
+
+async function openVideoChannelShareMenu(
+  viewerContext,
+  { artifactDir = null } = {},
+  {
+    clickAtPointFn = clickAtPoint,
+    captureRectScreenshotFn = captureRectScreenshot,
+    recognizeTextFromImageFn = recognizeTextFromImage,
+    sleepMsFn = sleepMs,
+  } = {}
+) {
+  const viewerRect = viewerContext?.screenRect ?? viewerContext?.window;
+  if (!viewerRect) {
+    return { copyLine: null, browserLine: null, ocrResult: { lines: [] }, screenBounds: null };
+  }
+
+  clickAtPointFn(
+    viewerRect.x + viewerRect.width * VIDEO_CHANNEL_SHARE_X_RATIO,
+    viewerRect.y + viewerRect.height * VIDEO_CHANNEL_SHARE_Y_RATIO
+  );
+  sleepMsFn(VIDEO_CHANNEL_SHARE_SETTLE_MS);
+
+  const stamp = `${Date.now()}`;
+  const screenshotPath =
+    artifactDir != null
+      ? path.join(artifactDir, `video-share-menu-${stamp}.png`)
+      : path.join(os.tmpdir(), `wechat-video-share-menu-${stamp}.png`);
+  captureRectScreenshotFn(viewerRect, screenshotPath);
+  const screenBounds = viewerRect;
+  const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+  const copyLine = findMenuActionLine(ocrResult.lines, COPY_LINK_LABELS);
+
+  if (artifactDir != null) {
+    await writeJsonArtifact(path.join(artifactDir, `video-share-menu-${stamp}.ocr.json`), ocrResult);
+  } else {
+    await fs.rm(screenshotPath, { force: true }).catch(() => {});
+  }
+
+  return { copyLine, browserLine: null, ocrResult, screenBounds };
+}
+
 async function openViewerMenu(
   viewerContext,
   { debug = false, artifactDir = null } = {},
@@ -1978,14 +2051,18 @@ function clickOcrLineInScreen(screenBounds, line, ocrResult, clickAtPointFn = cl
   clickAtPointFn(clickPoint.x, clickPoint.y);
 }
 
-function waitForClipboardMpUrl(
+function isSupportedWeChatViewerUrl(value) {
+  return /^https:\/\/(?:mp\.weixin\.qq\.com\/|weixin\.qq\.com\/sph\/)/i.test(String(value ?? ""));
+}
+
+function waitForClipboardWeChatUrl(
   { timeoutMs = 420, pollMs = 25 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const clipboard = readClipboardTextFn();
-    if (clipboard && /^https:\/\/mp\.weixin\.qq\.com\//i.test(clipboard)) {
+    if (isSupportedWeChatViewerUrl(clipboard)) {
       return clipboard;
     }
     sleepMsFn(pollMs);
@@ -2239,6 +2316,9 @@ async function waitForViewerReady(
   } = {}
 ) {
   let currentContext = viewerContext;
+  if (isVideoChannelViewer(currentContext)) {
+    return currentContext;
+  }
   const initiallyLoading = viewerLooksLoading(currentContext?.ocrResult);
   const initiallyReady = !initiallyLoading && Boolean(currentContext?.ocrAnalysis?.titleLine);
 
@@ -2376,8 +2456,12 @@ export async function extractShareCardUrl(
     getWeChatWindowsFn = getWeChatWindows,
     getFrontWeChatWindowFn = getFrontWeChatWindow,
     captureFullScreenScreenshotFn = captureFullScreenScreenshot,
+    captureRectScreenshotFn = captureRectScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
+    detectViewerContextFn = detectViewerContext,
+    waitForViewerReadyFn = waitForViewerReady,
     openViewerMenuFn = openViewerMenu,
+    openVideoChannelShareMenuFn = openVideoChannelShareMenu,
     readClipboardTextFn = readClipboardText,
     readFrontBrowserUrlFromAddressBarFn = readFrontBrowserUrlFromAddressBar,
     sleepMsFn = sleepMs,
@@ -2400,7 +2484,7 @@ export async function extractShareCardUrl(
   clickAtPointFn(candidate.clickX, candidate.clickY);
   sleepMsFn(VIEWER_OPEN_SETTLE_MS);
 
-  const viewerContext = await detectViewerContext(
+  let viewerContext = await detectViewerContextFn(
     beforeWindows,
     candidate,
     { debug, artifactDir },
@@ -2412,6 +2496,27 @@ export async function extractShareCardUrl(
       sleepMsFn,
     }
   );
+
+  if (!viewerContext && candidate.matchReason === "cluster_fallback") {
+    const retryY = Math.max(0, candidate.clickY - OCR_CLUSTER_OPEN_RETRY_OFFSET_POINTS);
+    if (debug) {
+      console.log(`[debug] Retrying OCR-only card above text cluster at ${candidate.clickX},${retryY}`);
+    }
+    clickAtPointFn(candidate.clickX, retryY);
+    sleepMsFn(VIEWER_OPEN_SETTLE_MS);
+    viewerContext = await detectViewerContextFn(
+      beforeWindows,
+      candidate,
+      { debug, artifactDir },
+      {
+        getWeChatWindowsFn,
+        getFrontWeChatWindowFn,
+        captureFullScreenScreenshotFn,
+        recognizeTextFromImageFn,
+        sleepMsFn,
+      }
+    );
+  }
   timings.viewer_open_wait_ms = Date.now() - openStartedAt;
 
   if (!viewerContext) {
@@ -2419,7 +2524,7 @@ export async function extractShareCardUrl(
   }
 
   const readyStartedAt = Date.now();
-  const readyViewerContext = await waitForViewerReady(
+  const readyViewerContext = await waitForViewerReadyFn(
     viewerContext,
     candidate,
     { debug, artifactDir },
@@ -2431,9 +2536,11 @@ export async function extractShareCardUrl(
     }
   );
   timings.viewer_ready_wait_ms = Date.now() - readyStartedAt;
+  const videoChannelViewer = isVideoChannelViewer(readyViewerContext);
 
   if (artifactDir != null) {
     await writeJsonArtifact(path.join(artifactDir, "viewer-context.json"), {
+      viewer_kind: videoChannelViewer ? "video_channel" : "article",
       mode: readyViewerContext.mode,
       screen_rect: readyViewerContext.screenRect,
       screen_bounds: readyViewerContext.screenBounds,
@@ -2446,12 +2553,15 @@ export async function extractShareCardUrl(
 
   let url = null;
   let usedBrowserFallback = false;
-  let reason = "viewer_detected_but_menu_not_found";
+  let reason = videoChannelViewer
+    ? "video_channel_copy_link_not_found"
+    : "viewer_detected_but_menu_not_found";
   let status = "failed";
 
   try {
     const menuStartedAt = Date.now();
-    const menu = await openViewerMenuFn(
+    const openMenuFn = videoChannelViewer ? openVideoChannelShareMenuFn : openViewerMenuFn;
+    const menu = await openMenuFn(
       readyViewerContext,
       { debug, artifactDir },
       {
@@ -2459,6 +2569,7 @@ export async function extractShareCardUrl(
         getWeChatWindowsFn,
         getFrontWeChatWindowFn,
         captureFullScreenScreenshotFn,
+        captureRectScreenshotFn,
         recognizeTextFromImageFn,
         sleepMsFn,
       }
@@ -2476,7 +2587,7 @@ export async function extractShareCardUrl(
       if (VIEWER_COPY_SETTLE_MS > 0) {
         sleepMsFn(VIEWER_COPY_SETTLE_MS);
       }
-      url = waitForClipboardMpUrl({}, { readClipboardTextFn, sleepMsFn });
+      url = waitForClipboardWeChatUrl({}, { readClipboardTextFn, sleepMsFn });
       timings.viewer_copy_wait_ms += Date.now() - copyStartedAt;
       if (url) {
         status = "ok";
@@ -2496,7 +2607,7 @@ export async function extractShareCardUrl(
       );
       sleepMsFn(VIEWER_BROWSER_SETTLE_MS);
       const browserUrl = readFrontBrowserUrlFromAddressBarFn();
-      if (browserUrl && /^https:\/\/mp\.weixin\.qq\.com\//i.test(browserUrl)) {
+      if (isSupportedWeChatViewerUrl(browserUrl)) {
         usedBrowserFallback = true;
         url = browserUrl;
         status = "ok";

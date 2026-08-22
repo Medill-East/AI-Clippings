@@ -1,15 +1,15 @@
 ---
 name: wechat-filehelper-macos-ingest
-description: 通过 macOS 微信桌面客户端优先走 UI-first 单篇文章扫描、必要时回退到剪贴板兜底，提取「文件传输助手」指定时间段内的链接并维护本地索引。
+description: 通过 macOS 微信桌面客户端优先走 UI-first 单卡片扫描、必要时回退到剪贴板兜底，提取「文件传输助手」指定时间段内的文章与视频号分享链接并维护本地索引。
 ---
 
 # WeChat FileHelper macOS Ingest
 
-这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」里提取指定时间段内的链接，并写入本地 JSONL 索引。
+这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」里提取指定时间段内的文章与视频号分享链接，并写入本地 JSONL 索引。
 
 当前实现采用 **UI-first + clipboard fallback**：
 
-- 主路线复用 Windows 版已经验证过的单篇文章思路：发现可见文章卡片、逐条打开、拿真实链接、关闭 viewer 后继续
+- 主路线复用 Windows 版已经验证过的单卡片思路：发现可见文章或视频号卡片、逐条打开、拿真实链接、关闭 viewer 后继续
 - `auto` 会先探测 UI-first 路径是否可用；可用就走 `ui`
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
@@ -141,7 +141,8 @@ node scripts/query-links.js \
 
 ## 跳过规则
 
-- 视频号卡片：跳过
+- 视频号分享卡片：UI-first 会自动打开，使用视频号分享面板复制 `https://weixin.qq.com/sph/...`，随后立即关闭 viewer；本 skill 尚不负责媒体下载、转写或摘要
+- `channels.weixin.qq.com` 裸内部地址与 `mp.weixin.qq.com/mp/wma`：仍按不可直接消费的视频号内部 URL 跳过
 - B 站视频卡片和 `b23.tv` 短链：跳过
 - 微信内部登录/跳转 URL：跳过
 - 聊天记录合并卡片：第一版明确跳过
@@ -181,5 +182,5 @@ node scripts/inspect-accessibility.js [--depth N] [--window N]
 当前版本的优先解决方式是：
 
 - 先用 `node scripts/diagnose-filehelper.js --json` 看 `ui_probe_status`
-- UI-first 就绪时，单篇文章卡片会走 viewer 菜单提取
+- UI-first 就绪时，文章卡片会走文章 viewer 菜单；视频号卡片会走底部分享面板并接受 `/sph/` 分享链接
 - clipboard fallback 仍然只负责真实文本 URL，不会伪造文章卡片成功
