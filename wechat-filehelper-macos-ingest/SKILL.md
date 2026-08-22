@@ -1,6 +1,6 @@
 ---
 name: wechat-filehelper-macos-ingest
-description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的文章与视频号；视频号短时提链后在后台解析、下载、用本机 V2T 转写、由 Codex 生成摘要与要点并写入 Obsidian。
+description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的文章与视频号；文章交给既有 Obsidian Web Clipper，视频号短时提链后在后台转写、摘要并写入 Obsidian。
 ---
 
 # WeChat FileHelper macOS Ingest
@@ -103,6 +103,15 @@ node scripts/collect-links.js \
 ```
 
 `collect` 默认会在微信扫描结束、viewer 全部关闭后继续后台处理该时间段的视频号。后台阶段不会操作微信或鼠标；文章与视频号会在查询结果中分组，`/sph/` 不会再进入文章 Web Clipper 数组。只有明确不想处理视频号时才加 `--skip-videos`。
+
+### 端到端写回 PKM 的分流契约
+
+采集完成后，两类链接走并列处理器，不互相代替：
+
+- 再运行 `query-links.js --format json`，只把 `records[].url` 交给仓库内既有 `obsidian-web-clipper-ingest` skill；沿用它的并发摘要、失败重试和 vault 回读验收，不在本 skill 重写网页剪藏逻辑。
+- `video_channels[].url` 已由 `collect` 的视频状态机在后台处理，不得再交给 Web Clipper；只有重试失败视频时才单独运行 `video:process`。
+- `uncertain_links` 与 `skipped_cards` 不是文章输入。空数组要结合扫描 manifest 判断是确实没有该类型，还是采集通道失败。
+- 整批完成需要分别核对文章 Web Clipper manifest 与视频号 manifest；一边成功不能代替另一边的结果。
 
 ### 首次建立元宝解析登录态
 

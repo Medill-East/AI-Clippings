@@ -20,6 +20,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 
 ## Operating Rules
 
+- This skill handles article/web URLs only. Do not send `https://weixin.qq.com/sph/...` Video Channels links through the Web Clipper; route them to `wechat-filehelper-macos-ingest`'s background video processor instead.
 - Keep Chrome headed. The installed extension and Obsidian deep link flow rely on a real interactive browser.
 - Reuse the existing Chrome user data directory and `Default` profile from `local/config.json`.
 - Start from a clean automation profile and copy only the Obsidian Web Clipper storage needed to preserve your template and vault settings.

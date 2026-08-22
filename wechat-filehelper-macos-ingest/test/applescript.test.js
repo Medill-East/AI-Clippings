@@ -1,7 +1,23 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { captureWindowScreenshot } from "../scripts/lib/applescript.js";
+import {
+  captureWindowScreenshot,
+  selectWeChatChatWindow,
+} from "../scripts/lib/applescript.js";
+
+describe("selectWeChatChatWindow", () => {
+  it("ignores screenshot overlay windows and selects the named WeChat chat window", () => {
+    const windows = [
+      { index: 0, name: "", x: -546, y: -1440, width: 2560, height: 1440 },
+      { index: 1, name: "", x: 0, y: 0, width: 1470, height: 956 },
+      { index: 2, name: "Window", x: 6, y: 39, width: 66, height: 20 },
+      { index: 3, name: "Weixin", x: 0, y: 33, width: 735, height: 923 },
+    ];
+
+    assert.deepEqual(selectWeChatChatWindow(windows), windows[3]);
+  });
+});
 
 describe("captureWindowScreenshot", () => {
   it("captures WeChat through its own screenshot overlay", () => {

@@ -65,6 +65,21 @@ describe("selectVideoChannelRecords", () => {
     assert.equal(selected.length, 1);
     assert.equal(selected[0].url, "https://weixin.qq.com/sph/Second2");
   });
+
+  it("selects a valid explicit share URL even when it is not in the local index", () => {
+    const selected = selectVideoChannelRecords([], {
+      url: "https://weixin.qq.com/sph/Direct3",
+    });
+
+    assert.deepEqual(selected, [
+      {
+        url: "https://weixin.qq.com/sph/Direct3",
+        message_time: null,
+        title: "",
+        source: "explicit_url",
+      },
+    ]);
+  });
 });
 
 describe("runVideoBatch", () => {

@@ -10,6 +10,7 @@ import {
   clearClipboardText,
   clickAtPoint,
   getFrontWeChatWindow,
+  getWeChatChatWindow,
   getWeChatWindows,
   isWeChatRunning,
   readClipboardText,
@@ -1077,7 +1078,7 @@ export async function probeUiEnvironment(
     returnCapturedPage = false,
   } = {},
   {
-    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    getFrontWeChatWindowFn = getWeChatChatWindow,
     isWeChatRunningFn = isWeChatRunning,
     captureWindowScreenshotFn = captureWindowScreenshot,
     readVisibleClipboardSnapshotFn = readVisibleClipboardSnapshot,
@@ -1759,7 +1760,7 @@ export async function captureVisibleUiPage(
     forceClipboardSnapshot = false,
   } = {},
   {
-    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    getFrontWeChatWindowFn = getWeChatChatWindow,
     captureWindowScreenshotFn = captureWindowScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
   } = {}
@@ -2417,7 +2418,7 @@ function closeViewerWindow(
 async function verifyChatRecovered(
   { debug = false, artifactDir = null } = {},
   {
-    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    getFrontWeChatWindowFn = getWeChatChatWindow,
     captureWindowScreenshotFn = captureWindowScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
   } = {}

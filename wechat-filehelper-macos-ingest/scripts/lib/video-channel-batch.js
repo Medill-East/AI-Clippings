@@ -38,6 +38,15 @@ export function selectVideoChannelRecords(records, { since, until, url } = {}) {
     selected.push({ ...record, url: normalizedUrl });
   }
 
+  if (explicitUrl && selected.length === 0) {
+    selected.push({
+      url: explicitUrl,
+      message_time: null,
+      title: "",
+      source: "explicit_url",
+    });
+  }
+
   return selected;
 }
 

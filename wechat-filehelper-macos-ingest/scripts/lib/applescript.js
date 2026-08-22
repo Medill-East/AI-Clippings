@@ -107,6 +107,18 @@ export function getWeChatWindows() {
   }
 }
 
+export function selectWeChatChatWindow(windows) {
+  const candidates = Array.isArray(windows) ? windows : [];
+  return (
+    candidates.find((window) => /^(weixin|wechat|微信)$/i.test(String(window?.name ?? "").trim())) ??
+    null
+  );
+}
+
+export function getWeChatChatWindow() {
+  return selectWeChatChatWindow(getWeChatWindows());
+}
+
 /**
  * Return the frontmost WeChat window.
  */
