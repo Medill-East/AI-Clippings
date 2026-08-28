@@ -1006,6 +1006,43 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_resolved, 1);
   });
 
+  it("records an actionable card when OCR cannot produce a click target", async () => {
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "article-without-target",
+              timestampText: "Yesterday 18:04",
+              rawLines: ["[链接] 没有定位到点击点的文章"],
+              rawText: "[链接] 没有定位到点击点的文章",
+              directUrls: [],
+              shareCardTitle: "没有定位到点击点的文章",
+              skipReason: null,
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map(),
+        }),
+      }
+    );
+
+    assert.equal(result.unresolvedRecords.length, 1);
+    assert.equal(result.unresolvedRecords[0].content_type, "article");
+    assert.equal(result.unresolvedRecords[0].failure_stage, "candidate_detection");
+    assert.equal(result.unresolvedRecords[0].error_code, "candidate_generation_failed");
+    assert.equal(result.unresolvedRecords[0].attempt_count, 0);
+  });
+
   it("skips bilibili video-style cards before opening the viewer", async () => {
     let extractorCalls = 0;
 
@@ -1125,6 +1162,52 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_attempted, 1);
     assert.equal(result.stats.share_cards_resolved, 1);
     assert.equal(result.stats.skipped_by_rule.video_channel, undefined);
+  });
+
+  it("records a failed video-channel Copy Link attempt as an unresolved item", async () => {
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "video-card-failed",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["[链接] 视频号卡片", "视频号"],
+              rawText: "[链接] 视频号卡片\n视频号",
+              directUrls: [],
+              shareCardTitle: "视频号卡片",
+              skipReason: "video_channel",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 0, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "video-card-failed",
+            { itemKey: "video-card-failed", title: "视频号卡片", clickX: 500, clickY: 400 },
+          ]]),
+        }),
+        extractShareCardUrlFn: async () => ({
+          status: "failed",
+          reason: "video_share_copy_failed",
+        }),
+      }
+    );
+
+    assert.equal(result.records.length, 0);
+    assert.equal(result.unresolvedRecords.length, 1);
+    assert.equal(result.unresolvedRecords[0].record_type, "unresolved_item");
+    assert.equal(result.unresolvedRecords[0].content_type, "video_channel");
+    assert.equal(result.unresolvedRecords[0].failure_stage, "link_extraction");
+    assert.equal(result.unresolvedRecords[0].error_code, "video_share_copy_failed");
+    assert.equal(result.unresolvedRecords[0].attempt_count, 1);
   });
 
   it("does not reopen or re-record the same skipped bilibili card across pages", async () => {
@@ -1499,6 +1582,12 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.share_cards_attempted, 1);
     assert.equal(result.stats.share_cards_unresolved, 1);
     assert.equal(result.stats.duplicate_skipped, 1);
+    assert.equal(result.unresolvedRecords.length, 1);
+    assert.equal(result.unresolvedRecords[0].record_type, "unresolved_item");
+    assert.equal(result.unresolvedRecords[0].content_type, "article");
+    assert.equal(result.unresolvedRecords[0].failure_stage, "link_extraction");
+    assert.equal(result.unresolvedRecords[0].error_code, "copy_link_failed");
+    assert.equal(result.unresolvedRecords[0].attempt_count, 1);
   });
 
   it("rechecks untimed OCR title drift but records the resolved URL only once", async () => {
@@ -2252,6 +2341,59 @@ describe("extractShareCardUrl", () => {
 
     assert.equal(result.status, "ok");
     assert.equal(result.url, "https://mp.weixin.qq.com/s/loading-ready-123");
+  });
+
+  it("still tries Copy Link when a rich-media viewer never exposes the full OCR title", async () => {
+    const mainWindow = { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 };
+    const viewerWindow = { name: "viewer", x: 50, y: 40, width: 900, height: 700 };
+    let menuCalls = 0;
+
+    const result = await extractShareCardUrl(
+      { title: "图文卡片完整标题", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: () => {},
+        getWeChatWindowsFn: () => [mainWindow],
+        getFrontWeChatWindowFn: () => viewerWindow,
+        detectViewerContextFn: async () => ({
+          mode: "new_window",
+          screenRect: viewerWindow,
+          screenBounds: { ...MAIN_SCREEN_BOUNDS },
+          window: viewerWindow,
+          ocrResult: {
+            width: 2880,
+            height: 1800,
+            lines: [{ text: "图文", x: 120, y: 80, width: 90, height: 36 }],
+          },
+          ocrAnalysis: { matched: false, titleLine: null, contentLines: 0, metadataLines: 0 },
+        }),
+        captureFullScreenScreenshotFn: captureMainScreenStub,
+        recognizeTextFromImageFn: async () => ({
+          width: 2880,
+          height: 1800,
+          lines: [{ text: "图文", x: 120, y: 80, width: 90, height: 36 }],
+        }),
+        openViewerMenuFn: async (viewerContext) => {
+          menuCalls += 1;
+          assert.equal(viewerContext.ocrAnalysis.titleLine, null);
+          return {
+            copyLine: { text: "复制链接", x: 20, y: 80, width: 100, height: 20 },
+            browserLine: null,
+            ocrResult: { width: 2880, height: 1800, lines: [] },
+            screenBounds: { ...MAIN_SCREEN_BOUNDS },
+          };
+        },
+        readClipboardTextFn: () => "https://mp.weixin.qq.com/s/rich-media-partial-shell",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(menuCalls, 1);
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/rich-media-partial-shell");
   });
 
   it("retries the first viewer-menu point before shifting to safer nearby offsets", async () => {

@@ -191,6 +191,7 @@ export async function runScan(
   const newRecords = scanResult.records;
   const uncertainRecords = scanResult.uncertainRecords ?? [];
   const skippedRecords = scanResult.skippedRecords ?? [];
+  const unresolvedRecords = scanResult.unresolvedRecords ?? [];
   console.log(`Collected ${newRecords.length} link(s) from this scan.`);
   if (uncertainRecords.length > 0) {
     console.log(`Recorded ${uncertainRecords.length} uncertain external link(s).`);
@@ -198,9 +199,17 @@ export async function runScan(
   if (skippedRecords.length > 0) {
     console.log(`Recorded ${skippedRecords.length} skipped card(s).`);
   }
+  if (unresolvedRecords.length > 0) {
+    console.log(`Recorded ${unresolvedRecords.length} unresolved item(s).`);
+  }
 
   const existing = await readJsonlines(indexPath);
-  const merged = mergeRecords(existing, [...newRecords, ...uncertainRecords, ...skippedRecords]);
+  const merged = mergeRecords(existing, [
+    ...newRecords,
+    ...uncertainRecords,
+    ...skippedRecords,
+    ...unresolvedRecords,
+  ]);
   const addedCount = merged.length - existing.length;
   await writeJsonlines(indexPath, merged);
   console.log(`Added ${addedCount} new record(s) to index (${merged.length} total).`);
@@ -220,6 +229,7 @@ export async function runScan(
     collected: newRecords.length,
     uncertain_links_total: uncertainRecords.length,
     skipped_cards_total: skippedRecords.length,
+    unresolved_items_total: unresolvedRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,
     share_cards_seen: scanResult.stats.share_cards_seen ?? 0,
@@ -255,6 +265,7 @@ export async function runScan(
     newRecords,
     uncertainRecords,
     skippedRecords,
+    unresolvedRecords,
     uiProbe,
     storeProbe,
     runDir,

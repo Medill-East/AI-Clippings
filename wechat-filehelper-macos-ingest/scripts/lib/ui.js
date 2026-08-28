@@ -1285,6 +1285,7 @@ export async function scanUiLinks(
     share_cards_attempted: 0,
     share_cards_resolved: 0,
     share_cards_unresolved: 0,
+    unresolved_items_total: 0,
     uncertain_links_total: 0,
     browser_fallback_used: 0,
     clipboard_reads: 0,
@@ -1301,10 +1302,12 @@ export async function scanUiLinks(
   const records = [];
   const uncertainRecords = [];
   const skippedRecords = [];
+  const unresolvedRecords = [];
   const seenUrls = new Set();
   const seenUncertainUrls = new Set();
   const seenKeys = new Set();
   const seenSkippedKeys = new Set();
+  const seenUnresolvedKeys = new Set();
   const articleStates = new Map();
   const seenPages = new Set();
   const artifactDir = runDir ? path.join(runDir, "artifacts") : null;
@@ -1331,6 +1334,51 @@ export async function scanUiLinks(
       capture_session_id: sessionId,
       source: "ui",
     });
+  }
+
+  function pushUnresolvedRecord({
+    messageTime,
+    block,
+    candidate = null,
+    failureStage,
+    errorCode,
+    attemptCount,
+    pageIndex,
+  }) {
+    const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+    const contentType = block.skipReason === "video_channel" ? "video_channel" : "article";
+    const identity =
+      normalizeComparableText(block.shareCardTitle) ||
+      normalizeComparableText(truncateComparableText(block.rawText, 80)) ||
+      block.blockId;
+    const key = dedupeKey(
+      FILE_HELPER_CHAT_NAME,
+      messageTimeIso,
+      `unresolved:${contentType}:${identity}`
+    );
+    if (seenUnresolvedKeys.has(key)) return;
+    seenUnresolvedKeys.add(key);
+
+    unresolvedRecords.push({
+      captured_at: capturedAt.toISOString(),
+      message_time: messageTimeIso,
+      chat_name: FILE_HELPER_CHAT_NAME,
+      record_type: "unresolved_item",
+      content_type: contentType,
+      message_type: "share_card",
+      title: block.shareCardTitle ?? candidate?.title ?? "",
+      raw_text: block.rawText ?? "",
+      failure_stage: failureStage,
+      error_code: errorCode || "unknown_failure",
+      attempt_count: attemptCount,
+      page_index: pageIndex,
+      click_x: candidate?.clickX ?? null,
+      click_y: candidate?.clickY ?? null,
+      dedupe_key: key,
+      capture_session_id: sessionId,
+      source: "ui",
+    });
+    stats.unresolved_items_total += 1;
   }
 
   if (artifactDir) {
@@ -1651,6 +1699,14 @@ export async function scanUiLinks(
           ? "candidate_generation_failed"
           : "ocr_candidate_missing";
         stats.share_cards_unresolved += 1;
+        pushUnresolvedRecord({
+          messageTime,
+          block,
+          failureStage: "candidate_detection",
+          errorCode: artifactRecord.reason,
+          attemptCount: 0,
+          pageIndex: scrollCount,
+        });
         continue;
       }
 
@@ -1748,6 +1804,15 @@ export async function scanUiLinks(
         artifactRecord.status = "unresolved";
         artifactRecord.reason = extraction.reason ?? "share_card_extractor_failed";
         stats.share_cards_unresolved += 1;
+        pushUnresolvedRecord({
+          messageTime,
+          block,
+          candidate,
+          failureStage: "link_extraction",
+          errorCode: artifactRecord.reason,
+          attemptCount: 1,
+          pageIndex: scrollCount,
+        });
         upsertArticleState(articleStates, articleFingerprints, {
           status: "failed",
           attempted: true,
@@ -1792,7 +1857,7 @@ export async function scanUiLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, uncertainRecords, skippedRecords, stats };
+  return { records, uncertainRecords, skippedRecords, unresolvedRecords, stats };
 }
 
 export async function captureVisibleUiPage(

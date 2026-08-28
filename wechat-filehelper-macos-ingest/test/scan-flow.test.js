@@ -81,6 +81,23 @@ describe("scan flow", () => {
               source: "ui",
             },
           ],
+          unresolvedRecords: [
+            {
+              captured_at: "2026-03-28T07:12:00.000Z",
+              message_time: "2026-03-28T07:12:00.000Z",
+              chat_name: "文件传输助手",
+              record_type: "unresolved_item",
+              content_type: "video_channel",
+              title: "Video card without a link",
+              raw_text: "Video card without a link",
+              failure_stage: "link_extraction",
+              error_code: "video_share_copy_failed",
+              attempt_count: 1,
+              dedupe_key: "dedupe-ui-3",
+              capture_session_id: "session-ui-1",
+              source: "ui",
+            },
+          ],
           stats: {
             source: "ui",
             share_cards_seen: 1,
@@ -105,10 +122,13 @@ describe("scan flow", () => {
     assert.equal(result.manifest.share_cards_attempted, 1);
     assert.equal(result.manifest.share_cards_resolved, 1);
     assert.equal(result.manifest.uncertain_links_total, 1);
+    assert.equal(result.manifest.unresolved_items_total, 1);
     assert.equal(result.manifest.max_candidates, 1);
     assert.equal(capturedUiOptions.maxCandidates, 1);
     assert.equal(result.newRecords[0].source, "ui");
     assert.equal(result.uncertainRecords[0].record_type, "uncertain_link");
+    assert.equal(result.unresolvedRecords[0].record_type, "unresolved_item");
+    assert.ok(result.merged.some((record) => record.dedupe_key === "dedupe-ui-3"));
   });
 
   it("auto falls back to clipboard when the UI probe is not ready", async () => {
