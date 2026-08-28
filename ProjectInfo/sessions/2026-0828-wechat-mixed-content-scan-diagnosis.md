@@ -34,3 +34,34 @@
 - 未修改采集、视频处理或 Obsidian 代码。
 
 原始对话：dialogues/2026-0828.md「2358 微信混合内容扫描漏收诊断」
+
+## 0001 微信混合内容采集故障诊断与修复实施
+
+决策：無涘 ｜ 记录：Codex ｜ session 01a04911-d358-7e61-90e5-0a13d7881c0e
+
+### 结论
+
+- 分叉历史已在 `1310a87` 收束，Director 真源的现行视频号架构保留，旧 GitHub 历史成为祖先；功能与文档交付至 `331e39b` 并以 fast-forward 推送 GitHub。
+- 五类缺陷均已实现修复：保守卡片去重；图文 partial viewer 继续 Copy Link；视频号专用 `/sph/` 提链；图片 viewer 本地 OCR 与 Obsidian 写回；单行及跨行裸链接恢复。
+- 图片内容以 `image_ocr` 独立建模，高置信结果写入 PKM，低置信结果 `needs_review`；提链、viewer、OCR、写回失败均以 `unresolved_item` 显式留痕。
+- 查询新增 `image_contents / unresolved_items`；manifest 建立按类型的互斥结果账本，不守恒时不得宣称扫描成功。
+
+### 验证
+
+- `git diff --check` 与全部 JS 语法检查通过。
+- `npm test`：154 pass / 0 fail。
+- 2026-08-28 真实产物 page 15–20 离线回放：5 个预期直链页面全部恢复；6 页都有图片候选；第 19 页相同图片只保留一个候选。
+- 本轮没有执行新的微信现场扫描，因此现场验收状态明确为“待运行”，不以离线结果替代。
+
+### 风险与下一步
+
+- 下次正常采集应做一次小批次逐类型对表，同时核验 manifest 守恒、查询分组和 Obsidian 图片笔记回读。
+- 本场经历上下文压缩，早期回合以 dialogues 原文为准。
+
+### 产出
+
+- 设计：`docs/superpowers/specs/2026-08-29-wechat-mixed-content-ingest-design.md`。
+- 计划：`docs/superpowers/plans/2026-08-29-wechat-mixed-content-ingest.md`。
+- 核心提交：`9f24fc2`、`4517e9c`、`11aae3f`、`1480456`、`331e39b`。
+
+原始对话：dialogues/2026-0829.md「0001 微信混合内容采集故障诊断与修复」

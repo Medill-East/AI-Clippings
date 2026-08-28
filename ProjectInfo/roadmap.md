@@ -45,3 +45,15 @@
 - 命名实现由文章 Web Clipper 与视频号写回复用同一共享模块；不改 Auto Note Mover 或目标文件夹逻辑。
 
 理由：Obsidian/macOS 当前能创建某个文件名，不代表 OneDrive、Windows、Office 或未来同步工具都能稳定识别。保守白名单牺牲少量标点，但保留中文主要语义，并显著降低自动改名、路径编码膨胀和跨平台同步失败风险。
+
+## 2026-08-29 0133 微信混合内容统一收录与 PKM 分流
+
+决策：無涘（批准推荐方案并授权直接实现、推送 GitHub、同步两个本地副本） ｜ 记录：Codex
+
+- `/Users/haodong/Documents/AI/Codex/Clippings` 作为唯一实现真源；旧 GitHub 副本的历史保留为祖先，但不再独立演进。
+- 普通文章与裸链接继续进入统一链接索引并交给既有 Web Clipper；视频号取得 `/sph/` 后进入独立后台视频链；图片使用本机 Apple Vision OCR 生成内容记录并写入同一 Obsidian Clippings 知识入口。
+- 图片低置信 OCR 必须进入 `needs_review`，提链、viewer、OCR 或 PKM 写回失败必须进入带阶段和错误码的 `unresolved_item`；不得用空结果或 skipped 计数冒充已收录。
+- manifest 必须按内容类型记录 `seen` 与互斥最终状态并校验守恒；普通文章成功不能掩盖视频、图片或裸链接漏项。
+- 两份本地目录与 GitHub `main` 只允许通过 fast-forward 保持一致，禁止 force push，也不覆盖各目录已有的无关未提交内容。
+
+理由：真实需求不是“多拿几条 URL”，而是让文件传输助手里的每一种知识载体都有可查询、可追溯、失败可辨认的最终归宿，同时复用已经成熟的网页与视频 PKM 管线。
