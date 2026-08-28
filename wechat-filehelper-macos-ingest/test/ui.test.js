@@ -2447,10 +2447,11 @@ describe("extractShareCardUrl", () => {
     assert.equal(verifyCalls, 2);
   });
 
-  it("clicks copy-link using full-screen OCR coordinates", async () => {
+  it("captures the article menu inside the viewer before mapping the Copy Link click", async () => {
     let windowsCall = 0;
     let ocrCall = 0;
     const clicks = [];
+    const capturedRects = [];
     const result = await extractShareCardUrl(
       { title: "第一篇文章", clickX: 500, clickY: 400 },
       {},
@@ -2469,6 +2470,7 @@ describe("extractShareCardUrl", () => {
         },
         getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
         captureFullScreenScreenshotFn: captureMainScreenStub,
+        captureRectScreenshotFn: (rect) => capturedRects.push(rect),
         recognizeTextFromImageFn: async () => {
           ocrCall += 1;
           if (ocrCall === 1) {
@@ -2494,9 +2496,9 @@ describe("extractShareCardUrl", () => {
             };
           }
           return {
-            width: 2880,
-            height: 1800,
-            lines: [{ text: "Copy Link", x: 2400, y: 280, width: 200, height: 40 }],
+            width: 1800,
+            height: 1400,
+            lines: [{ text: "Copy Link", x: 1000, y: 1200, width: 200, height: 40 }],
           };
         },
         readFrontBrowserUrlFromAddressBarFn: () => null,
@@ -2508,8 +2510,71 @@ describe("extractShareCardUrl", () => {
     );
 
     assert.equal(result.status, "ok");
-    assert.deepEqual(clicks[1], { x: 675, y: 53 });
-    assert.deepEqual(clicks.at(-1), { x: 1250, y: 150 });
+    assert.deepEqual(capturedRects, [
+      { name: "viewer", x: 50, y: 40, width: 900, height: 700 },
+    ]);
+    assert.deepEqual(clicks[1], { x: 910, y: 55 });
+    assert.deepEqual(clicks.at(-1), { x: 600, y: 650 });
+  });
+
+  it("keeps article-menu probes in the viewer top-right on a multi-display capture", async () => {
+    const mainWindow = { name: "File Transfer", x: 0, y: 33, width: 1474, height: 922 };
+    const viewerWindow = { name: "WeChat (Window)", x: 0, y: 33, width: 735, height: 922 };
+    const viewerContext = {
+      mode: "new_window",
+      screenRect: viewerWindow,
+      screenBounds: { x: -546, y: -1440, width: 2560, height: 2396 },
+      window: viewerWindow,
+      ocrResult: {
+        width: 4028,
+        height: 1912,
+        lines: [{
+          text: "< Summary Provided by yuanbao",
+          x: 1030.42,
+          y: 93.55,
+          width: 333.72,
+          height: 29.45,
+        }],
+      },
+      ocrAnalysis: { matched: true, titleLine: null, contentLines: 4, metadataLines: 1 },
+    };
+    let windowsCall = 0;
+    const clicks = [];
+
+    const result = await extractShareCardUrl(
+      { title: "比尔·盖茨万字长文警告", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        clickAtPointFn: (x, y) => {
+          clicks.push({ x: Math.round(x), y: Math.round(y) });
+        },
+        getWeChatWindowsFn: () => {
+          windowsCall += 1;
+          return windowsCall === 1 ? [mainWindow] : [viewerWindow, mainWindow];
+        },
+        getFrontWeChatWindowFn: () => viewerWindow,
+        detectViewerContextFn: async () => viewerContext,
+        waitForViewerReadyFn: async () => viewerContext,
+        captureFullScreenScreenshotFn: () => viewerContext.screenBounds,
+        recognizeTextFromImageFn: async () => ({ width: 4028, height: 1912, lines: [] }),
+        readFrontBrowserUrlFromAddressBarFn: () => null,
+        readClipboardTextFn: () => "",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      }
+    );
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "viewer_detected_but_menu_not_found");
+    assert.deepEqual(clicks.slice(1, 6), [
+      { x: 702, y: 53 },
+      { x: 691, y: 53 },
+      { x: 713, y: 53 },
+      { x: 702, y: 63 },
+      { x: 691, y: 63 },
+    ]);
   });
 
   it("waits for the viewer to finish loading before opening the menu", async () => {
@@ -2674,11 +2739,11 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.status, "failed");
     assert.equal(result.reason, "viewer_detected_but_menu_not_found");
     assert.deepEqual(clicks.slice(1, 6), [
-      { x: 675, y: 53 },
-      { x: 675, y: 53 },
-      { x: 663, y: 53 },
-      { x: 675, y: 48 },
-      { x: 675, y: 61 },
+      { x: 910, y: 55 },
+      { x: 896, y: 55 },
+      { x: 923, y: 55 },
+      { x: 910, y: 62 },
+      { x: 896, y: 62 },
     ]);
   });
 

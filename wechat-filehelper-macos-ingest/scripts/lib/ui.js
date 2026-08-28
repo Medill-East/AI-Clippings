@@ -49,11 +49,6 @@ const FILE_HELPER_NAMES = [
 ];
 const COPY_LINK_LABELS = ["复制链接", "copy link"];
 const OPEN_IN_BROWSER_LABELS = ["使用默认浏览器打开", "默认浏览器打开", "open in default browser"];
-const VIEWER_MENU_ANCHOR_LABELS = [
-  "summary provided by yuanbao",
-  "summary provided",
-  "yuanbao",
-];
 const VIEWER_MENU_PROBE_POINTS = [
   { xRatio: 0.955, yRatio: 0.022 },
   { xRatio: 0.94, yRatio: 0.022 },
@@ -2341,7 +2336,7 @@ async function openViewerMenu(
     clickAtPointFn = clickAtPoint,
     getWeChatWindowsFn = getWeChatWindows,
     getFrontWeChatWindowFn = getFrontWeChatWindow,
-    captureFullScreenScreenshotFn = captureFullScreenScreenshot,
+    captureRectScreenshotFn = captureRectScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
     sleepMsFn = sleepMs,
   } = {}
@@ -2370,7 +2365,8 @@ async function openViewerMenu(
       artifactDir != null
         ? path.join(artifactDir, `menu-screen-${stamp}.png`)
         : path.join(os.tmpdir(), `wechat-menu-screen-${stamp}.png`);
-    const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
+    captureRectScreenshotFn(probeRect, screenshotPath);
+    const screenBounds = probeRect;
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
     const copyLine = findMenuActionLine(ocrResult.lines, COPY_LINK_LABELS);
     const browserLine = findMenuActionLine(ocrResult.lines, OPEN_IN_BROWSER_LABELS);
@@ -2411,27 +2407,6 @@ async function openViewerMenu(
 
 function buildViewerMenuProbePoints(viewerContext) {
   const probeRect = viewerContext?.screenRect ?? viewerContext?.screenBounds;
-  const screenBounds = viewerContext?.screenBounds ?? probeRect;
-  const ocrResult = viewerContext?.ocrResult ?? null;
-  const ocrLines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
-  const anchorLine = findMenuActionLine(ocrLines, VIEWER_MENU_ANCHOR_LABELS);
-
-  if (probeRect && screenBounds && anchorLine && Number(ocrResult?.width) > 0 && Number(ocrResult?.height) > 0) {
-    const scaleX = screenBounds.width / ocrResult.width;
-    const scaleY = screenBounds.height / ocrResult.height;
-    const anchorRight = screenBounds.x + (anchorLine.x + anchorLine.width) * scaleX;
-    const anchorCenterY = screenBounds.y + (anchorLine.y + anchorLine.height / 2) * scaleY;
-    const primaryX = anchorRight + 30;
-    const probeCandidates = [
-      { x: primaryX, y: anchorCenterY },
-      { x: primaryX, y: anchorCenterY },
-      { x: anchorRight + 18, y: anchorCenterY },
-      { x: primaryX, y: anchorCenterY - 8 },
-      { x: primaryX, y: anchorCenterY + 8 },
-    ];
-
-    return probeCandidates.map((point) => clampProbePoint(point, probeRect));
-  }
 
   return VIEWER_MENU_PROBE_POINTS.map((point) =>
     clampProbePoint(
