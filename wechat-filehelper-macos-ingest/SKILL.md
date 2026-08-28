@@ -1,11 +1,11 @@
 ---
 name: wechat-filehelper-macos-ingest
-description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的文章与视频号；文章交给既有 Obsidian Web Clipper，视频号短时提链后在后台转写、摘要并写入 Obsidian。
+description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的文章、图文、视频号、图片与裸链接；按类型交给 Web Clipper、视频后台管线或本地 OCR/Obsidian 发布器，并显式记录失败。
 ---
 
 # WeChat FileHelper macOS Ingest
 
-这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」提取指定时间段内的文章与视频号。文章链接写入本地 JSONL 索引；视频号只在前台短时打开以复制 `/sph/` 链接，随后在后台完成媒体解析、本机转写、Codex 摘要和 Obsidian 写入，不等待播放器播完。
+这个 skill 面向 **macOS 微信桌面版**，目标是从「文件传输助手」提取指定时间段内的文章、图文、视频号、图片文字与裸链接。文章/图文和裸链接写入本地 JSONL 索引；视频号只在前台短时打开以复制 `/sph/` 链接，随后在后台完成媒体解析、本机转写、Codex 摘要和 Obsidian 写入；图片在确认打开图片 viewer 后使用本机 Vision OCR，并写成可复核的 Obsidian Markdown。
 
 当前实现采用 **UI-first + clipboard fallback**：
 
@@ -14,6 +14,10 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
 - `/sph/` 视频号链接由独立状态机处理：`pending → resolving → downloading → transcribing → summarizing → written`
+- 裸链接在打开 viewer 前直接收录，支持单行及 OCR 跨行 URL
+- 图文 viewer 即使只加载出部分标题，也会继续尝试 `Copy Link`
+- 图片候选只有在点击后确认打开图片 viewer 才执行 OCR；低置信度笔记标为 `needs_review`
+- 候选定位、Copy Link、图片 OCR 或 PKM 写入失败都会生成 `unresolved_item`，不会只留下一个模糊计数
 - 元宝登录态只承担腾讯域内短链解析，不使用元宝总结或聊天产物
 
 ## 平台要求
@@ -102,16 +106,17 @@ node scripts/collect-links.js \
   --format md
 ```
 
-`collect` 默认会在微信扫描结束、viewer 全部关闭后继续后台处理该时间段的视频号。后台阶段不会操作微信或鼠标；文章与视频号会在查询结果中分组，`/sph/` 不会再进入文章 Web Clipper 数组。只有明确不想处理视频号时才加 `--skip-videos`。
+`collect` 默认会在微信扫描结束、viewer 全部关闭后继续后台处理该时间段的视频号。后台阶段不会操作微信或鼠标；查询结果把文章/裸链接、视频号、图片 OCR、待确认外链、未解决项和已跳过项分别列出，`/sph/` 不会再进入文章 Web Clipper 数组。只有明确不想处理视频号时才加 `--skip-videos`。
 
 ### 端到端写回 PKM 的分流契约
 
-采集完成后，两类链接走并列处理器，不互相代替：
+采集完成后，各类型走并列处理器，不互相代替：
 
 - 再运行 `query-links.js --format json`，只把 `records[].url` 交给仓库内既有 `obsidian-web-clipper-ingest` skill；沿用它的并发摘要、失败重试和 vault 回读验收，不在本 skill 重写网页剪藏逻辑。
 - `video_channels[].url` 已由 `collect` 的视频状态机在后台处理，不得再交给 Web Clipper；只有重试失败视频时才单独运行 `video:process`。
-- `uncertain_links` 与 `skipped_cards` 不是文章输入。空数组要结合扫描 manifest 判断是确实没有该类型，还是采集通道失败。
-- 整批完成需要分别核对文章 Web Clipper manifest 与视频号 manifest；一边成功不能代替另一边的结果。
+- `image_contents[]` 已由本地 OCR 发布器写入同一 Obsidian `Clippings` 目录；`pkm_status=needs_review` 时按 `review_artifact_path` 回看本地原图。
+- `uncertain_links`、`unresolved_items` 与 `skipped_cards` 不是文章输入。空数组要结合扫描 manifest 判断是确实没有该类型，还是采集通道失败。
+- 整批完成需要分别核对扫描 manifest、文章 Web Clipper manifest、视频号 manifest 与图片 `pkm_status`；一边成功不能代替另一边的结果。
 
 ### 首次建立元宝解析登录态
 
@@ -150,7 +155,7 @@ node scripts/query-links.js \
 
 ## 索引格式
 
-`local/index/links.jsonl` 每行一条记录。新增字段：
+`local/index/links.jsonl` 每行一条记录。链接记录示例：
 
 ```json
 {
@@ -167,6 +172,8 @@ node scripts/query-links.js \
 }
 ```
 
+图片 OCR 使用 `record_type: "content"`、`content_type: "image_ocr"`，正文在 `content_text`，并带有 `content_hash`、`ocr_confidence`、`ocr_line_count`、`pkm_status` 与写入成功后的 `note_path`。无法完成的文章、视频或图片使用 `record_type: "unresolved_item"`，明确保存 `content_type`、`failure_stage`、`error_code`、`attempt_count` 与点击坐标。
+
 ## manifest 重点字段
 
 每次扫描会写入 `local/runs/<timestamp>/manifest.json`，重点关注：
@@ -180,6 +187,11 @@ node scripts/query-links.js \
 - `share_cards_attempted`
 - `share_cards_resolved`
 - `share_cards_unresolved`
+- `unresolved_items_total`
+- `image_contents_total`
+- `image_items_seen / image_items_processed / image_items_needs_review`
+- `type_outcomes`
+- `type_outcome_invariant.status`（必须为 `passed`；失败时 manifest 先落盘再报错）
 - `browser_fallback_used`
 - `skipped_by_rule`
 
@@ -198,6 +210,7 @@ manifest 和 task 不保存解析 token、媒体签名 URL 或逐字稿正文。
 ## 跳过规则
 
 - 视频号分享卡片：UI-first 自动打开，复制 `https://weixin.qq.com/sph/...` 后立即关闭 viewer；`collect` 随后在后台下载、转写、摘要并写入 Obsidian
+- 图片与截图：不再按 `plain_text_block` / `weak_ocr_card` 静默跳过；先作为候选点击，只有图片 viewer 确认后才生成 OCR 内容
 - `channels.weixin.qq.com` 裸内部地址与 `mp.weixin.qq.com/mp/wma`：仍按不可直接消费的视频号内部 URL 跳过
 - B 站视频卡片和 `b23.tv` 短链：跳过
 - 微信内部登录/跳转 URL：跳过
@@ -240,6 +253,15 @@ node scripts/inspect-accessibility.js [--depth N] [--window N]
 - 先用 `node scripts/diagnose-filehelper.js --json` 看 `ui_probe_status`
 - UI-first 就绪时，文章卡片会走文章 viewer 菜单；视频号卡片会走底部分享面板并接受 `/sph/` 分享链接
 - clipboard fallback 仍然只负责真实文本 URL，不会伪造文章卡片成功
+- 查看查询结果的 `unresolved_items`：`candidate_detection` 表示没有可靠点击点，`link_extraction` 表示 viewer/Copy Link 失败；两者不再与“没有卡片”混为一谈
+
+### 图片没有进入 PKM
+
+- 先看扫描 manifest 的 `image_items_seen`、`image_items_processed` 和 `image_contents_total`
+- `image_viewer_not_opened`：OCR 文本像图片，但点击后没有确认图片 viewer，因此不会误建笔记
+- `image_ocr_empty` / `image_ocr_failed`：viewer 已打开，但 Vision 没有得到可用正文；失败截图保留在 gitignored 的运行目录
+- `image_note_target_unavailable` / `image_note_write_failed`：OCR 正文仍保存在索引，`pkm_status=write_failed`，不会被空结果覆盖
+- 可用 `WECHAT_IMAGE_OBSIDIAN_DIR` 显式指定图片笔记目录；未指定时复用已经验证过的 Web Clipper `Clippings` 目录
 
 ### 视频号显示 `auth_required`
 

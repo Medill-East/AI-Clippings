@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Codex skill assets for extracting WeChat article links from File Transfer Assistant via macOS desktop WeChat using UI-first scanning with clipboard fallback.",
+  "description": "Capture links, rich cards, Video Channels, and image OCR from WeChat File Transfer Assistant on macOS with explicit PKM outcomes.",
   "scripts": {
     "setup": "node ./scripts/setup.js",
     "diagnose": "node ./scripts/diagnose-filehelper.js",

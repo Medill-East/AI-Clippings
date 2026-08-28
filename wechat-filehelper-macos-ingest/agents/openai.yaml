@@ -1,7 +1,7 @@
 interface:
   display_name: "WeChat FileHelper macOS Ingest"
-  short_description: "Extract File Transfer Assistant links from macOS WeChat using UI-first scanning with clipboard fallback."
-  default_prompt: "Use $wechat-filehelper-macos-ingest to extract and summarize the links I sent to 文件传输助手 between <since> and <until>."
+  short_description: "Capture FileHelper links, cards, videos, and image OCR from macOS WeChat with explicit outcomes."
+  default_prompt: "Use $wechat-filehelper-macos-ingest to capture links, cards, Video Channels, and image text I sent to 文件传输助手 between <since> and <until>, route supported content to PKM, and report unresolved items explicitly."
 
 policy:
   allow_implicit_invocation: true
