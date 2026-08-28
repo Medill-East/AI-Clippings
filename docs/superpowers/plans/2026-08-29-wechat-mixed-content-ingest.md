@@ -48,19 +48,21 @@ git merge-base HEAD origin/main
 
 Expected: two different heads with common ancestor `14913fd493056925b6f4ce17696991eb80b28996`.
 
-- [ ] **Step 2: Start a normal merge while favoring the current architecture only for overlapping hunks**
+- [ ] **Step 2: Record the remote history without textually interleaving the two incompatible rewrites**
+
+An attempted `git merge --no-ff --no-commit -X ours origin/main` was executed in the isolated worktree and produced 50 test failures. The merged `ui.js` contained calls such as `buildViewerOcrContext` and `SUPPORTED_SHARE_CARD_TYPES` without their definitions, while also crossing the superseded pending-video stack with the current `/sph/` stack. This proves that hunk-level auto-merge is not a valid behavioral reconciliation for these independently rewritten files.
 
 Run:
 
 ```bash
-git merge --no-ff --no-commit -X ours origin/main
+git merge --no-ff --no-commit -s ours origin/main
 ```
 
-Expected: merge stops before commit. `git status --short` must show no unresolved `UU` paths. If Git still leaves conflict markers, resolve only those marked hunks with `apply_patch`; do not replace an entire file from either parent.
+Expected: merge stops before commit with no tracked tree changes. The final merge commit still has both histories as parents, so GitHub can be updated by fast-forward. The later TDD tasks port the relevant remote OCR/viewer behaviors one at a time, with tests proving each port.
 
-- [ ] **Step 3: Remove the superseded foreground audio-capture video stack**
+- [ ] **Step 3: Verify the current `/sph/` architecture remains the merge tree**
 
-Delete the six remote-only implementation/test files listed above with `apply_patch`. The retained video entrypoints must remain:
+The retained video entrypoints must remain:
 
 ```text
 scripts/process-video-channels.js
@@ -74,10 +76,11 @@ Verify:
 
 ```bash
 git status --short
+git diff --exit-code HEAD -- wechat-filehelper-macos-ingest
 rg -n 'process-videos|system-audio-capture|video-capture' wechat-filehelper-macos-ingest
 ```
 
-Expected: the `rg` command has no code or package-script matches; historical prose may remain only in already committed journal files.
+Expected: the tracked tree has no content diff from the pre-merge current branch, and `rg` has no code or package-script matches.
 
 - [ ] **Step 4: Run the merged baseline**
 
