@@ -95,3 +95,36 @@
 - 修改：`wechat-filehelper-macos-ingest/scripts/lib/ui.js`、`wechat-filehelper-macos-ingest/test/ui.test.js`。
 
 原始对话：dialogues/2026-0829.md「0001 微信混合内容采集故障诊断与修复」
+
+## 0342 整批时间线、图片与视频运行时修复
+
+决策：無涘 ｜ 记录：Codex ｜ session 01a04911-d358-7e61-90e5-0a13d7881c0e
+
+### 结论
+
+- 2026-08-28 23:00–23:59 整批运行在第 15 次滚动提前停止，根因是 `Yesterday 23:38` 相对查询上界而非实际扫描时刻解析，错误落到前一天；现改为实际扫描时刻解析，只有界面无时间项才以查询上界占位并写明来源。
+- 两个“梁文锋”图片 OCR 产物实际是公众号 viewer 的 `Loading / Summary Provided by yuanbao` 顶栏，属于 OCR 分类误判；现将顶栏降级为类型提示，只有受支持公众号 URL 能最终确认文章，安全探测失败则保留图片 OCR。
+- 如果 Copy Link 已拿到 URL 但 viewer 恢复失败，链接与恢复故障会同时保留并停扫；无 URL 的恢复失败不允许伪装成图片成功。
+- 图片/视频写回失败源于 macOS Obsidian 解析器间接导入兄弟项目 Playwright 且仅覆盖 Windows vault 路径；现由本包直接解析 macOS vault，Playwright 固定为本包依赖。
+- 旧图片笔记按稳定身份和 OCR 正文哈希兼容重扫；旧索引时间来源未知会显式显示；图片重路由数量已进入 manifest。
+
+### 验证
+
+- 各修复均先用失败回归复现，再转绿；最终 `npm test` 为 178 pass / 0 fail。
+- 全部 `scripts/` 与 `test/` JavaScript 通过 `node --check`；`git diff --check` 通过。
+- `npm ci --offline --ignore-scripts` 成功；本包 Playwright 启动无网络空白页并返回 `runtime-ok`。
+- 实际 Obsidian 解析器返回 `/Users/haodong/Documents/GitHub/PKM/PlayWithExperiences/Clippings`。
+- 独立代码复核经过两轮：首轮发现 5 项生产正确性问题，修复后又发现 viewer 恢复失败被 OCR 回退吞掉；最终复核 verdict 为 Ready，无 Critical/Important。
+
+### 风险与下一步
+
+- 旧运行产物不会被代码修复追溯改写；需在下次正常 `--reindex` 中生成新索引与图片笔记。
+- 本场未执行两条视频号的真实后台批处理，不将 Playwright/目标目录边界验证表述为视频端到端成功。
+- 本场经历上下文压缩，早期回合以 dialogues 原文为准。
+
+### 产出
+
+- 实现提交：`cb1f6ac`、`acb4343`。
+- 主要修改：时间来源、图片/文章类型确认、图片笔记兼容、macOS vault、Playwright 隔离、恢复失败审计与 manifest 统计。
+
+原始对话：dialogues/2026-0829.md「0342 整批运行时间线与图片处理修复」
