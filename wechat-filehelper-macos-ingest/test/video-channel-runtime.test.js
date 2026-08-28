@@ -201,4 +201,30 @@ describe("resolveObsidianClippingsDir", () => {
       noteDir,
     );
   });
+
+  it("resolves the active macOS Obsidian vault without importing browser automation", async () => {
+    const root = await makeTempDir("video-obsidian-macos-");
+    const runsDir = path.join(root, "runs");
+    const vaultDir = path.join(root, "vault");
+    const configPath = path.join(root, "obsidian.json");
+    await fs.mkdir(runsDir, { recursive: true });
+    await fs.mkdir(vaultDir, { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        vaults: {
+          older: { path: path.join(root, "older-vault"), ts: 1, open: false },
+          active: { path: vaultDir, ts: 2, open: true },
+        },
+      }),
+    );
+
+    assert.equal(
+      await resolveObsidianClippingsDir({
+        runsDir,
+        obsidianConfigPaths: [configPath],
+      }),
+      path.join(vaultDir, "Clippings"),
+    );
+  });
 });

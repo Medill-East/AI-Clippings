@@ -79,6 +79,16 @@ describe("createImageContentRecord", () => {
       (error) => error instanceof ImageContentError && error.code === "image_ocr_empty",
     );
   });
+
+  it("preserves fallback timestamp provenance in the image record and note", () => {
+    const record = buildRecord({ messageTimeSource: "range_until_fallback" });
+
+    assert.equal(record.message_time_source, "range_until_fallback");
+    assert.match(
+      renderImageContentNote(record),
+      /message_time_source: "range_until_fallback"/,
+    );
+  });
 });
 
 describe("renderImageContentNote", () => {

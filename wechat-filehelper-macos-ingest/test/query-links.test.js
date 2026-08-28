@@ -107,6 +107,39 @@ describe("query-links.js", () => {
     assert.equal(parsed.records[0].url, "https://example.com/a");
   });
 
+  it("labels range-boundary fallback timestamps in Markdown output", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-time-source-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      JSON.stringify({
+        captured_at: "2026-08-29T02:25:50.000Z",
+        message_time: "2026-08-28T15:59:59.000Z",
+        message_time_source: "range_until_fallback",
+        chat_name: "文件传输助手",
+        record_type: "link",
+        message_type: "text_url",
+        title: "未显示具体时间的链接",
+        url: "https://example.com/untimed",
+        dedupe_key: "untimed-1",
+        source: "ui",
+      }) + "\n",
+    );
+
+    const result = await runQuery({
+      skillRoot: dir,
+      indexPath,
+      since: new Date("2026-08-28T15:00:00.000Z"),
+      until: new Date("2026-08-28T15:59:59.000Z"),
+      format: "md",
+    });
+
+    assert.match(
+      result.rendered,
+      /2026-08-28T15:59:59\.000Z（界面未显示具体时间，按查询上界占位）/,
+    );
+  });
+
   it("filters historical skipped URLs from query results", async () => {
     const dir = await makeTempDir("wechat-filehelper-query-");
     const indexPath = path.join(dir, "links.jsonl");

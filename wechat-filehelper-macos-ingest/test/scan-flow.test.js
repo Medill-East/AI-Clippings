@@ -318,6 +318,7 @@ https://example.com/visible
       {
         getSnapshot: () => snapshots[Math.min(index++, snapshots.length - 1)],
         scrollPage: () => {},
+        nowFn: () => new Date("2026-03-30T00:00:00.000Z"),
       }
     );
 
@@ -334,6 +335,60 @@ https://example.com/visible
       result.skippedRecords.map((record) => record.skip_reason).sort(),
       ["bilibili_video", "wechat_internal_login"]
     );
+  });
+
+  it("anchors clipboard relative timestamps to scan time instead of the requested until bound", async () => {
+    const snapshots = [
+      parseClipboardText(`
+Yesterday 23:38
+https://example.com/in-range
+      `),
+      parseClipboardText(`
+Yesterday 22:59
+https://example.com/before-range
+      `),
+    ];
+    let index = 0;
+    let scrollCalls = 0;
+
+    const result = await scanClipboardLinks(
+      new Date("2026-08-28T15:00:00.000Z"),
+      new Date("2026-08-28T15:59:59.000Z"),
+      5,
+      false,
+      {
+        getSnapshot: () => snapshots[Math.min(index++, snapshots.length - 1)],
+        scrollPage: () => {
+          scrollCalls += 1;
+        },
+        nowFn: () => new Date("2026-08-28T18:25:50.000Z"),
+      },
+    );
+
+    assert.equal(index, 2);
+    assert.equal(scrollCalls, 1);
+    assert.deepEqual(result.records.map((record) => record.url), [
+      "https://example.com/in-range",
+    ]);
+    assert.equal(result.records[0].message_time, "2026-08-28T15:38:00.000Z");
+  });
+
+  it("keeps an untimed clipboard item in range and marks its timestamp fallback", async () => {
+    const result = await scanClipboardLinks(
+      new Date("2026-08-28T15:00:00.000Z"),
+      new Date("2026-08-28T15:59:59.000Z"),
+      0,
+      false,
+      {
+        getSnapshot: () => parseClipboardText("https://example.com/untimed"),
+        scrollPage: () => {},
+        nowFn: () => new Date("2026-08-28T18:25:50.000Z"),
+      },
+    );
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].message_time, "2026-08-28T15:59:59.000Z");
+    assert.equal(result.records[0].message_time_source, "range_until_fallback");
   });
 
   it("store source errors when the store is unreadable", async () => {

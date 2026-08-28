@@ -387,11 +387,16 @@ export async function scanClipboardLinks(
   until,
   maxScrolls,
   debug = false,
-  { getSnapshot = readVisibleClipboardSnapshot, scrollPage = scrollUpOnce } = {}
+  {
+    getSnapshot = readVisibleClipboardSnapshot,
+    scrollPage = scrollUpOnce,
+    nowFn = () => new Date(),
+  } = {}
 ) {
   const sessionId = newCaptureSessionId();
-  const capturedAt = new Date();
-  const referenceNow = until instanceof Date ? until : capturedAt;
+  const capturedAt = nowFn();
+  const referenceNow = capturedAt;
+  const fallbackMessageTime = until instanceof Date ? until : capturedAt;
   const records = [];
   const skippedRecords = [];
   const seenKeys = new Set();
@@ -407,7 +412,7 @@ export async function scanClipboardLinks(
   function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
     if (!skipReason) return;
 
-    const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+    const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
     const dedupeBasis = rawUrl || title || rawText || skipReason;
     const key = dedupeKey(CHAT_NAME, messageTimeIso, `skip:${skipReason}:${dedupeBasis}`);
     if (seenSkippedKeys.has(key)) return;
@@ -416,6 +421,7 @@ export async function scanClipboardLinks(
     skippedRecords.push({
       captured_at: capturedAt.toISOString(),
       message_time: messageTimeIso,
+      message_time_source: messageTime ? "visible_timestamp" : "range_until_fallback",
       chat_name: CHAT_NAME,
       record_type: "skipped_card",
       title: title || rawUrl || "(untitled skipped card)",
@@ -495,7 +501,7 @@ export async function scanClipboardLinks(
         if (seenUrls.has(canonicalUrl)) continue;
         seenUrls.add(canonicalUrl);
 
-        const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+        const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
         const key = dedupeKey(CHAT_NAME, messageTimeIso, canonicalUrl);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
@@ -503,6 +509,7 @@ export async function scanClipboardLinks(
         records.push({
           captured_at: capturedAt.toISOString(),
           message_time: messageTimeIso,
+          message_time_source: messageTime ? "visible_timestamp" : "range_until_fallback",
           chat_name: CHAT_NAME,
           message_type: block.shareCardTitle ? "share_card" : "text_url",
           title: block.shareCardTitle ?? "",

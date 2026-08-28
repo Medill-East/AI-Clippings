@@ -382,7 +382,7 @@ async function loadPlaywright() {
     } catch (sharedError) {
       throw new VideoChannelError(
         "playwright_missing",
-        "Playwright is unavailable; install the existing Obsidian clipper dependency first",
+        "Playwright is unavailable; run npm ci in wechat-filehelper-macos-ingest",
         sharedError ?? localError,
       );
     }

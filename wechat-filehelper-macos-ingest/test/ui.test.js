@@ -10,13 +10,20 @@ import {
   findMenuActionLine,
   mapOcrRectCenterToScreenPoint,
   probeUiEnvironment,
-  scanUiLinks,
+  scanUiLinks as scanUiLinksImpl,
 } from "../scripts/lib/ui.js";
 
 const MAIN_SCREEN_BOUNDS = { x: 0, y: 0, width: 1440, height: 900 };
 
 function captureMainScreenStub() {
   return { ...MAIN_SCREEN_BOUNDS };
+}
+
+function scanUiLinks(since, until, maxScrolls, debug, dependencies = {}) {
+  return scanUiLinksImpl(since, until, maxScrolls, debug, {
+    nowFn: () => until,
+    ...dependencies,
+  });
 }
 
 describe("ui helpers", () => {
@@ -944,6 +951,104 @@ describe("ui helpers", () => {
 });
 
 describe("scanUiLinks", () => {
+  it("anchors relative timestamps to scan time instead of the requested until bound", async () => {
+    let captureCalls = 0;
+    let scrollCalls = 0;
+    const pages = [
+      {
+        timestampText: "Yesterday 23:38",
+        url: "https://example.com/in-range",
+      },
+      {
+        timestampText: "Yesterday 22:59",
+        url: "https://example.com/before-range",
+      },
+    ];
+
+    const result = await scanUiLinks(
+      new Date("2026-08-28T15:00:00.000Z"),
+      new Date("2026-08-28T15:59:59.000Z"),
+      5,
+      false,
+      {
+        nowFn: () => new Date("2026-08-28T18:25:50.000Z"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({
+          ui_probe_status: "ready",
+          captured_page: {},
+        }),
+        captureVisibleUiPageFn: async () => {
+          const page = pages[Math.min(captureCalls, pages.length - 1)];
+          captureCalls += 1;
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [{
+                blockId: `block-${captureCalls}`,
+                timestampText: page.timestampText,
+                rawLines: [page.url],
+                rawText: page.url,
+                directUrls: [page.url],
+                shareCardTitle: null,
+                skipReason: null,
+              }],
+              stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+            },
+            candidateMap: new Map(),
+          };
+        },
+        scrollPageFn: () => {
+          scrollCalls += 1;
+        },
+      },
+    );
+
+    assert.equal(captureCalls, 2);
+    assert.equal(scrollCalls, 1);
+    assert.deepEqual(result.records.map((record) => record.url), [
+      "https://example.com/in-range",
+    ]);
+    assert.equal(result.records[0].message_time, "2026-08-28T15:38:00.000Z");
+  });
+
+  it("keeps an untimed visible item in range and marks its timestamp as a boundary fallback", async () => {
+    const result = await scanUiLinks(
+      new Date("2026-08-28T15:00:00.000Z"),
+      new Date("2026-08-28T15:59:59.000Z"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-08-28T18:25:50.000Z"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "untimed-link",
+              timestampText: null,
+              rawLines: ["https://example.com/untimed"],
+              rawText: "https://example.com/untimed",
+              directUrls: ["https://example.com/untimed"],
+              shareCardTitle: null,
+              skipReason: null,
+            }],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          },
+          candidateMap: new Map(),
+        }),
+      },
+    );
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].message_time, "2026-08-28T15:59:59.000Z");
+    assert.equal(result.records[0].message_time_source, "range_until_fallback");
+  });
+
   it("keeps share-like blocks with direct URLs on the fast path without opening the viewer", async () => {
     let extractorCalls = 0;
 
@@ -1082,6 +1187,7 @@ describe("scanUiLinks", () => {
     const imageRecord = {
       captured_at: "2026-03-28T18:05:00.000Z",
       message_time: "2026-03-28T18:05:00.000Z",
+      message_time_source: "visible_timestamp",
       chat_name: "文件传输助手",
       record_type: "content",
       content_type: "image_ocr",
@@ -1151,6 +1257,78 @@ describe("scanUiLinks", () => {
       unresolved: 0,
       deduplicated: 0,
     });
+  });
+
+  it("reroutes an OCR image candidate to article Copy Link when the opened viewer proves its type", async () => {
+    let imageExtractorCalls = 0;
+    let articleExtractorCalls = 0;
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "misclassified-article",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["梁文锋的来时路与明日歌", "疯狂地怀抱雄心", "创业邦"],
+              rawText: "梁文锋的来时路与明日歌\n疯狂地怀抱雄心\n创业邦",
+              directUrls: [],
+              shareCardTitle: "梁文锋的来时路与明日歌",
+              skipReason: null,
+              contentType: "image",
+              classificationReason: "plain_text_block",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "misclassified-article",
+            {
+              itemKey: "misclassified-article",
+              title: "梁文锋的来时路与明日歌",
+              clickX: 500,
+              clickY: 400,
+            },
+          ]]),
+        }),
+        extractImageContentFn: async () => {
+          imageExtractorCalls += 1;
+          return {
+            status: "reroute",
+            reason: "image_candidate_opened_article_viewer",
+            failureStage: "viewer_type",
+            actualContentType: "article",
+            record: null,
+          };
+        },
+        extractShareCardUrlFn: async () => {
+          articleExtractorCalls += 1;
+          return {
+            status: "ok",
+            url: "https://mp.weixin.qq.com/s/liang-wenfeng",
+            usedBrowserFallback: false,
+          };
+        },
+      },
+    );
+
+    assert.equal(imageExtractorCalls, 1);
+    assert.equal(articleExtractorCalls, 1);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].url, "https://mp.weixin.qq.com/s/liang-wenfeng");
+    assert.equal(result.contentRecords.length, 0);
+    assert.equal(result.unresolvedRecords.length, 0);
+    assert.equal(result.stats.image_items_seen, 0);
+    assert.equal(result.stats.image_candidates_rerouted_to_article, 1);
+    assert.equal(result.stats.type_outcomes.image, undefined);
+    assert.equal(result.stats.type_outcomes.article.recorded, 1);
   });
 
   it("only opens the viewer for blocks that lack a direct URL", async () => {
@@ -2557,6 +2735,7 @@ describe("extractShareCardUrl", () => {
         detectViewerContextFn: async () => viewerContext,
         waitForViewerReadyFn: async () => viewerContext,
         captureFullScreenScreenshotFn: () => viewerContext.screenBounds,
+        captureRectScreenshotFn: () => {},
         recognizeTextFromImageFn: async () => ({ width: 4028, height: 1912, lines: [] }),
         readFrontBrowserUrlFromAddressBarFn: () => null,
         readClipboardTextFn: () => "",
@@ -2720,6 +2899,7 @@ describe("extractShareCardUrl", () => {
         },
         getFrontWeChatWindowFn: () => ({ name: "viewer", x: 50, y: 40, width: 900, height: 700 }),
         captureFullScreenScreenshotFn: captureMainScreenStub,
+        captureRectScreenshotFn: () => {},
         recognizeTextFromImageFn: async () => ({
           width: 2880,
           height: 1800,
@@ -2792,6 +2972,7 @@ describe("extractShareCardUrl", () => {
         },
         getFrontWeChatWindowFn: () => ({ name: "main", x: 0, y: 0, width: 800, height: 600 }),
         captureFullScreenScreenshotFn: captureMainScreenStub,
+        captureRectScreenshotFn: () => {},
         recognizeTextFromImageFn: async () => {
           ocrCall += 1;
           if (ocrCall === 1) {
@@ -2904,6 +3085,38 @@ describe("extractImageContent", () => {
     assert.deepEqual(captures, [viewerWindow]);
   });
 
+  it("removes image-viewer toolbar OCR before creating the content record", async () => {
+    const result = await extractImageContent(
+      { itemKey: "image-toolbar", title: "Apple Small Business Program", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => ({
+          width: 2374,
+          height: 1402,
+          lines: [
+            { text: "Q", x: 452, y: 27, width: 28, height: 31, confidence: 0.5 },
+            { text: "④", x: 531, y: 27, width: 35, height: 34, confidence: 0.3 },
+            {
+              text: "Apple 允许加入 App Store Small Business Program",
+              x: 41,
+              y: 134,
+              width: 2257,
+              height: 66,
+              confidence: 0.9,
+            },
+          ],
+        }),
+      }),
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(
+      result.record.content_text,
+      "Apple 允许加入 App Store Small Business Program",
+    );
+    assert.equal(result.record.ocr_line_count, 1);
+  });
+
   it("returns an explicit OCR failure after closing an empty image viewer", async () => {
     let closed = false;
     const result = await extractImageContent(
@@ -2972,5 +3185,83 @@ describe("extractImageContent", () => {
     assert.equal(result.status, "failed");
     assert.equal(result.reason, "image_viewer_not_opened");
     assert.equal(result.failureStage, "viewer_open");
+  });
+
+  it("identifies an article viewer before publishing its chrome as image OCR", async () => {
+    let publishCalls = 0;
+    let closed = false;
+    const result = await extractImageContent(
+      { itemKey: "misclassified-article", title: "梁文锋的来时路与明日歌", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => ({
+          width: 1470,
+          height: 1844,
+          lines: [
+            { text: "Loading...", x: 401, y: 28, width: 132, height: 29, confidence: 0.3 },
+            {
+              text: "A; Summary Provided by yuanbao",
+              x: 1025,
+              y: 26,
+              width: 330,
+              height: 34,
+              confidence: 0.3,
+            },
+          ],
+        }),
+        publishImageContentRecordFn: async () => {
+          publishCalls += 1;
+          throw new Error("article chrome must never be published as image OCR");
+        },
+        closeViewerWindowFn: () => {
+          closed = true;
+          return {
+            closed: true,
+            currentWindows: [mainWindow],
+            frontWindow: mainWindow,
+            usedCommandW: false,
+          };
+        },
+      }),
+    );
+
+    assert.equal(closed, true);
+    assert.equal(publishCalls, 0);
+    assert.equal(result.status, "reroute");
+    assert.equal(result.actualContentType, "article");
+    assert.equal(result.reason, "image_candidate_opened_article_viewer");
+    assert.equal(result.failureStage, "viewer_type");
+    assert.equal(result.record, null);
+  });
+
+  it("does not reroute an image merely because its body contains the article chrome phrase", async () => {
+    const result = await extractImageContent(
+      { itemKey: "article-screenshot", title: "文章页面截图", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => ({
+          width: 2374,
+          height: 1402,
+          lines: [
+            {
+              text: "Summary Provided by yuanbao",
+              x: 80,
+              y: 134,
+              width: 500,
+              height: 66,
+              confidence: 0.9,
+            },
+            { text: "截图正文", x: 80, y: 230, width: 300, height: 60, confidence: 0.9 },
+          ],
+        }),
+      }),
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.actualContentType, undefined);
+    assert.equal(
+      result.record.content_text,
+      "Summary Provided by yuanbao\n截图正文",
+    );
   });
 });

@@ -305,6 +305,9 @@ export async function summarizeWithCodex(
 export async function resolveObsidianClippingsDir({
   explicitDir = process.env.WECHAT_VIDEO_OBSIDIAN_DIR,
   runsDir = path.join(clippingsRoot, "obsidian-web-clipper-ingest/local/runs"),
+  obsidianConfigPaths = [
+    path.join(os.homedir(), "Library/Application Support/obsidian/obsidian.json"),
+  ],
   resolveVaultFn = loadResolvedVault,
 } = {}) {
   if (explicitDir) return path.resolve(explicitDir);
@@ -325,7 +328,7 @@ export async function resolveObsidianClippingsDir({
     }
   }
 
-  const vault = await resolveVaultFn();
+  const vault = await resolveVaultFn(obsidianConfigPaths);
   if (!vault?.path) {
     throw new PipelineError(
       "obsidian_vault_missing",
@@ -434,13 +437,21 @@ function sanitizeProcessDetail(value) {
     .slice(0, 500);
 }
 
-async function loadResolvedVault() {
-  const modulePath = path.join(
-    clippingsRoot,
-    "obsidian-web-clipper-ingest/scripts/lib/obsidian.js",
-  );
-  const module = await import(pathToFileURL(modulePath).toString());
-  return module.resolveObsidianVault();
+async function loadResolvedVault(configPaths) {
+  for (const configPath of configPaths) {
+    const config = await readJsonIfExists(configPath);
+    const vaults = Object.values(config?.vaults ?? {})
+      .filter((vault) => typeof vault?.path === "string" && vault.path.trim())
+      .sort(
+        (left, right) =>
+          Number(Boolean(right.open)) - Number(Boolean(left.open)) ||
+          Number(right.ts ?? 0) - Number(left.ts ?? 0),
+      );
+    for (const vault of vaults) {
+      if (await pathExists(vault.path)) return vault;
+    }
+  }
+  return null;
 }
 
 async function readJsonIfExists(filePath) {

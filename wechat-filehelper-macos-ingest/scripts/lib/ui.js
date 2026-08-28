@@ -1372,11 +1372,13 @@ export async function scanUiLinks(
     probeUiEnvironmentFn = probeUiEnvironment,
     extractShareCardUrlFn = extractShareCardUrl,
     extractImageContentFn = extractImageContent,
+    nowFn = () => new Date(),
   } = {}
 ) {
   const sessionId = newCaptureSessionId();
-  const capturedAt = new Date();
-  const referenceNow = until instanceof Date ? until : capturedAt;
+  let capturedAt;
+  let referenceNow;
+  let fallbackMessageTime;
   const stats = {
     source: "ui",
     share_cards_seen: 0,
@@ -1387,6 +1389,7 @@ export async function scanUiLinks(
     image_items_seen: 0,
     image_items_processed: 0,
     image_items_needs_review: 0,
+    image_candidates_rerouted_to_article: 0,
     uncertain_links_total: 0,
     browser_fallback_used: 0,
     clipboard_reads: 0,
@@ -1432,6 +1435,21 @@ export async function scanUiLinks(
     entry.outcome = outcome;
   }
 
+  function reclassifyTypeOutcome(observation, contentType) {
+    if (!observation?.key) return;
+    const entry = typeOutcomeLedger.get(observation.key);
+    if (entry) entry.contentType = contentType;
+  }
+
+  function accumulateExtractionTimings(extraction) {
+    stats.viewer_open_wait_ms_total += extraction.timings?.viewer_open_wait_ms ?? 0;
+    stats.viewer_ready_wait_ms_total += extraction.timings?.viewer_ready_wait_ms ?? 0;
+    stats.viewer_menu_wait_ms_total += extraction.timings?.viewer_menu_wait_ms ?? 0;
+    stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
+    stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
+    stats.image_ocr_wait_ms_total += extraction.timings?.image_ocr_wait_ms ?? 0;
+  }
+
   function summarizeTypeOutcomes() {
     const summary = {};
     for (const entry of typeOutcomeLedger.values()) {
@@ -1461,10 +1479,14 @@ export async function scanUiLinks(
     return "article";
   }
 
+  function getMessageTimeSource(messageTime) {
+    return messageTime ? "visible_timestamp" : "range_until_fallback";
+  }
+
   function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
     if (!skipReason) return;
 
-    const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+    const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
     const dedupeBasis = rawUrl || title || truncateComparableText(rawText, 40) || skipReason;
     const key = dedupeKey(FILE_HELPER_CHAT_NAME, messageTimeIso, `skip:${skipReason}:${dedupeBasis}`);
     if (seenSkippedKeys.has(key)) return;
@@ -1473,6 +1495,7 @@ export async function scanUiLinks(
     skippedRecords.push({
       captured_at: capturedAt.toISOString(),
       message_time: messageTimeIso,
+      message_time_source: getMessageTimeSource(messageTime),
       chat_name: FILE_HELPER_CHAT_NAME,
       record_type: "skipped_card",
       title: title || rawUrl || "(untitled skipped card)",
@@ -1493,7 +1516,7 @@ export async function scanUiLinks(
     attemptCount,
     pageIndex,
   }) {
-    const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+    const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
     const contentType =
       block.contentType === "image"
         ? "image"
@@ -1515,6 +1538,7 @@ export async function scanUiLinks(
     unresolvedRecords.push({
       captured_at: capturedAt.toISOString(),
       message_time: messageTimeIso,
+      message_time_source: getMessageTimeSource(messageTime),
       chat_name: FILE_HELPER_CHAT_NAME,
       record_type: "unresolved_item",
       content_type: contentType,
@@ -1540,6 +1564,9 @@ export async function scanUiLinks(
 
   await waitForUserReadyFn();
   await navigateToFileHelperFn(debug);
+  capturedAt = nowFn();
+  referenceNow = capturedAt;
+  fallbackMessageTime = until instanceof Date ? until : capturedAt;
 
   const uiProbe = await probeUiEnvironmentFn(
     { requireChatReady: true, debug, artifactDir, label: "ui-probe", returnCapturedPage: true },
@@ -1633,7 +1660,7 @@ export async function scanUiLinks(
       const existingArticleState = findExistingArticleState(articleStates, articleFingerprints)?.state ?? null;
 
       const directUrlEntries = getBlockDirectUrlEntries(block);
-      const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+      const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
       const blockOutcomeObservation =
         directUrlEntries.length === 0 && block.shareCardTitle
           ? observeTypeOutcome(
@@ -1736,6 +1763,7 @@ export async function scanUiLinks(
           records.push({
             captured_at: new Date().toISOString(),
             message_time: messageTimeIso,
+            message_time_source: getMessageTimeSource(messageTime),
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "link",
             message_type: block.shareCardTitle ? "share_card" : "text_url",
@@ -1770,6 +1798,7 @@ export async function scanUiLinks(
           uncertainRecords.push({
             captured_at: new Date().toISOString(),
             message_time: messageTimeIso,
+            message_time_source: getMessageTimeSource(messageTime),
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "uncertain_link",
             message_type: block.shareCardTitle ? "share_card" : "text_url",
@@ -1932,7 +1961,7 @@ export async function scanUiLinks(
           `[debug] Trying share card: ${candidate.title ?? block.shareCardTitle ?? "(untitled)"} @ ${candidate.clickX},${candidate.clickY}`
         );
       }
-      const extraction =
+      let extraction =
         block.contentType === "image"
           ? await extractImageContentFn(
               candidate,
@@ -1940,7 +1969,8 @@ export async function scanUiLinks(
                 debug,
                 artifactDir,
                 capturedAt,
-                messageTime: messageTime ?? referenceNow,
+                messageTime: messageTime ?? fallbackMessageTime,
+                messageTimeSource: getMessageTimeSource(messageTime),
                 captureSessionId: sessionId,
                 chatName: FILE_HELPER_CHAT_NAME,
               },
@@ -1952,14 +1982,37 @@ export async function scanUiLinks(
             }, {
               recoverChatFn: navigateToFileHelperFn,
             });
-      stats.viewer_open_wait_ms_total += extraction.timings?.viewer_open_wait_ms ?? 0;
-      stats.viewer_ready_wait_ms_total += extraction.timings?.viewer_ready_wait_ms ?? 0;
-      stats.viewer_menu_wait_ms_total += extraction.timings?.viewer_menu_wait_ms ?? 0;
-      stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
-      stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
-      stats.image_ocr_wait_ms_total += extraction.timings?.image_ocr_wait_ms ?? 0;
+
+      if (
+        block.contentType === "image" &&
+        extraction.status === "reroute" &&
+        extraction.actualContentType === "article"
+      ) {
+        accumulateExtractionTimings(extraction);
+        stats.image_items_seen = Math.max(0, stats.image_items_seen - 1);
+        stats.image_candidates_rerouted_to_article += 1;
+        reclassifyTypeOutcome(blockOutcomeObservation, "article");
+        block.contentType = null;
+        block.classificationReason = "viewer_type_reroute";
+        artifactRecord.content_type = "article";
+        artifactRecord.classification_reason = "viewer_type_reroute";
+        extraction = await extractShareCardUrlFn(candidate, {
+          debug,
+          artifactDir,
+        }, {
+          recoverChatFn: navigateToFileHelperFn,
+        });
+      }
+
+      accumulateExtractionTimings(extraction);
 
       if (block.contentType === "image") {
+        if (extraction.record) {
+          extraction.record = {
+            ...extraction.record,
+            message_time_source: getMessageTimeSource(messageTime),
+          };
+        }
         if (extraction.record && !seenKeys.has(extraction.record.dedupe_key)) {
           seenKeys.add(extraction.record.dedupe_key);
           contentRecords.push(extraction.record);
@@ -2049,7 +2102,7 @@ export async function scanUiLinks(
           continue;
         }
 
-        const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+        const messageTimeIso = (messageTime ?? fallbackMessageTime).toISOString();
         const key = dedupeKey(FILE_HELPER_CHAT_NAME, messageTimeIso, canonicalUrl);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
@@ -2057,6 +2110,7 @@ export async function scanUiLinks(
           records.push({
             captured_at: new Date().toISOString(),
             message_time: messageTimeIso,
+            message_time_source: getMessageTimeSource(messageTime),
             chat_name: FILE_HELPER_CHAT_NAME,
             record_type: "link",
             message_type: "share_card",
@@ -2459,6 +2513,38 @@ function waitForClipboardWeChatUrl(
 function viewerLooksLoading(ocrResult) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   return lines.some((line) => /\bloading\b/i.test(line?.text ?? ""));
+}
+
+function looksLikeArticleViewerChrome(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const chromeBottom = Math.max(64, imageHeight * 0.05);
+  return lines.some(
+    (line) => {
+      const y = Number(line?.y);
+      const height = Math.max(0, Number(line?.height ?? 0));
+      return (
+        Number.isFinite(y) &&
+        y + height <= chromeBottom &&
+        /summary\s+provided\s+by\s+yuanbao/i.test(line?.text ?? "")
+      );
+    },
+  );
+}
+
+function removeImageViewerChromeOcr(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const toolbarBottom = Math.max(64, imageHeight * 0.05);
+  return {
+    ...ocrResult,
+    lines: lines.filter((line) => {
+      const y = Number(line?.y);
+      if (!Number.isFinite(y)) return true;
+      const height = Math.max(0, Number(line?.height ?? 0));
+      return y + height > toolbarBottom;
+    }),
+  };
 }
 
 function shouldStopViewerMenuProbing(viewerContext, currentWindows, frontWindow) {
@@ -2872,6 +2958,7 @@ export async function extractImageContent(
     artifactDir = null,
     capturedAt = new Date(),
     messageTime = capturedAt,
+    messageTimeSource = "visible_timestamp",
     chatName = FILE_HELPER_CHAT_NAME,
     captureSessionId = newCaptureSessionId(),
   } = {},
@@ -2957,50 +3044,62 @@ export async function extractImageContent(
       );
     }
 
-    let record;
-    try {
-      record = createImageContentRecordFn({
-        capturedAt,
-        messageTime,
-        chatName,
-        title: candidate.title ?? "",
-        captureSessionId,
-        source: "ui",
-        ocrResult,
-      });
-    } catch (error) {
+    if (looksLikeArticleViewerChrome(ocrResult)) {
       result = {
         ...result,
-        reason: error?.code || "image_ocr_failed",
-        failureStage: "image_ocr",
+        status: "reroute",
+        reason: "image_candidate_opened_article_viewer",
+        failureStage: "viewer_type",
+        actualContentType: "article",
       };
-      record = null;
-    }
-
-    if (record) {
+    } else {
+      const contentOcrResult = removeImageViewerChromeOcr(ocrResult);
+      let record;
       try {
-        const published = await publishImageContentRecordFn(record);
-        result = {
-          ...result,
-          status: "ok",
-          reason: null,
-          failureStage: null,
-          record:
-            published.pkm_status === "needs_review" && artifactDir != null
-              ? { ...published, review_artifact_path: screenshotPath }
-              : published,
-        };
+        record = createImageContentRecordFn({
+          capturedAt,
+          messageTime,
+          messageTimeSource,
+          chatName,
+          title: candidate.title ?? "",
+          captureSessionId,
+          source: "ui",
+          ocrResult: contentOcrResult,
+        });
       } catch (error) {
         result = {
           ...result,
-          reason: error?.code || "image_note_write_failed",
-          failureStage: "pkm_write",
-          record: {
-            ...record,
-            pkm_status: "write_failed",
-            ...(artifactDir != null ? { artifact_path: screenshotPath } : {}),
-          },
+          reason: error?.code || "image_ocr_failed",
+          failureStage: "image_ocr",
         };
+        record = null;
+      }
+
+      if (record) {
+        try {
+          const published = await publishImageContentRecordFn(record);
+          result = {
+            ...result,
+            status: "ok",
+            reason: null,
+            failureStage: null,
+            record:
+              published.pkm_status === "needs_review" && artifactDir != null
+                ? { ...published, review_artifact_path: screenshotPath }
+                : published,
+          };
+        } catch (error) {
+          result = {
+            ...result,
+            reason: error?.code || "image_note_write_failed",
+            failureStage: "pkm_write",
+            record: {
+              ...record,
+              pkm_status: "write_failed",
+              ...(artifactDir != null ? { artifact_path: screenshotPath } : {}),
+            },
+          };
+        }
       }
     }
   } catch (error) {

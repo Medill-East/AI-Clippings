@@ -195,7 +195,7 @@ export function renderQueryResults(
         for (const record of records) {
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
         }
       }
 
@@ -208,7 +208,7 @@ export function renderQueryResults(
         for (const record of videoChannels) {
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
         }
       }
 
@@ -221,7 +221,7 @@ export function renderQueryResults(
         for (const record of uncertainLinks) {
           const title = record.title || record.url;
           lines.push(`- [${title}](${record.url})`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
           lines.push(`  > ${record.confidence_reason ?? "ocr_uncertain"}`);
         }
       }
@@ -234,7 +234,7 @@ export function renderQueryResults(
       } else {
         for (const record of imageContents) {
           lines.push(`- ${record.title || "(untitled image)"}`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
           lines.push(`  > PKM: ${record.pkm_status ?? "unknown"}; OCR: ${record.ocr_confidence ?? "unknown"}`);
           if (record.note_path) lines.push(`  > ${record.note_path}`);
           const preview = String(record.content_text ?? "").split(/\r?\n/).find(Boolean);
@@ -250,7 +250,7 @@ export function renderQueryResults(
       } else {
         for (const record of unresolvedItems) {
           lines.push(`- ${record.title || "(untitled unresolved item)"}`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
           lines.push(`  > ${record.content_type ?? "unknown"} / ${record.failure_stage ?? "unknown"} / ${record.error_code ?? "unknown"}`);
         }
       }
@@ -263,7 +263,7 @@ export function renderQueryResults(
       } else {
         for (const record of skippedCards) {
           lines.push(`- ${record.title || "(untitled skipped card)"}`);
-          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${formatRecordMessageTime(record)}`);
           lines.push(`  > ${record.skip_reason ?? "skipped"}`);
         }
       }
@@ -273,7 +273,7 @@ export function renderQueryResults(
     default: {
       const lines = [`Found ${records.length} link(s):`, ""];
       for (const record of records) {
-        lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(no title)"}`);
         lines.push(`  ${record.url}`);
         lines.push("");
       }
@@ -281,7 +281,7 @@ export function renderQueryResults(
       lines.push(`Video Channels ${videoChannels.length} background task(s):`);
       lines.push("");
       for (const record of videoChannels) {
-        lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(no title)"}`);
         lines.push(`  ${record.url}`);
         lines.push("");
       }
@@ -289,7 +289,7 @@ export function renderQueryResults(
       lines.push(`Uncertain ${uncertainLinks.length} external link(s):`);
       lines.push("");
       for (const record of uncertainLinks) {
-        lines.push(`[${record.message_time}] ${record.title || "(no title)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(no title)"}`);
         lines.push(`  ${record.url}`);
         lines.push(`  confidence: ${record.confidence_reason ?? "ocr_uncertain"}`);
         lines.push("");
@@ -298,7 +298,7 @@ export function renderQueryResults(
       lines.push(`Skipped ${skippedCards.length} card(s):`);
       lines.push("");
       for (const record of skippedCards) {
-        lines.push(`[${record.message_time}] ${record.title || "(untitled skipped card)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(untitled skipped card)"}`);
         lines.push(`  skip: ${record.skip_reason ?? "skipped"}`);
         lines.push("");
       }
@@ -306,7 +306,7 @@ export function renderQueryResults(
       lines.push(`Image OCR ${imageContents.length} content item(s):`);
       lines.push("");
       for (const record of imageContents) {
-        lines.push(`[${record.message_time}] ${record.title || "(untitled image)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(untitled image)"}`);
         lines.push(`  PKM: ${record.pkm_status ?? "unknown"}; OCR: ${record.ocr_confidence ?? "unknown"}`);
         if (record.note_path) lines.push(`  ${record.note_path}`);
         lines.push("");
@@ -315,13 +315,20 @@ export function renderQueryResults(
       lines.push(`Unresolved ${unresolvedItems.length} item(s):`);
       lines.push("");
       for (const record of unresolvedItems) {
-        lines.push(`[${record.message_time}] ${record.title || "(untitled unresolved item)"}`);
+        lines.push(`[${formatRecordMessageTime(record)}] ${record.title || "(untitled unresolved item)"}`);
         lines.push(`  ${record.content_type ?? "unknown"} / ${record.failure_stage ?? "unknown"} / ${record.error_code ?? "unknown"}`);
         lines.push("");
       }
       return lines.join("\n").trimEnd();
     }
   }
+}
+
+function formatRecordMessageTime(record) {
+  const value = String(record?.message_time ?? "unknown");
+  return record?.message_time_source === "range_until_fallback"
+    ? `${value}（界面未显示具体时间，按查询上界占位）`
+    : value;
 }
 
 function isVideoChannelShareUrl(value) {

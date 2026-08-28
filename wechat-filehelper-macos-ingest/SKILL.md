@@ -17,6 +17,7 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - 裸链接在打开 viewer 前直接收录，支持单行及 OCR 跨行 URL
 - 图文 viewer 即使只加载出部分标题，也会继续尝试 `Copy Link`
 - 图片候选只有在点击后确认打开图片 viewer 才执行 OCR；低置信度笔记标为 `needs_review`
+- 若图片候选实际打开公众号 viewer，会自动改走文章 `Copy Link`，不会把 `Loading` / 元宝顶栏写成图片 OCR
 - 候选定位、Copy Link、图片 OCR 或 PKM 写入失败都会生成 `unresolved_item`，不会只留下一个模糊计数
 - 元宝登录态只承担腾讯域内短链解析，不使用元宝总结或聊天产物
 
@@ -31,7 +32,7 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - 本机 V2T 已安装可用的 sherpa-onnx 模型
 - 已登录的 Codex CLI（用于我们自己的结构化摘要）
 - Obsidian 已有可解析的 vault；优先复用最近一次 Web Clipper 成功笔记的目录
-- Playwright 复用仓库内 `obsidian-web-clipper-ingest` 的既有依赖
+- 当前目录已通过 `package.json` 声明 Playwright；首次运行前执行 `npm ci`
 
 ## 推荐流程
 
@@ -39,7 +40,8 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 
 ```bash
 cd wechat-filehelper-macos-ingest
-node scripts/setup.js
+npm ci
+npm run setup
 ```
 
 ### 2. 诊断 UI-first 路径
@@ -174,6 +176,8 @@ node scripts/query-links.js \
 
 图片 OCR 使用 `record_type: "content"`、`content_type: "image_ocr"`，正文在 `content_text`，并带有 `content_hash`、`ocr_confidence`、`ocr_line_count`、`pkm_status` 与写入成功后的 `note_path`。无法完成的文章、视频或图片使用 `record_type: "unresolved_item"`，明确保存 `content_type`、`failure_stage`、`error_code`、`attempt_count` 与点击坐标。
 
+UI 没显示具体消息时间时，记录使用查询上界作为筛选占位，并写入 `message_time_source: "range_until_fallback"`；这不代表消息恰好发送于该秒。Markdown 查询会显式标出这类占位时间。
+
 ## manifest 重点字段
 
 每次扫描会写入 `local/runs/<timestamp>/manifest.json`，重点关注：
@@ -272,6 +276,7 @@ node scripts/inspect-accessibility.js [--depth N] [--window N]
 ### 视频号后台失败
 
 - 先看最新 `local/video-channel/runs/*/manifest.json` 的 `failed_stage` 与 `error_code`
+- `playwright_missing`：在当前 `wechat-filehelper-macos-ingest` 目录执行 `npm ci`，不再依赖兄弟项目的 `node_modules`
 - `parse_rejected`：元宝未公开解析接口可能漂移；不要返回空摘要兜底
 - `media_missing` / `media_invalid`：官方 feed 没有可验证媒体，不能把封面 JPEG 冒充视频
 - `asr_*`：检查 V2T 设置、模型文件和 `ffmpeg`

@@ -18,6 +18,7 @@ export class ImageContentError extends Error {
 export function createImageContentRecord({
   capturedAt = new Date().toISOString(),
   messageTime,
+  messageTimeSource = "visible_timestamp",
   chatName,
   title = "",
   captureSessionId,
@@ -46,6 +47,7 @@ export function createImageContentRecord({
   return {
     captured_at: new Date(capturedAt).toISOString(),
     message_time: messageTimeIso,
+    message_time_source: String(messageTimeSource),
     chat_name: String(chatName ?? "文件传输助手"),
     record_type: "content",
     content_type: "image_ocr",
@@ -80,6 +82,7 @@ export function renderImageContentNote(record) {
     "content_type: image_ocr",
     `captured_at: ${yamlString(record.captured_at)}`,
     `message_time: ${yamlString(record.message_time)}`,
+    `message_time_source: ${yamlString(record.message_time_source ?? "unknown")}`,
     `ocr_confidence: ${record.ocr_confidence}`,
     `ocr_line_count: ${record.ocr_line_count}`,
     `pkm_status: ${record.pkm_status}`,

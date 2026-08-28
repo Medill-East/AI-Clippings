@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import {
   VideoChannelError,
@@ -8,6 +9,16 @@ import {
   resolveVideoChannel,
   validateSphUrl,
 } from "../scripts/lib/video-channel-resolver.js";
+
+describe("video browser runtime", () => {
+  it("declares Playwright as this package's own runtime dependency", async () => {
+    const packageJson = JSON.parse(
+      await fs.readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+
+    assert.equal(packageJson.dependencies?.playwright, "^1.58.2");
+  });
+});
 
 describe("validateSphUrl", () => {
   it("accepts public WeChat Channels share links", () => {
