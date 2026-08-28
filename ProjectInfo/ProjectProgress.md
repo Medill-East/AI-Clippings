@@ -2,37 +2,33 @@
 
 > 现状快照，覆盖写，不堆历史。历史看 `ProjectInfo/sessions/` 与 `ProjectInfo/dialogues/`。
 
-*更新于 2026-08-22 · 记录者 Codex*
+*更新于 2026-08-28 · 记录者 Codex*
 
 ## 现在在哪
 
-- 微信 FileHelper 的文章卡片链路保持可用；查询结果把 `/sph/` 单列为 `video_channels`，不会误送给文章 Web Clipper。
-- 今天两条视频号现在都已写入 PKM：第一条由 UI 自动提取 `/sph/`，第二条由無涘直接提供 `/sph/AIRbCztVZu` 后走同一后台链路。两个 task 均为 `written`，源链接不同，分别有 8 条和 7 条要点。
-- 第二条真实运行 `local/video-channel/runs/2026-08-22T09-29-01-472Z/manifest.json`：`selected=1 / written=1 / failed=0`，视频 3,115,280 字节、29 秒，本机 V2T 完成 2 个分片并产出 207 字临时逐字稿，Codex 生成 230 字摘要与 7 条要点。
-- 第二篇笔记已独立回读：`source` 精确匹配 `/sph/AIRbCztVZu`，包含「高质量摘要」「关键要点」且无逐字稿章节；两个任务的 MP4、逐字稿和 `.part` 文件均已删除。
-- 显式 `video:process -- --url` 现可直接处理不在本地索引中的合法 `/sph/`。此前该分支返回 `selected=0` 但 exit 0，已用红灯测试修正为直接创建 `source=explicit_url` 的任务。
-- UI 扫描新增聊天主窗选择器：截图蒙层、菜单等窗口不会再被误当成 `Weixin` 主窗，从而避免负坐标点击；viewer 仍保留原前窗选择逻辑。
-- 独立元宝浏览器 profile 已由無涘扫码登录。元宝仅把公开分享链接换成腾讯 `token + eid`；媒体继续来自视频号官方 feed API，不调用元宝聊天或总结。
-- 后台状态机已实现：`pending → resolving → downloading → transcribing → summarizing → written`。失败进入 `failed`，保留 `failed_stage + error_code` 并追加 `local/video-channel/automation-failures.log`。
-- 端到端 Skill 契约已明确：统一采集后，`records[].url` 交给既有 `obsidian-web-clipper-ingest`；`video_channels[].url` 由 `collect` 后台处理。两边分别验收 manifest，不重复实现网页剪藏，也不把视频送进 Web Clipper。
-- 模块全套新鲜测试为 128/128 通过；两个 Skill 均通过官方 `quick_validate`。
+- 2026-08-28 23:00–23:59 的真实混合内容扫描已完成取证，运行目录为 `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/runs/2026-08-28T15-42-04/`：OCR 看见 82 次卡片候选，35 次进入 viewer 提取，24 条公众号文章成功，4 次 viewer 未就绪，14 次按规则跳过；最终索引 37 行。
+- 本次实际运行的是 GitHub 工作副本提交 `5126e6f`；受 Director 治理的当前工作副本是 `/Users/haodong/Documents/AI/Codex/Clippings` 提交 `b7b5ade`。两份仓库历史已经分叉，旧副本没有当前 `/sph/` 视频号 Copy Link 与后台状态机。
+- 漏点根因已由 `candidates.json` 确认：旧版去重把每一行 OCR 文本及 10 字片段都注册为同一文章的别名，导致至少三篇不同文章被误判为已解析——“南洋理工…”被相邻“让程序员…”文本污染，“Friend Slop…”与既有文章共享 `GameRes 游资网` 页脚，“众神的权柄（上）”与“（下）”共享前缀。
+- 图文卡片确实被点击并打开，但旧版只接受公众号文章壳；该微信图文 viewer 被判为 `partial_title / article_shell_loaded=false`，4 次尝试均以 `viewer_not_ready` 结束，Copy Link 菜单分支未执行。
+- 视频号候选在旧版打开后被 viewer OCR 判为 `video_channel`，随后进入通用 `skipped_card` 分支；没有 `/sph/`、没有 pending 任务，也没有后台处理。本次 7 条跳过记录包含同一视频在相邻页面/不同 OCR 簇中的重复，不代表 7 个唯一视频。
+- 图片消息只做了整屏 Vision OCR；OCR 文本随后被归为 `plain_text_block` 或 `weak_ocr_card` 并跳过。仓库没有正式的图片/OCR 内容记录类型与写回链路，因此这是功能缺口，不是一次偶发 OCR 失败。
+- 两条裸链接在截图 OCR 中可复现，但消息块构造将其丢弃：单行 `kmjn.org` 被 `cluster.length < 2` 过滤；三行 `en.itu.dk` 的首行 x=779，小于整屏 56% 的硬边界约 x=825，整条消息未进入右侧候选。剪贴板兜底每页只有换行，无法补回。
+- 当前新版已实现视频号 `/sph/` 提链并放宽 viewer 就绪判断；但用本次 OCR 离线回放，两个裸链接仍为 0 条，图片内容链仍不存在，10 字前缀去重仍可能把上下篇合并。
+- 本轮仅诊断，没有修改生产代码。旧版、新版 `node --test test/ui.test.js` 分别 91/91 与 48/48 通过，说明测试缺少这批真实布局的回归样本，不能据此判定采集完整。
 
 ## 当前阶段
 
-- 视频号“拿到 `/sph/` 后”的后台链路已用两条不同真实视频闭环：原始链接 + 自有高质量摘要 + 关键要点；不默认保留视频或逐字稿。
-- 今天两篇最终笔记已完成，但第二条链接来自用户直接提供，因此“同一次真实 UI 扫描自动提取两条不同视频号链接”仍未完成验收，不能把后台两条成功写成前台批量提链已通过。
+- 五类现象都已从真实 manifest、候选明细、OCR JSON 和截图定位到具体阶段；“没看到”“没点”“点了没取到”“取到 OCR 后主动丢弃”已经分开。
+- 修复尚未开始；用户本轮要求是检查问题，未授权改动采集逻辑。
 
 ## 下一步
 
-- 下一次自然批次直接按统一 Skill 契约运行：采集文章与 `/sph/` → 文章交 Web Clipper → 视频后台处理；不要为了今天已完成的第二篇笔记再次重扫或重复转写。
-- 用下一次包含两张不同视频号卡片的真实批次验收无候选上限的 UI 提链；必须以两个不同 `/sph/` 为判据，而不是 `failed=0` 或 `share_cards_seen`。
-- 若出现 `auth_required`，只需执行一次 `npm run video:auth` 重新扫码，再重跑同一时间范围；已完成任务会跳过。
-- 观察元宝未公开解析端点的漂移；任何 `parse_rejected` / `media_missing` 必须保留为明确失败，不得回退为空摘要或元宝总结。
-- 后续若本地 Qwen3-ASR 批量耗时过高，再以真实批次数据比较 SenseVoice/云 ASR；目前不提前增加 provider 配置。
+- 若無涘授权修复，先确定唯一运行仓库/分支，避免在旧 GitHub 副本继续验证已经废弃的视频架构。
+- 按独立假设建立五组真实样本红灯：异文同页脚/同前缀不得去重；图文 viewer 必须走 Copy Link；视频号必须得到唯一 `/sph/`；图片必须产生 OCR 内容记录；单行与宽换行裸链必须入库。
+- 每次只修一个数据边界并离线回放本次 artifacts；最后才做一次真实 UI 批次验收。验收应按唯一可见消息逐项对表，不能只看 `failed=0`、`share_cards_seen` 或单测全绿。
 
 ## 阻塞 / 待定
 
-- 当前两条内容均已写入 PKM，无即时内容处理阻塞。
-- 元宝解析接口是未公开 Web 接口，存在漂移风险；登录态也可能过期，但两者已有不同错误码。
-- Codex 摘要会把临时逐字稿发送给用户已登录的 Codex 服务；元宝只看到公开分享链接，不会收到逐字稿。
-- 后台真实证据已有两条不同视频（5 分 28 秒与 29 秒）；多卡 UI 自动提链仍只有单卡证据。后台继续顺序处理以保证失败归因和本机资源稳定。
+- 两份同 remote 的本地仓库历史分叉，哪一份作为唯一真源需要先收束；直接在两边分别补丁会继续制造漂移。
+- 图片 OCR 的最终内容契约仍需在实现时明确：至少需要原始 OCR 文本、来源时间、可追溯截图/消息标识与置信/失败状态；不能把 `skipped_card.raw_text` 冒充正式收录。
+- 最终真实验收需要微信窗口和同类消息样本；当前离线证据足以确认根因，但不能把“修复方案可行”写成“已经修好”。
