@@ -6,6 +6,30 @@ import { mergeRecords, newRunTimestamp, readJsonlines, writeJsonlines } from "./
 import { probeWeChatStore, scanStoreLinks } from "./store.js";
 import { probeUiEnvironment, scanUiLinks } from "./ui.js";
 
+const FINAL_TYPE_OUTCOMES = [
+  "recorded",
+  "needs_review",
+  "uncertain",
+  "skipped",
+  "unresolved",
+  "deduplicated",
+];
+
+export function validateTypeOutcomes(typeOutcomes = {}) {
+  const errors = [];
+  for (const [contentType, counts] of Object.entries(typeOutcomes ?? {})) {
+    const seen = Number(counts?.seen ?? 0);
+    const final = FINAL_TYPE_OUTCOMES.reduce(
+      (total, outcome) => total + Number(counts?.[outcome] ?? 0),
+      0,
+    );
+    if (seen !== final) {
+      errors.push(`${contentType}: seen=${seen}, final=${final}`);
+    }
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 export function parseScanArgs(argv) {
   const args = argv.slice(2);
   const opts = {
@@ -192,6 +216,7 @@ export async function runScan(
   const uncertainRecords = scanResult.uncertainRecords ?? [];
   const skippedRecords = scanResult.skippedRecords ?? [];
   const unresolvedRecords = scanResult.unresolvedRecords ?? [];
+  const contentRecords = scanResult.contentRecords ?? [];
   console.log(`Collected ${newRecords.length} link(s) from this scan.`);
   if (uncertainRecords.length > 0) {
     console.log(`Recorded ${uncertainRecords.length} uncertain external link(s).`);
@@ -202,6 +227,9 @@ export async function runScan(
   if (unresolvedRecords.length > 0) {
     console.log(`Recorded ${unresolvedRecords.length} unresolved item(s).`);
   }
+  if (contentRecords.length > 0) {
+    console.log(`Recorded ${contentRecords.length} image OCR content item(s).`);
+  }
 
   const existing = await readJsonlines(indexPath);
   const merged = mergeRecords(existing, [
@@ -209,10 +237,14 @@ export async function runScan(
     ...uncertainRecords,
     ...skippedRecords,
     ...unresolvedRecords,
+    ...contentRecords,
   ]);
   const addedCount = merged.length - existing.length;
   await writeJsonlines(indexPath, merged);
   console.log(`Added ${addedCount} new record(s) to index (${merged.length} total).`);
+
+  const typeOutcomes = scanResult.stats.type_outcomes ?? {};
+  const typeOutcomeValidation = validateTypeOutcomes(typeOutcomes);
 
   const manifest = {
     run_at: new Date().toISOString(),
@@ -230,6 +262,7 @@ export async function runScan(
     uncertain_links_total: uncertainRecords.length,
     skipped_cards_total: skippedRecords.length,
     unresolved_items_total: unresolvedRecords.length,
+    image_contents_total: contentRecords.length,
     added_to_index: addedCount,
     index_total: merged.length,
     share_cards_seen: scanResult.stats.share_cards_seen ?? 0,
@@ -240,11 +273,20 @@ export async function runScan(
     clipboard_reads: scanResult.stats.clipboard_reads ?? 0,
     ocr_only_pages: scanResult.stats.ocr_only_pages ?? 0,
     duplicate_skipped: scanResult.stats.duplicate_skipped ?? 0,
+    image_items_seen: scanResult.stats.image_items_seen ?? 0,
+    image_items_processed: scanResult.stats.image_items_processed ?? 0,
+    image_items_needs_review: scanResult.stats.image_items_needs_review ?? 0,
+    type_outcomes: typeOutcomes,
+    type_outcome_invariant: {
+      status: typeOutcomeValidation.valid ? "passed" : "failed",
+      errors: typeOutcomeValidation.errors,
+    },
     viewer_open_wait_ms_total: scanResult.stats.viewer_open_wait_ms_total ?? 0,
     viewer_ready_wait_ms_total: scanResult.stats.viewer_ready_wait_ms_total ?? 0,
     viewer_menu_wait_ms_total: scanResult.stats.viewer_menu_wait_ms_total ?? 0,
     viewer_copy_wait_ms_total: scanResult.stats.viewer_copy_wait_ms_total ?? 0,
     viewer_close_wait_ms_total: scanResult.stats.viewer_close_wait_ms_total ?? 0,
+    image_ocr_wait_ms_total: scanResult.stats.image_ocr_wait_ms_total ?? 0,
     skipped_by_rule: scanResult.stats.skipped_by_rule ?? {},
     ui_probe_reasons: uiProbe.reasons ?? [],
     store_probe_reasons: storeProbe.reasons,
@@ -256,6 +298,12 @@ export async function runScan(
   );
 
   console.log(`\nRun manifest saved to: local/runs/${runTs}/manifest.json`);
+  if (!typeOutcomeValidation.valid) {
+    throw new Error(
+      `Type outcome invariant failed: ${typeOutcomeValidation.errors.join("; ")}. ` +
+        `Manifest saved to local/runs/${runTs}/manifest.json`,
+    );
+  }
   console.log("Done.");
 
   return {
@@ -266,6 +314,7 @@ export async function runScan(
     uncertainRecords,
     skippedRecords,
     unresolvedRecords,
+    contentRecords,
     uiProbe,
     storeProbe,
     runDir,

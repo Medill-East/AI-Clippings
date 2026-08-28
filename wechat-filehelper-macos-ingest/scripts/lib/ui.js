@@ -35,6 +35,10 @@ import {
   newCaptureSessionId,
   parseWeChatTimestamp,
 } from "./common.js";
+import {
+  createImageContentRecord,
+  publishImageContentRecord,
+} from "./image-content.js";
 import { probeVisionAvailability, recognizeTextFromImage } from "./ocr.js";
 
 const FILE_HELPER_NAMES = [
@@ -58,7 +62,7 @@ const VIEWER_MENU_PROBE_POINTS = [
   { xRatio: 0.94, yRatio: 0.032 },
 ];
 const BILIBILI_BRAND_TOKENS = ["哔哩哔哩", "bilibili", "b23tv", "bolilbi", "bolibili", "bililbi", "blbl"];
-const OCR_RIGHT_PANE_RATIO = 0.58;
+const OCR_RIGHT_PANE_RATIO = 0.55;
 const OCR_URL_CONTENT_LEFT_RATIO = 0.48;
 const OCR_TOP_CONTENT_RATIO = 0.15;
 const OCR_CLUSTER_GAP_PX = 54;
@@ -82,6 +86,11 @@ const VIDEO_CHANNEL_SHARE_X_RATIO = 0.78;
 const VIDEO_CHANNEL_SHARE_Y_RATIO = 0.93;
 const OCR_CLUSTER_OPEN_RETRY_OFFSET_POINTS = 100;
 const VIDEO_CHANNEL_VIEWER_LABELS = ["视频号", "channels"];
+const IMAGE_OCR_CANDIDATE_REASONS = new Set([
+  "image_card",
+  "plain_text_block",
+  "weak_ocr_card",
+]);
 
 export function normalizeComparableText(text) {
   return String(text ?? "")
@@ -240,10 +249,10 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
   const items = [...directUrlResult.items];
   let index = items.length;
   for (const cluster of clusters) {
-    if (cluster.length < 2) continue;
-
-    const rawText = cluster.map((line) => line.text).join(" ").trim();
+    const rawLines = cluster.map((line) => String(line?.text ?? "").trim()).filter(Boolean);
+    const rawText = rawLines.join(" ").trim();
     if (!rawText) continue;
+    if (cluster.length < 2 && !looksLikeImageCardText(rawLines, rawText)) continue;
 
     const title = cluster
       .slice(0, Math.min(cluster.length, 2))
@@ -251,7 +260,9 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
       .join(" ")
       .trim();
     const timestampLine = findNearestTimestampLine(cluster[0], timestampLines);
-    const skipReason = classifyOcrShareCardSkipReason(rawText);
+    const classificationReason = classifyOcrShareCardSkipReason(rawText, rawLines);
+    const contentType = IMAGE_OCR_CANDIDATE_REASONS.has(classificationReason) ? "image" : null;
+    const skipReason = contentType === "image" ? null : classificationReason;
 
     items.push({
       kind: "share_card",
@@ -260,6 +271,8 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
       rawText,
       title,
       skipReason,
+      contentType,
+      classificationReason,
       ocrCluster: cluster,
     });
   }
@@ -288,13 +301,54 @@ function findNearestTimestampLine(clusterTopLine, timestampLines) {
   return before ?? after ?? null;
 }
 
-function classifyOcrShareCardSkipReason(rawText) {
+function classifyOcrShareCardSkipReason(rawText, rawLines = []) {
   if (/视频号|video\s+channel/i.test(rawText)) return "video_channel";
   if (looksLikeBilibiliVideoText(rawText)) return "bilibili_video";
   if (/共\s*\d+\s*篇|\b\d+\s+articles?\b|multiple\s+articles?/i.test(rawText)) {
     return "multi_article_card";
   }
+  if (looksLikeImageCardText(rawLines, rawText)) return "image_card";
+  if (looksLikePlainTextImageCandidate(rawLines, rawText)) return "plain_text_block";
+  if (looksLikeWeakImageCandidate(rawLines, rawText)) return "weak_ocr_card";
   return null;
+}
+
+function normalizeRawLines(rawLines, rawText = "") {
+  return Array.isArray(rawLines)
+    ? rawLines.map((line) => String(line ?? "").normalize("NFKC").trim()).filter(Boolean)
+    : String(rawText ?? "")
+        .normalize("NFKC")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
+function looksLikeImageCardText(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  const text = lines.join(" ").trim();
+  return /^(?:\[?\s*)?(?:一张|多张)?(?:图片|照片|image|photo)(?:\s*\]?)?$/i.test(text);
+}
+
+function looksLikePlainTextImageCandidate(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  if (lines.length < 3) return false;
+  if (lines.some((line) => looksLikeTimestampOcrText(line) || looksLikeUrlLikeText(line))) return false;
+  if (/视频号|video\s+channel/i.test(rawText) || looksLikeBilibiliVideoText(rawText)) return false;
+
+  const text = lines.join(" ");
+  const normalizedLength = normalizeComparableText(text).length;
+  const sentencePunctuationCount = (text.match(/[。！？；]/g) ?? []).length;
+  const commaCount = (text.match(/[，,]/g) ?? []).length;
+  return normalizedLength >= 28 && (sentencePunctuationCount >= 2 || commaCount >= 3);
+}
+
+function looksLikeWeakImageCandidate(rawLines, rawText) {
+  const lines = normalizeRawLines(rawLines, rawText);
+  if (lines.length === 0 || lines.length > 2) return false;
+  if (lines.some((line) => looksLikeTimestampOcrText(line) || looksLikeUrlLikeText(line))) return false;
+  if (/视频号|video\s+channel/i.test(rawText) || looksLikeBilibiliVideoText(rawText)) return false;
+  const combined = lines.map(normalizeComparableText).join("");
+  return combined.length > 0 && combined.length <= 8;
 }
 
 export function mapOcrRectCenterToScreenPoint(windowBounds, rect, ocrResult = null) {
@@ -319,6 +373,7 @@ function normalizeSnapshotBlocks(clipboardSnapshot = {}) {
         block?.directUrls,
         "clipboard_explicit"
       );
+      const classification = normalizeBlockContentClassification(block);
 
       return {
         ...block,
@@ -327,36 +382,55 @@ function normalizeSnapshotBlocks(clipboardSnapshot = {}) {
           .filter((entry) => entry.confidence === "confirmed")
           .map((entry) => entry.url),
         directUrlEntries,
+        ...classification,
       };
     });
   }
 
   const items = Array.isArray(clipboardSnapshot.items) ? clipboardSnapshot.items : [];
-  return items.map((item, index) => ({
-    blockId: item.blockId ?? item.itemKey ?? `item-${index}`,
-    timestampText: item.timestampText ?? null,
-    rawLines: String(item.rawText ?? "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean),
-    rawText: item.rawText ?? "",
-    directUrls: item.kind === "text_url" ? (item.links ?? []).map((link) => link.url) : [],
-    directUrlEntries:
-      item.kind === "text_url"
-        ? normalizeDirectUrlEntries(
-            (item.links ?? []).map((link) => ({
-              url: link.url,
-              confidence: "confirmed",
-              confidenceReason: "clipboard_explicit",
-            })),
-            [],
-            "clipboard_explicit"
-          )
-        : [],
-    shareCardTitle:
-      item.kind === "share_card" ? item.title ?? "" : item.title?.trim() ? item.title.trim() : null,
-    skipReason: item.skipReason ?? null,
-  }));
+  return items.map((item, index) => {
+    const classification = normalizeBlockContentClassification(item);
+    return {
+      blockId: item.blockId ?? item.itemKey ?? `item-${index}`,
+      timestampText: item.timestampText ?? null,
+      rawLines: String(item.rawText ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+      rawText: item.rawText ?? "",
+      directUrls: item.kind === "text_url" ? (item.links ?? []).map((link) => link.url) : [],
+      directUrlEntries:
+        item.kind === "text_url"
+          ? normalizeDirectUrlEntries(
+              (item.links ?? []).map((link) => ({
+                url: link.url,
+                confidence: "confirmed",
+                confidenceReason: "clipboard_explicit",
+              })),
+              [],
+              "clipboard_explicit"
+            )
+          : [],
+      shareCardTitle:
+        item.kind === "share_card" ? item.title ?? "" : item.title?.trim() ? item.title.trim() : null,
+      ...classification,
+    };
+  });
+}
+
+function normalizeBlockContentClassification(block) {
+  const classificationReason = block?.classificationReason ?? block?.skipReason ?? null;
+  const contentType =
+    block?.contentType === "image" || IMAGE_OCR_CANDIDATE_REASONS.has(classificationReason)
+      ? "image"
+      : block?.contentType ?? null;
+
+  return {
+    contentType,
+    classificationReason:
+      contentType === "image" ? classificationReason : block?.classificationReason ?? null,
+    skipReason: contentType === "image" ? null : block?.skipReason ?? null,
+  };
 }
 
 function blockToSnapshotItem(block) {
@@ -396,6 +470,8 @@ function blockToSnapshotItem(block) {
       rawText: block.rawText,
       title: block.shareCardTitle,
       skipReason: block.skipReason ?? null,
+      ...(block.contentType ? { contentType: block.contentType } : {}),
+      ...(block.classificationReason ? { classificationReason: block.classificationReason } : {}),
     };
   }
 
@@ -424,6 +500,8 @@ function ocrFallbackItemToBlock(item) {
     directUrlEntries,
     shareCardTitle: directUrlEntries.length > 0 ? null : item.title ?? "",
     skipReason: directUrlEntries.length > 0 ? null : item.skipReason ?? null,
+    contentType: directUrlEntries.length > 0 ? null : item.contentType ?? null,
+    classificationReason: item.classificationReason ?? null,
     ocrCluster: item.ocrCluster ?? [],
   };
 }
@@ -793,6 +871,29 @@ function looksLikeUrlLikeText(text) {
 function shouldFilterOcrFallbackBlock(block, clipboardBlocks) {
   if (!block) return true;
 
+  const blockTitle = normalizeComparableText(block.shareCardTitle ?? "");
+  const blockRawText = normalizeComparableText(block.rawText ?? "");
+  const hasExactClipboardMatch = clipboardBlocks.some((candidate) => {
+    const candidateTitle = normalizeComparableText(candidate.shareCardTitle ?? "");
+    const candidateRawText = normalizeComparableText(candidate.rawText ?? "");
+    return (
+      (blockTitle && candidateTitle && blockTitle === candidateTitle) ||
+      (blockRawText && candidateRawText && blockRawText === candidateRawText)
+    );
+  });
+  if (hasExactClipboardMatch) return true;
+
+  if (block.contentType === "image") {
+    const imageRawText = normalizeComparableText(block.rawText ?? "");
+    const hasContainedImageMatch = clipboardBlocks.some((candidate) => {
+      if (candidate.contentType !== "image") return false;
+      const candidateRawText = normalizeComparableText(candidate.rawText ?? "");
+      if (Math.min(imageRawText.length, candidateRawText.length) < 24) return false;
+      return imageRawText.includes(candidateRawText) || candidateRawText.includes(imageRawText);
+    });
+    if (hasContainedImageMatch) return true;
+  }
+
   const directUrlEntries = getBlockDirectUrlEntries(block);
   if (directUrlEntries.length > 0) {
     const directBlockUrls = directUrlEntries.map((entry) => normalizeUrlLikeText(entry.url)).filter(Boolean);
@@ -988,6 +1089,8 @@ function buildFallbackCandidateFromCluster(block, windowBounds, ocrResult) {
     title: block.shareCardTitle,
     timestampText: block.timestampText,
     rawText: block.rawText,
+    ...(block.contentType ? { contentType: block.contentType } : {}),
+    ...(block.classificationReason ? { classificationReason: block.classificationReason } : {}),
     ocrText: block.ocrCluster?.[0]?.text ?? block.shareCardTitle ?? "",
     lineIndex: null,
     clickX: clickPoint.x,
@@ -1013,16 +1116,13 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
   const ocrLines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const titleLine = findFileHelperTitleLine(ocrLines, ocrResult?.height ?? windowBounds?.height ?? 0);
   const blocks = normalizeSnapshotBlocks(clipboardSnapshot);
-  const clipboardHasShareCards = blocks.some((block) => Boolean(block.shareCardTitle));
-  const ocrFallbackBlocks = clipboardHasShareCards
-    ? []
-    : inferShareCardItemsFromOcr(ocrLines, {
+  const ocrFallbackBlocks = inferShareCardItemsFromOcr(ocrLines, {
         imageWidth: ocrResult?.width ?? windowBounds?.width ?? 0,
         imageHeight: ocrResult?.height ?? windowBounds?.height ?? 0,
       })
         .map(ocrFallbackItemToBlock)
         .filter((block) => !shouldFilterOcrFallbackBlock(block, blocks));
-  const effectiveBlocks = clipboardHasShareCards ? blocks : [...blocks, ...ocrFallbackBlocks];
+  const effectiveBlocks = [...blocks, ...ocrFallbackBlocks];
   const effectiveItems = effectiveBlocks.map(blockToSnapshotItem).filter(Boolean);
   const shareCardBlocks = effectiveBlocks.filter(isActionableShareCardBlock);
   const candidates = [];
@@ -1066,6 +1166,8 @@ export function buildUiSnapshot({ clipboardSnapshot, ocrResult, windowBounds }) 
       title: block.shareCardTitle,
       timestampText: block.timestampText,
       rawText: block.rawText,
+      ...(block.contentType ? { contentType: block.contentType } : {}),
+      ...(block.classificationReason ? { classificationReason: block.classificationReason } : {}),
       ocrText: match.line.text,
       lineIndex: match.lineIndex,
       clickX: clickPoint.x,
@@ -1274,6 +1376,7 @@ export async function scanUiLinks(
     captureVisibleUiPageFn = captureVisibleUiPage,
     probeUiEnvironmentFn = probeUiEnvironment,
     extractShareCardUrlFn = extractShareCardUrl,
+    extractImageContentFn = extractImageContent,
   } = {}
 ) {
   const sessionId = newCaptureSessionId();
@@ -1286,6 +1389,9 @@ export async function scanUiLinks(
     share_cards_resolved: 0,
     share_cards_unresolved: 0,
     unresolved_items_total: 0,
+    image_items_seen: 0,
+    image_items_processed: 0,
+    image_items_needs_review: 0,
     uncertain_links_total: 0,
     browser_fallback_used: 0,
     clipboard_reads: 0,
@@ -1297,21 +1403,68 @@ export async function scanUiLinks(
     viewer_menu_wait_ms_total: 0,
     viewer_copy_wait_ms_total: 0,
     viewer_close_wait_ms_total: 0,
+    image_ocr_wait_ms_total: 0,
   };
 
   const records = [];
   const uncertainRecords = [];
   const skippedRecords = [];
   const unresolvedRecords = [];
+  const contentRecords = [];
   const seenUrls = new Set();
   const seenUncertainUrls = new Set();
   const seenKeys = new Set();
   const seenSkippedKeys = new Set();
   const seenUnresolvedKeys = new Set();
   const articleStates = new Map();
+  const typeOutcomeLedger = new Map();
   const seenPages = new Set();
   const artifactDir = runDir ? path.join(runDir, "artifacts") : null;
   const candidateArtifacts = [];
+
+  function observeTypeOutcome(contentType, identity) {
+    const key = `${contentType}|${identity}`;
+    const existing = typeOutcomeLedger.get(key);
+    if (existing) return { key, isNew: false };
+    typeOutcomeLedger.set(key, { contentType, outcome: null });
+    return { key, isNew: true };
+  }
+
+  function finalizeTypeOutcome(observation, outcome) {
+    if (!observation?.key) return;
+    const entry = typeOutcomeLedger.get(observation.key);
+    if (!entry || entry.outcome != null) return;
+    entry.outcome = outcome;
+  }
+
+  function summarizeTypeOutcomes() {
+    const summary = {};
+    for (const entry of typeOutcomeLedger.values()) {
+      if (!summary[entry.contentType]) {
+        summary[entry.contentType] = {
+          seen: 0,
+          recorded: 0,
+          needs_review: 0,
+          uncertain: 0,
+          skipped: 0,
+          unresolved: 0,
+          deduplicated: 0,
+        };
+      }
+      summary[entry.contentType].seen += 1;
+      if (entry.outcome != null) {
+        summary[entry.contentType][entry.outcome] += 1;
+      }
+    }
+    return summary;
+  }
+
+  function blockOutcomeType(block) {
+    if (block.contentType === "image") return "image";
+    if (block.skipReason === "video_channel") return "video_channel";
+    if (block.skipReason) return "unsupported";
+    return "article";
+  }
 
   function pushSkippedRecord({ messageTime, title = "", rawText = "", skipReason, rawUrl = "" }) {
     if (!skipReason) return;
@@ -1346,7 +1499,12 @@ export async function scanUiLinks(
     pageIndex,
   }) {
     const messageTimeIso = (messageTime ?? referenceNow).toISOString();
-    const contentType = block.skipReason === "video_channel" ? "video_channel" : "article";
+    const contentType =
+      block.contentType === "image"
+        ? "image"
+        : block.skipReason === "video_channel"
+          ? "video_channel"
+          : "article";
     const identity =
       normalizeComparableText(block.shareCardTitle) ||
       normalizeComparableText(truncateComparableText(block.rawText, 80)) ||
@@ -1365,7 +1523,7 @@ export async function scanUiLinks(
       chat_name: FILE_HELPER_CHAT_NAME,
       record_type: "unresolved_item",
       content_type: contentType,
-      message_type: "share_card",
+      message_type: contentType === "image" ? "image" : "share_card",
       title: block.shareCardTitle ?? candidate?.title ?? "",
       raw_text: block.rawText ?? "",
       failure_stage: failureStage,
@@ -1480,6 +1638,28 @@ export async function scanUiLinks(
       const existingArticleState = findExistingArticleState(articleStates, articleFingerprints)?.state ?? null;
 
       const directUrlEntries = getBlockDirectUrlEntries(block);
+      const messageTimeIso = (messageTime ?? referenceNow).toISOString();
+      const blockOutcomeObservation =
+        directUrlEntries.length === 0 && block.shareCardTitle
+          ? observeTypeOutcome(
+              blockOutcomeType(block),
+              `${messageTimeIso}|${articleFingerprint || normalizeComparableText(block.rawText) || block.blockId}`,
+            )
+          : null;
+      if (block.contentType === "image" && blockOutcomeObservation?.isNew) {
+        stats.image_items_seen += 1;
+      }
+      const directOutcomeObservations = new Map();
+      const directOutcomeObservation = (confidence, canonicalUrl) => {
+        const directKey = `${confidence}:${canonicalUrl}`;
+        if (!directOutcomeObservations.has(directKey)) {
+          directOutcomeObservations.set(
+            directKey,
+            observeTypeOutcome("direct_url", `${messageTimeIso}|${directKey}`),
+          );
+        }
+        return directOutcomeObservations.get(directKey);
+      };
       const directRecords = [];
       const uncertainDirectRecords = [];
       const directSkippedEntries = [];
@@ -1491,6 +1671,7 @@ export async function scanUiLinks(
           directSkippedEntries.push({
             url: canonicalUrl,
             reason: skipReason,
+            confidence: entry.confidence,
             confidenceReason: entry.confidenceReason ?? null,
           });
           incrementCount(stats.skipped_by_rule, skipReason);
@@ -1520,6 +1701,8 @@ export async function scanUiLinks(
               click_x: null,
               click_y: null,
               status: "pending",
+              content_type: block.contentType ?? (block.skipReason === "video_channel" ? "video_channel" : "article"),
+              classification_reason: block.classificationReason ?? null,
               article_fingerprint: articleFingerprint || null,
               sampling_mode: page.samplingMode ?? null,
             }
@@ -1527,6 +1710,10 @@ export async function scanUiLinks(
 
       if (directRecords.length > 0 || uncertainDirectRecords.length > 0) {
         for (const skippedEntry of directSkippedEntries) {
+          finalizeTypeOutcome(
+            directOutcomeObservation(skippedEntry.confidence, skippedEntry.url),
+            "skipped",
+          );
           pushSkippedRecord({
             messageTime,
             title: block.shareCardTitle ?? skippedEntry.url,
@@ -1536,13 +1723,19 @@ export async function scanUiLinks(
           });
         }
 
-        const messageTimeIso = (messageTime ?? referenceNow).toISOString();
         for (const canonicalUrl of directRecords) {
-          if (seenUrls.has(canonicalUrl)) continue;
+          const outcomeObservation = directOutcomeObservation("confirmed", canonicalUrl);
+          if (seenUrls.has(canonicalUrl)) {
+            finalizeTypeOutcome(outcomeObservation, "deduplicated");
+            continue;
+          }
           seenUrls.add(canonicalUrl);
 
           const key = dedupeKey(FILE_HELPER_CHAT_NAME, messageTimeIso, canonicalUrl);
-          if (seenKeys.has(key)) continue;
+          if (seenKeys.has(key)) {
+            finalizeTypeOutcome(outcomeObservation, "deduplicated");
+            continue;
+          }
           seenKeys.add(key);
 
           records.push({
@@ -1557,10 +1750,15 @@ export async function scanUiLinks(
             capture_session_id: sessionId,
             source: "ui",
           });
+          finalizeTypeOutcome(outcomeObservation, "recorded");
         }
 
         for (const uncertainEntry of uncertainDirectRecords) {
-          if (seenUrls.has(uncertainEntry.url) || seenUncertainUrls.has(uncertainEntry.url)) continue;
+          const outcomeObservation = directOutcomeObservation("uncertain", uncertainEntry.url);
+          if (seenUrls.has(uncertainEntry.url) || seenUncertainUrls.has(uncertainEntry.url)) {
+            finalizeTypeOutcome(outcomeObservation, "deduplicated");
+            continue;
+          }
           seenUncertainUrls.add(uncertainEntry.url);
 
           const key = dedupeKey(
@@ -1568,7 +1766,10 @@ export async function scanUiLinks(
             messageTimeIso,
             `uncertain:${uncertainEntry.url}:${uncertainEntry.confidenceReason}`
           );
-          if (seenKeys.has(key)) continue;
+          if (seenKeys.has(key)) {
+            finalizeTypeOutcome(outcomeObservation, "deduplicated");
+            continue;
+          }
           seenKeys.add(key);
 
           uncertainRecords.push({
@@ -1584,6 +1785,7 @@ export async function scanUiLinks(
             capture_session_id: sessionId,
             source: "ui",
           });
+          finalizeTypeOutcome(outcomeObservation, "uncertain");
         }
 
         if (artifactRecord) {
@@ -1612,6 +1814,10 @@ export async function scanUiLinks(
           candidateArtifacts.push(artifactRecord);
         }
         for (const skippedEntry of directSkippedEntries) {
+          finalizeTypeOutcome(
+            directOutcomeObservation(skippedEntry.confidence, skippedEntry.url),
+            "skipped",
+          );
           pushSkippedRecord({
             messageTime,
             title: block.shareCardTitle ?? skippedEntry.url,
@@ -1635,6 +1841,7 @@ export async function scanUiLinks(
       if (!isActionableShareCardBlock(block)) {
         if (artifactRecord && block.skipReason) {
           if (existingArticleState) {
+            finalizeTypeOutcome(blockOutcomeObservation, "skipped");
             artifactRecord.status = "duplicate_skipped";
             artifactRecord.reason = "article_already_skipped";
             stats.duplicate_skipped += 1;
@@ -1654,6 +1861,7 @@ export async function scanUiLinks(
             rawText: block.rawText,
             skipReason: block.skipReason,
           });
+          finalizeTypeOutcome(blockOutcomeObservation, "skipped");
           upsertArticleState(articleStates, articleFingerprints, {
             status: "skipped",
             attempted: true,
@@ -1679,6 +1887,7 @@ export async function scanUiLinks(
           candidateArtifacts.push(artifactRecord);
         }
         stats.duplicate_skipped += 1;
+        finalizeTypeOutcome(blockOutcomeObservation, "deduplicated");
         upsertArticleState(articleStates, articleFingerprints, {
           lastSeenPage: scrollCount,
           lastSeenYBand: existingArticleState.lastSeenYBand ?? null,
@@ -1699,6 +1908,7 @@ export async function scanUiLinks(
           ? "candidate_generation_failed"
           : "ocr_candidate_missing";
         stats.share_cards_unresolved += 1;
+        finalizeTypeOutcome(blockOutcomeObservation, "unresolved");
         pushUnresolvedRecord({
           messageTime,
           block,
@@ -1727,17 +1937,95 @@ export async function scanUiLinks(
           `[debug] Trying share card: ${candidate.title ?? block.shareCardTitle ?? "(untitled)"} @ ${candidate.clickX},${candidate.clickY}`
         );
       }
-      const extraction = await extractShareCardUrlFn(candidate, {
-        debug,
-        artifactDir,
-      }, {
-        recoverChatFn: navigateToFileHelperFn,
-      });
+      const extraction =
+        block.contentType === "image"
+          ? await extractImageContentFn(
+              candidate,
+              {
+                debug,
+                artifactDir,
+                capturedAt,
+                messageTime: messageTime ?? referenceNow,
+                captureSessionId: sessionId,
+                chatName: FILE_HELPER_CHAT_NAME,
+              },
+              { recoverChatFn: navigateToFileHelperFn },
+            )
+          : await extractShareCardUrlFn(candidate, {
+              debug,
+              artifactDir,
+            }, {
+              recoverChatFn: navigateToFileHelperFn,
+            });
       stats.viewer_open_wait_ms_total += extraction.timings?.viewer_open_wait_ms ?? 0;
       stats.viewer_ready_wait_ms_total += extraction.timings?.viewer_ready_wait_ms ?? 0;
       stats.viewer_menu_wait_ms_total += extraction.timings?.viewer_menu_wait_ms ?? 0;
       stats.viewer_copy_wait_ms_total += extraction.timings?.viewer_copy_wait_ms ?? 0;
       stats.viewer_close_wait_ms_total += extraction.timings?.viewer_close_wait_ms ?? 0;
+      stats.image_ocr_wait_ms_total += extraction.timings?.image_ocr_wait_ms ?? 0;
+
+      if (block.contentType === "image") {
+        if (extraction.record && !seenKeys.has(extraction.record.dedupe_key)) {
+          seenKeys.add(extraction.record.dedupe_key);
+          contentRecords.push(extraction.record);
+        }
+
+        if (extraction.status === "ok" && extraction.record) {
+          artifactRecord.status = "resolved";
+          artifactRecord.content_hash = extraction.record.content_hash;
+          artifactRecord.note_path = extraction.record.note_path ?? null;
+          artifactRecord.pkm_status = extraction.record.pkm_status;
+          stats.share_cards_resolved += 1;
+          stats.image_items_processed += 1;
+          if (extraction.record.pkm_status === "needs_review") {
+            stats.image_items_needs_review += 1;
+            finalizeTypeOutcome(blockOutcomeObservation, "needs_review");
+          } else {
+            finalizeTypeOutcome(blockOutcomeObservation, "recorded");
+          }
+          upsertArticleState(articleStates, articleFingerprints, {
+            status: "resolved",
+            attempted: true,
+            resolved: true,
+            failed: false,
+            skipped: false,
+            lastSeenPage: scrollCount,
+            lastSeenYBand: candidateYBand,
+          });
+        } else {
+          artifactRecord.status = "unresolved";
+          artifactRecord.reason = extraction.reason ?? "image_extraction_failed";
+          stats.share_cards_unresolved += 1;
+          finalizeTypeOutcome(blockOutcomeObservation, "unresolved");
+          pushUnresolvedRecord({
+            messageTime,
+            block,
+            candidate,
+            failureStage: extraction.failureStage ?? "image_ocr",
+            errorCode: artifactRecord.reason,
+            attemptCount: 1,
+            pageIndex: scrollCount,
+          });
+          upsertArticleState(articleStates, articleFingerprints, {
+            status: "failed",
+            attempted: true,
+            resolved: false,
+            failed: true,
+            skipped: false,
+            lastSeenPage: scrollCount,
+            lastSeenYBand: candidateYBand,
+          });
+        }
+
+        if (stats.share_cards_attempted >= maxCandidates) {
+          limitReached = true;
+          if (debug) {
+            console.log(`[debug] Reached max candidate limit (${maxCandidates}), stopping early.`);
+          }
+          break;
+        }
+        continue;
+      }
 
       if (extraction.status === "ok" && extraction.url) {
         const canonicalUrl = canonicalizeUrl(extraction.url);
@@ -1753,6 +2041,7 @@ export async function scanUiLinks(
             skipReason,
             rawUrl: canonicalUrl,
           });
+          finalizeTypeOutcome(blockOutcomeObservation, "skipped");
           upsertArticleState(articleStates, articleFingerprints, {
             status: "skipped",
             attempted: true,
@@ -1782,6 +2071,9 @@ export async function scanUiLinks(
             capture_session_id: sessionId,
             source: "ui",
           });
+          finalizeTypeOutcome(blockOutcomeObservation, "recorded");
+        } else {
+          finalizeTypeOutcome(blockOutcomeObservation, "deduplicated");
         }
 
         artifactRecord.status = "resolved";
@@ -1804,6 +2096,7 @@ export async function scanUiLinks(
         artifactRecord.status = "unresolved";
         artifactRecord.reason = extraction.reason ?? "share_card_extractor_failed";
         stats.share_cards_unresolved += 1;
+        finalizeTypeOutcome(blockOutcomeObservation, "unresolved");
         pushUnresolvedRecord({
           messageTime,
           block,
@@ -1848,6 +2141,8 @@ export async function scanUiLinks(
     }
   }
 
+  stats.type_outcomes = summarizeTypeOutcomes();
+
   if (artifactDir) {
     await fs.writeFile(
       path.join(artifactDir, "candidates.json"),
@@ -1857,7 +2152,7 @@ export async function scanUiLinks(
   }
 
   console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
-  return { records, uncertainRecords, skippedRecords, unresolvedRecords, stats };
+  return { records, uncertainRecords, skippedRecords, unresolvedRecords, contentRecords, stats };
 }
 
 export async function captureVisibleUiPage(
@@ -2561,6 +2856,224 @@ async function verifyChatRecovered(
       await fs.rm(screenshotPath, { force: true }).catch(() => {});
     }
   }
+}
+
+async function detectImageViewerContext(
+  beforeWindows,
+  beforeFrontWindow,
+  { timeoutMs = VIEWER_DETECT_TIMEOUT_MS, pollMs = VIEWER_DETECT_POLL_MS } = {},
+  {
+    getWeChatWindowsFn = getWeChatWindows,
+    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    sleepMsFn = sleepMs,
+  } = {},
+) {
+  const beforeSignatures = new Set(beforeWindows.map(windowSignature));
+  const beforeFrontSignature = windowSignature(beforeFrontWindow ?? beforeWindows[0] ?? null);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const currentWindows = getWeChatWindowsFn();
+    const frontWindow = getFrontWeChatWindowFn();
+    const newWindow = currentWindows.find(
+      (window) => !beforeSignatures.has(windowSignature(window)),
+    );
+    if (newWindow) {
+      return { mode: "new_window", screenRect: newWindow, window: newWindow };
+    }
+    if (frontWindow && windowSignature(frontWindow) !== beforeFrontSignature) {
+      return { mode: "front_window_changed", screenRect: frontWindow, window: frontWindow };
+    }
+    sleepMsFn(pollMs);
+  }
+
+  return null;
+}
+
+export async function extractImageContent(
+  candidate,
+  {
+    debug = false,
+    artifactDir = null,
+    capturedAt = new Date(),
+    messageTime = capturedAt,
+    chatName = FILE_HELPER_CHAT_NAME,
+    captureSessionId = newCaptureSessionId(),
+  } = {},
+  {
+    getWeChatWindowsFn = getWeChatWindows,
+    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    clickAtPointFn = clickAtPoint,
+    sleepMsFn = sleepMs,
+    detectImageViewerContextFn = detectImageViewerContext,
+    captureRectScreenshotFn = captureRectScreenshot,
+    recognizeTextFromImageFn = recognizeTextFromImage,
+    createImageContentRecordFn = createImageContentRecord,
+    publishImageContentRecordFn = publishImageContentRecord,
+    closeViewerWindowFn = closeViewerWindow,
+    verifyChatRecoveredFn = verifyChatRecovered,
+    recoverChatFn = null,
+    fsImpl = fs,
+  } = {},
+) {
+  const timings = {
+    viewer_open_wait_ms: 0,
+    viewer_ready_wait_ms: 0,
+    viewer_menu_wait_ms: 0,
+    viewer_copy_wait_ms: 0,
+    viewer_close_wait_ms: 0,
+    image_ocr_wait_ms: 0,
+  };
+  const beforeWindows = getWeChatWindowsFn();
+  const beforeFrontWindow = getFrontWeChatWindowFn() ?? beforeWindows[0] ?? null;
+  const openStartedAt = Date.now();
+  clickAtPointFn(candidate.clickX, candidate.clickY);
+  sleepMsFn(VIEWER_OPEN_SETTLE_MS);
+  const viewerContext = await detectImageViewerContextFn(
+    beforeWindows,
+    beforeFrontWindow,
+    { debug, artifactDir },
+    { getWeChatWindowsFn, getFrontWeChatWindowFn, sleepMsFn },
+  );
+  timings.viewer_open_wait_ms = Date.now() - openStartedAt;
+
+  if (!viewerContext?.screenRect) {
+    let recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    if (!recovered && typeof recoverChatFn === "function") {
+      await recoverChatFn(debug);
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    return {
+      status: "failed",
+      reason: recovered ? "image_viewer_not_opened" : "image_candidate_chat_not_recovered",
+      failureStage: recovered ? "viewer_open" : "viewer_recovery",
+      record: null,
+      artifactPath: null,
+      timings,
+    };
+  }
+
+  const safeItemKey = String(candidate.itemKey ?? "image").replace(/[^A-Za-z0-9._-]+/g, "-");
+  const screenshotPath =
+    artifactDir != null
+      ? path.join(artifactDir, `image-viewer-${safeItemKey}-${Date.now()}.png`)
+      : path.join(os.tmpdir(), `wechat-image-viewer-${process.pid}-${Date.now()}.png`);
+  let result = {
+    status: "failed",
+    reason: "image_ocr_failed",
+    failureStage: "image_ocr",
+    record: null,
+    artifactPath: screenshotPath,
+    timings,
+  };
+
+  try {
+    if (artifactDir != null) {
+      await fsImpl.mkdir(artifactDir, { recursive: true });
+    }
+    const ocrStartedAt = Date.now();
+    captureRectScreenshotFn(viewerContext.screenRect, screenshotPath);
+    const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+    timings.image_ocr_wait_ms = Date.now() - ocrStartedAt;
+    if (artifactDir != null) {
+      await writeJsonArtifact(
+        path.join(artifactDir, `image-viewer-${safeItemKey}.ocr.json`),
+        ocrResult,
+      );
+    }
+
+    let record;
+    try {
+      record = createImageContentRecordFn({
+        capturedAt,
+        messageTime,
+        chatName,
+        title: candidate.title ?? "",
+        captureSessionId,
+        source: "ui",
+        ocrResult,
+      });
+    } catch (error) {
+      result = {
+        ...result,
+        reason: error?.code || "image_ocr_failed",
+        failureStage: "image_ocr",
+      };
+      record = null;
+    }
+
+    if (record) {
+      try {
+        const published = await publishImageContentRecordFn(record);
+        result = {
+          ...result,
+          status: "ok",
+          reason: null,
+          failureStage: null,
+          record:
+            published.pkm_status === "needs_review" && artifactDir != null
+              ? { ...published, review_artifact_path: screenshotPath }
+              : published,
+        };
+      } catch (error) {
+        result = {
+          ...result,
+          reason: error?.code || "image_note_write_failed",
+          failureStage: "pkm_write",
+          record: {
+            ...record,
+            pkm_status: "write_failed",
+            ...(artifactDir != null ? { artifact_path: screenshotPath } : {}),
+          },
+        };
+      }
+    }
+  } catch (error) {
+    result = {
+      ...result,
+      reason: error?.code || "image_ocr_failed",
+      failureStage: "image_ocr",
+    };
+  } finally {
+    const closeStartedAt = Date.now();
+    const closeResult = normalizeCloseViewerResult(
+      closeViewerWindowFn(beforeWindows, { debug }),
+      beforeWindows,
+      getFrontWeChatWindowFn,
+    );
+    let recovered = false;
+    if (
+      closeResult.closed &&
+      fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)
+    ) {
+      recovered = true;
+    } else {
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    if (!recovered && typeof recoverChatFn === "function") {
+      await recoverChatFn(debug);
+      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+    }
+    if (!closeResult.closed || !recovered) {
+      result = {
+        ...result,
+        status: "failed",
+        reason: !closeResult.closed ? "image_viewer_not_closed" : "image_chat_not_recovered",
+        failureStage: "viewer_recovery",
+      };
+    }
+    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
+
+    const shouldRemoveScreenshot =
+      artifactDir == null ||
+      (result.status === "ok" && result.record?.pkm_status === "written");
+    if (shouldRemoveScreenshot) {
+      await fsImpl.rm(screenshotPath, { force: true }).catch(() => {});
+      result.artifactPath = null;
+    }
+  }
+
+  return result;
 }
 
 export async function extractShareCardUrl(

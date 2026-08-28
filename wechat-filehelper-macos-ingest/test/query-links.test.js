@@ -310,4 +310,70 @@ describe("query-links.js", () => {
     assert.match(mdOutput, /Possible OCR URL/);
     assert.match(mdOutput, /near_duplicate_variant/);
   });
+
+  it("shows image OCR content and unresolved items as separate result groups", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-content-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      [
+        JSON.stringify({
+          captured_at: "2026-08-29T07:10:00.000Z",
+          message_time: "2026-08-29T07:10:00.000Z",
+          chat_name: "文件传输助手",
+          record_type: "content",
+          content_type: "image_ocr",
+          message_type: "image",
+          title: "Agent 工作流检查表",
+          content_text: "先验证核心假设\n失败必须明确留痕",
+          content_hash: "a".repeat(64),
+          ocr_confidence: 0.94,
+          ocr_line_count: 2,
+          pkm_status: "written",
+          note_path: "/vault/Clippings/agent.md",
+          dedupe_key: "image-1",
+          source: "ui",
+        }),
+        JSON.stringify({
+          captured_at: "2026-08-29T07:11:00.000Z",
+          message_time: "2026-08-29T07:11:00.000Z",
+          chat_name: "文件传输助手",
+          record_type: "unresolved_item",
+          content_type: "video_channel",
+          title: "没有拿到链接的视频",
+          failure_stage: "link_extraction",
+          error_code: "video_share_copy_failed",
+          attempt_count: 1,
+          dedupe_key: "unresolved-1",
+          source: "ui",
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const jsonResult = await runQuery({
+      skillRoot: dir,
+      indexPath,
+      since: new Date("2026-08-29T07:00:00.000Z"),
+      until: new Date("2026-08-29T08:00:00.000Z"),
+      format: "json",
+    });
+    const parsed = JSON.parse(jsonResult.rendered);
+    assert.equal(parsed.image_contents.length, 1);
+    assert.equal(parsed.image_contents[0].content_text, "先验证核心假设\n失败必须明确留痕");
+    assert.equal(parsed.unresolved_items.length, 1);
+    assert.equal(parsed.unresolved_items[0].error_code, "video_share_copy_failed");
+
+    const markdownResult = await runQuery({
+      skillRoot: dir,
+      indexPath,
+      since: new Date("2026-08-29T07:00:00.000Z"),
+      until: new Date("2026-08-29T08:00:00.000Z"),
+      format: "md",
+    });
+    assert.match(markdownResult.rendered, /## 图片 OCR/);
+    assert.match(markdownResult.rendered, /Agent 工作流检查表/);
+    assert.match(markdownResult.rendered, /## 未解决项/);
+    assert.match(markdownResult.rendered, /video_share_copy_failed/);
+  });
 });

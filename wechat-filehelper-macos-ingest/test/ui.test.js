@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildUiSnapshot,
   captureVisibleUiPage,
+  extractImageContent,
   extractShareCardUrl,
   findFileHelperTitleLine,
   findMenuActionLine,
@@ -341,6 +342,158 @@ describe("ui helpers", () => {
     assert.equal(snapshot.ocrFallbackBlocks.length, 1);
     assert.equal(snapshot.ocrFallbackBlocks[0].shareCardTitle, "刚刚，飞书CLI开源，Claude Code 也可以丝滑操控飞书节…");
     assert.equal(snapshot.candidates.length, 1);
+  });
+
+  it("classifies screenshot-like OCR paragraphs as image candidates beside a direct URL", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [{
+          blockId: "direct-url",
+          timestampText: "Yesterday 18:05",
+          rawLines: ["https://example.com/reference"],
+          rawText: "https://example.com/reference",
+          directUrls: ["https://example.com/reference"],
+          shareCardTitle: null,
+          skipReason: null,
+        }],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 999, y: 420, width: 152, height: 28 },
+          { text: "https://example.com/reference", x: 930, y: 470, width: 430, height: 30 },
+          { text: "Agent 工作流检查表", x: 1010, y: 690, width: 310, height: 36, confidence: 0.96 },
+          { text: "先验证核心假设，再决定是否完整实现。", x: 1010, y: 736, width: 420, height: 32, confidence: 0.94 },
+          { text: "失败必须明确留痕，不能返回一个合法空值。", x: 1010, y: 778, width: 430, height: 32, confidence: 0.93 },
+          { text: "每一种内容都要有可核对的最终状态。", x: 1010, y: 820, width: 410, height: 32, confidence: 0.95 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    const imageBlocks = snapshot.ocrFallbackBlocks.filter((block) => block.contentType === "image");
+    assert.equal(imageBlocks.length, 1);
+    assert.equal(imageBlocks[0].skipReason, null);
+    assert.equal(snapshot.candidates.some((candidate) => candidate.itemKey === imageBlocks[0].blockId), true);
+  });
+
+  it("promotes clipboard image classifications instead of losing them during OCR dedupe", () => {
+    const rawLines = [
+      "Agent 工作流检查表",
+      "先验证核心假设，再决定是否完整实现。",
+      "失败必须明确留痕，不能返回一个合法空值。",
+    ];
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [{
+          blockId: "clipboard-image",
+          timestampText: "Yesterday 18:05",
+          rawLines,
+          rawText: rawLines.join("\n"),
+          directUrls: [],
+          shareCardTitle: rawLines.slice(0, 2).join(" "),
+          skipReason: "plain_text_block",
+        }],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 999, y: 420, width: 152, height: 28 },
+          { text: rawLines[0], x: 1010, y: 470, width: 310, height: 36, confidence: 0.96 },
+          { text: rawLines[1], x: 1010, y: 516, width: 420, height: 32, confidence: 0.94 },
+          { text: rawLines[2], x: 1010, y: 558, width: 430, height: 32, confidence: 0.93 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.effectiveBlocks.length, 1);
+    assert.equal(snapshot.effectiveBlocks[0].contentType, "image");
+    assert.equal(snapshot.effectiveBlocks[0].classificationReason, "plain_text_block");
+    assert.equal(snapshot.effectiveBlocks[0].skipReason, null);
+    assert.equal(snapshot.candidates.length, 1);
+    assert.equal(snapshot.candidates[0].contentType, "image");
+  });
+
+  it("keeps screenshot text beginning just left of the old card boundary", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { blocks: [] },
+      ocrResult: {
+        width: 1474,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Route 追踪 90+ 个服务的免费层级，消耗", x: 830, y: 797, width: 360, height: 20, confidence: 0.3 },
+          { text: "累计的配额，用量量化记录——一个账户只展示", x: 828, y: 825, width: 390, height: 20, confidence: 0.3 },
+          { text: "事实，不虚报。", x: 828, y: 853, width: 150, height: 20, confidence: 0.3 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 1474, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].contentType, "image");
+    assert.equal(snapshot.candidates.length, 1);
+  });
+
+  it("keeps an explicit one-line image marker as an actionable image candidate", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { blocks: [] },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:05", x: 999, y: 520, width: 152, height: 28 },
+          { text: "[图片]", x: 1010, y: 570, width: 110, height: 34, confidence: 0.99 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].contentType, "image");
+    assert.equal(snapshot.candidates.length, 1);
+  });
+
+  it("keeps an unrelated OCR image when clipboard already contains a share card", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: {
+        blocks: [{
+          blockId: "clipboard-article",
+          timestampText: "Yesterday 18:06",
+          rawLines: ["已在剪贴板中的文章", "来源甲"],
+          rawText: "已在剪贴板中的文章\n来源甲",
+          directUrls: [],
+          shareCardTitle: "已在剪贴板中的文章 来源甲",
+          skipReason: null,
+        }],
+      },
+      ocrResult: {
+        width: 1560,
+        height: 1846,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "Yesterday 18:06", x: 999, y: 390, width: 152, height: 28 },
+          { text: "已在剪贴板中的文章", x: 1010, y: 440, width: 310, height: 34 },
+          { text: "来源甲", x: 1010, y: 482, width: 100, height: 28 },
+          { text: "Yesterday 18:05", x: 999, y: 640, width: 152, height: 28 },
+          { text: "图片中的第一条完整结论。", x: 1010, y: 690, width: 360, height: 32, confidence: 0.95 },
+          { text: "图片中的第二条完整结论。", x: 1010, y: 732, width: 360, height: 32, confidence: 0.94 },
+          { text: "图片中的第三条完整结论。", x: 1010, y: 774, width: 360, height: 32, confidence: 0.93 },
+        ],
+      },
+      windowBounds: { x: 100, y: 200, width: 1560, height: 1846 },
+    });
+
+    assert.equal(snapshot.ocrFallbackBlocks.length, 1);
+    assert.equal(snapshot.ocrFallbackBlocks[0].contentType, "image");
+    assert.equal(snapshot.effectiveBlocks.length, 2);
+    assert.equal(snapshot.candidates.length, 2);
   });
 
   it("marks bilibili-style OCR fallback cards as skipped before viewer extraction", () => {
@@ -844,6 +997,15 @@ describe("scanUiLinks", () => {
     assert.equal(result.records[0].message_type, "share_card");
     assert.equal(result.records[0].title, "直链消息");
     assert.equal(result.stats.share_cards_attempted, 0);
+    assert.deepEqual(result.stats.type_outcomes.direct_url, {
+      seen: 1,
+      recorded: 1,
+      needs_review: 0,
+      uncertain: 0,
+      skipped: 0,
+      unresolved: 0,
+      deduplicated: 0,
+    });
   });
 
   it("records OCR-only low-confidence external URLs as uncertain links without opening the viewer", async () => {
@@ -913,6 +1075,82 @@ describe("scanUiLinks", () => {
     assert.equal(result.uncertainRecords[0].url, "https://www.youtube.com/watch");
     assert.equal(result.uncertainRecords[0].record_type, "uncertain_link");
     assert.equal(result.stats.uncertain_links_total, 1);
+  });
+
+  it("routes image candidates through OCR and preserves the content record", async () => {
+    let imageExtractorCalls = 0;
+    const imageRecord = {
+      captured_at: "2026-03-28T18:05:00.000Z",
+      message_time: "2026-03-28T18:05:00.000Z",
+      chat_name: "文件传输助手",
+      record_type: "content",
+      content_type: "image_ocr",
+      message_type: "image",
+      title: "Agent 工作流检查表",
+      content_text: "先验证核心假设",
+      content_hash: "a".repeat(64),
+      ocr_confidence: 0.94,
+      ocr_line_count: 1,
+      pkm_status: "written",
+      dedupe_key: "image-dedupe-1",
+      capture_session_id: "image-session-1",
+      source: "ui",
+    };
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "image-card-1",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["Agent 工作流检查表", "先验证核心假设"],
+              rawText: "Agent 工作流检查表\n先验证核心假设",
+              directUrls: [],
+              shareCardTitle: "Agent 工作流检查表",
+              skipReason: null,
+              contentType: "image",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "image-card-1",
+            { itemKey: "image-card-1", title: "Agent 工作流检查表", clickX: 500, clickY: 400 },
+          ]]),
+        }),
+        extractShareCardUrlFn: async () => {
+          throw new Error("image candidate must not use Copy Link");
+        },
+        extractImageContentFn: async (_candidate, context) => {
+          imageExtractorCalls += 1;
+          assert.equal(context.messageTime instanceof Date, true);
+          return { status: "ok", record: imageRecord };
+        },
+      }
+    );
+
+    assert.equal(imageExtractorCalls, 1);
+    assert.deepEqual(result.contentRecords, [imageRecord]);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.unresolvedRecords.length, 0);
+    assert.deepEqual(result.stats.type_outcomes.image, {
+      seen: 1,
+      recorded: 1,
+      needs_review: 0,
+      uncertain: 0,
+      skipped: 0,
+      unresolved: 0,
+      deduplicated: 0,
+    });
   });
 
   it("only opens the viewer for blocks that lack a direct URL", async () => {
@@ -2525,5 +2763,149 @@ describe("extractShareCardUrl", () => {
     assert.equal(result.reason, "viewer_detected_but_menu_not_found");
     assert.equal(ocrCall, 2);
     assert.equal(clicks.length, 2);
+  });
+});
+
+describe("extractImageContent", () => {
+  const mainWindow = { name: "File Transfer", x: 0, y: 0, width: 800, height: 600 };
+  const viewerWindow = { name: "Image Viewer", x: 50, y: 40, width: 900, height: 700 };
+
+  function imageContext(overrides = {}) {
+    return {
+      capturedAt: new Date("2026-08-29T08:00:00.000Z"),
+      messageTime: new Date("2026-08-29T07:58:00.000Z"),
+      chatName: "文件传输助手",
+      captureSessionId: "image-session-1",
+      ...overrides,
+    };
+  }
+
+  function imageDependencies(overrides = {}) {
+    return {
+      getWeChatWindowsFn: () => [mainWindow],
+      getFrontWeChatWindowFn: () => mainWindow,
+      clickAtPointFn: () => {},
+      sleepMsFn: () => {},
+      detectImageViewerContextFn: async () => ({
+        mode: "new_window",
+        screenRect: viewerWindow,
+        window: viewerWindow,
+      }),
+      captureRectScreenshotFn: () => {},
+      recognizeTextFromImageFn: async () => ({
+        width: 1800,
+        height: 1400,
+        lines: [
+          { text: "Agent 工作流检查表", confidence: 0.96 },
+          { text: "先验证假设，再做完整实现", confidence: 0.92 },
+        ],
+      }),
+      publishImageContentRecordFn: async (record) => ({
+        ...record,
+        pkm_status: "written",
+        note_path: "/vault/Clippings/image-note.md",
+      }),
+      closeViewerWindowFn: () => ({
+        closed: true,
+        currentWindows: [mainWindow],
+        frontWindow: mainWindow,
+        usedCommandW: false,
+      }),
+      verifyChatRecoveredFn: async () => {
+        throw new Error("fast recovery should be sufficient");
+      },
+      ...overrides,
+    };
+  }
+
+  it("confirms the image viewer, runs local OCR, and publishes the record", async () => {
+    const clicks = [];
+    const captures = [];
+    const result = await extractImageContent(
+      { itemKey: "image-1", title: "Agent 工作流检查表", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        clickAtPointFn: (x, y) => clicks.push({ x, y }),
+        captureRectScreenshotFn: (rect) => captures.push(rect),
+      }),
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.record.record_type, "content");
+    assert.equal(result.record.content_type, "image_ocr");
+    assert.equal(result.record.content_text, "Agent 工作流检查表\n先验证假设，再做完整实现");
+    assert.equal(result.record.pkm_status, "written");
+    assert.deepEqual(clicks, [{ x: 500, y: 400 }]);
+    assert.deepEqual(captures, [viewerWindow]);
+  });
+
+  it("returns an explicit OCR failure after closing an empty image viewer", async () => {
+    let closed = false;
+    const result = await extractImageContent(
+      { itemKey: "image-empty", title: "空图片", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => ({ width: 1800, height: 1400, lines: [] }),
+        publishImageContentRecordFn: async () => {
+          throw new Error("empty OCR must not be published");
+        },
+        closeViewerWindowFn: () => {
+          closed = true;
+          return {
+            closed: true,
+            currentWindows: [mainWindow],
+            frontWindow: mainWindow,
+            usedCommandW: false,
+          };
+        },
+      }),
+    );
+
+    assert.equal(closed, true);
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "image_ocr_empty");
+    assert.equal(result.failureStage, "image_ocr");
+    assert.equal(result.record, null);
+  });
+
+  it("keeps OCR content when PKM publication fails", async () => {
+    const publishError = new Error("no vault");
+    publishError.code = "image_note_target_unavailable";
+    const result = await extractImageContent(
+      { itemKey: "image-write-failed", title: "待写入图片", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        publishImageContentRecordFn: async () => {
+          throw publishError;
+        },
+      }),
+    );
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "image_note_target_unavailable");
+    assert.equal(result.failureStage, "pkm_write");
+    assert.equal(result.record.content_type, "image_ocr");
+    assert.equal(result.record.pkm_status, "write_failed");
+  });
+
+  it("does not claim OCR success when no image viewer opens", async () => {
+    let ocrCalls = 0;
+    const result = await extractImageContent(
+      { itemKey: "not-an-image", title: "普通文字", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        detectImageViewerContextFn: async () => null,
+        verifyChatRecoveredFn: async () => true,
+        recognizeTextFromImageFn: async () => {
+          ocrCalls += 1;
+          return { lines: [] };
+        },
+      }),
+    );
+
+    assert.equal(ocrCalls, 0);
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "image_viewer_not_opened");
+    assert.equal(result.failureStage, "viewer_open");
   });
 });

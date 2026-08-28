@@ -56,6 +56,8 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
       videoChannels: [],
       uncertainLinks: [],
       skippedCards: [],
+      imageContents: [],
+      unresolvedItems: [],
       rendered: "Index is empty. Run scan-links.js first.",
       indexPath: resolvedIndexPath,
     };
@@ -66,12 +68,34 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
   const seenUncertain = new Set();
   const seenSkipped = new Set();
   const seenVideos = new Set();
+  const seenImageContents = new Set();
+  const seenUnresolvedItems = new Set();
   const deduped = [];
   const uncertainLinks = [];
   const skippedCards = [];
   const videoChannels = [];
+  const imageContents = [];
+  const unresolvedItems = [];
 
   for (const record of results) {
+    if (record?.record_type === "content" && record?.content_type === "image_ocr") {
+      const imageKey = record.dedupe_key ?? `${record.message_time}|${record.content_hash}`;
+      if (seenImageContents.has(imageKey)) continue;
+      seenImageContents.add(imageKey);
+      imageContents.push(record);
+      continue;
+    }
+
+    if (record?.record_type === "unresolved_item") {
+      const unresolvedKey =
+        record.dedupe_key ??
+        `${record.message_time}|${record.content_type}|${record.error_code}|${record.title ?? ""}`;
+      if (seenUnresolvedItems.has(unresolvedKey)) continue;
+      seenUnresolvedItems.add(unresolvedKey);
+      unresolvedItems.push(record);
+      continue;
+    }
+
     if (record?.record_type === "skipped_card") {
       const skippedKey = record.dedupe_key ?? `${record.message_time}|${record.skip_reason}|${record.title ?? ""}`;
       if (seenSkipped.has(skippedKey)) continue;
@@ -108,8 +132,17 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
     videoChannels,
     uncertainLinks: filteredUncertainLinks,
     skippedCards,
+    imageContents,
+    unresolvedItems,
     rendered: renderQueryResults(
-      { records: deduped, videoChannels, uncertainLinks: filteredUncertainLinks, skippedCards },
+      {
+        records: deduped,
+        videoChannels,
+        uncertainLinks: filteredUncertainLinks,
+        skippedCards,
+        imageContents,
+        unresolvedItems,
+      },
       { since, until, format }
     ),
     indexPath: resolvedIndexPath,
@@ -117,16 +150,25 @@ export async function runQuery({ skillRoot, since, until, format = "text", index
 }
 
 export function renderQueryResults(
-  { records, videoChannels = [], uncertainLinks = [], skippedCards = [] },
+  {
+    records,
+    videoChannels = [],
+    uncertainLinks = [],
+    skippedCards = [],
+    imageContents = [],
+    unresolvedItems = [],
+  },
   { since, until, format },
 ) {
   if (
     records.length === 0 &&
     videoChannels.length === 0 &&
     uncertainLinks.length === 0 &&
-    skippedCards.length === 0
+    skippedCards.length === 0 &&
+    imageContents.length === 0 &&
+    unresolvedItems.length === 0
   ) {
-    return "No links found in the specified time range.";
+    return "No items found in the specified time range.";
   }
 
   switch (format) {
@@ -137,6 +179,8 @@ export function renderQueryResults(
           video_channels: videoChannels,
           uncertain_links: uncertainLinks,
           skipped_cards: skippedCards,
+          image_contents: imageContents,
+          unresolved_items: unresolvedItems,
         },
         null,
         2,
@@ -179,6 +223,35 @@ export function renderQueryResults(
           lines.push(`- [${title}](${record.url})`);
           lines.push(`  > ${record.message_time}`);
           lines.push(`  > ${record.confidence_reason ?? "ocr_uncertain"}`);
+        }
+      }
+
+      lines.push("");
+      lines.push("## 图片 OCR 内容");
+      lines.push("");
+      if (imageContents.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of imageContents) {
+          lines.push(`- ${record.title || "(untitled image)"}`);
+          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > PKM: ${record.pkm_status ?? "unknown"}; OCR: ${record.ocr_confidence ?? "unknown"}`);
+          if (record.note_path) lines.push(`  > ${record.note_path}`);
+          const preview = String(record.content_text ?? "").split(/\r?\n/).find(Boolean);
+          if (preview) lines.push(`  > ${preview}`);
+        }
+      }
+
+      lines.push("");
+      lines.push("## 未解决项");
+      lines.push("");
+      if (unresolvedItems.length === 0) {
+        lines.push("- 无");
+      } else {
+        for (const record of unresolvedItems) {
+          lines.push(`- ${record.title || "(untitled unresolved item)"}`);
+          lines.push(`  > ${record.message_time}`);
+          lines.push(`  > ${record.content_type ?? "unknown"} / ${record.failure_stage ?? "unknown"} / ${record.error_code ?? "unknown"}`);
         }
       }
 
@@ -227,6 +300,23 @@ export function renderQueryResults(
       for (const record of skippedCards) {
         lines.push(`[${record.message_time}] ${record.title || "(untitled skipped card)"}`);
         lines.push(`  skip: ${record.skip_reason ?? "skipped"}`);
+        lines.push("");
+      }
+
+      lines.push(`Image OCR ${imageContents.length} content item(s):`);
+      lines.push("");
+      for (const record of imageContents) {
+        lines.push(`[${record.message_time}] ${record.title || "(untitled image)"}`);
+        lines.push(`  PKM: ${record.pkm_status ?? "unknown"}; OCR: ${record.ocr_confidence ?? "unknown"}`);
+        if (record.note_path) lines.push(`  ${record.note_path}`);
+        lines.push("");
+      }
+
+      lines.push(`Unresolved ${unresolvedItems.length} item(s):`);
+      lines.push("");
+      for (const record of unresolvedItems) {
+        lines.push(`[${record.message_time}] ${record.title || "(untitled unresolved item)"}`);
+        lines.push(`  ${record.content_type ?? "unknown"} / ${record.failure_stage ?? "unknown"} / ${record.error_code ?? "unknown"}`);
         lines.push("");
       }
       return lines.join("\n").trimEnd();

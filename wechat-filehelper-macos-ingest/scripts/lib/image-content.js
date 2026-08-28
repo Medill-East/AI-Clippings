@@ -41,7 +41,7 @@ export function createImageContentRecord({
     lines.reduce((total, line) => total + line.confidence, 0) / lines.length,
   );
   const messageTimeIso = new Date(messageTime ?? capturedAt).toISOString();
-  const resolvedTitle = String(title).trim() || lines[0].text.slice(0, 80);
+  const resolvedTitle = (String(title).trim() || lines[0].text).slice(0, 100);
 
   return {
     captured_at: new Date(capturedAt).toISOString(),
@@ -98,7 +98,12 @@ export function renderImageContentNote(record) {
 export async function publishImageContentRecord(
   record,
   {
-    resolveObsidianDirFn = () => resolveObsidianClippingsDir(),
+    resolveObsidianDirFn = () =>
+      resolveObsidianClippingsDir({
+        explicitDir:
+          process.env.WECHAT_IMAGE_OBSIDIAN_DIR ??
+          process.env.WECHAT_VIDEO_OBSIDIAN_DIR,
+      }),
     fsImpl = fs,
   } = {},
 ) {

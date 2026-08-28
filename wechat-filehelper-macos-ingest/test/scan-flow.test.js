@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { parseClipboardText, scanClipboardLinks } from "../scripts/lib/chat.js";
-import { runScan } from "../scripts/lib/scan.js";
+import { runScan, validateTypeOutcomes } from "../scripts/lib/scan.js";
 import { probeWeChatStore } from "../scripts/lib/store.js";
 import {
   createReadableWeChatHome,
@@ -98,6 +98,25 @@ describe("scan flow", () => {
               source: "ui",
             },
           ],
+          contentRecords: [
+            {
+              captured_at: "2026-03-28T07:13:00.000Z",
+              message_time: "2026-03-28T07:13:00.000Z",
+              chat_name: "文件传输助手",
+              record_type: "content",
+              content_type: "image_ocr",
+              message_type: "image",
+              title: "Screenshot text",
+              content_text: "Screenshot text",
+              content_hash: "a".repeat(64),
+              ocr_confidence: 0.94,
+              ocr_line_count: 1,
+              pkm_status: "written",
+              dedupe_key: "dedupe-ui-4",
+              capture_session_id: "session-ui-1",
+              source: "ui",
+            },
+          ],
           stats: {
             source: "ui",
             share_cards_seen: 1,
@@ -105,6 +124,14 @@ describe("scan flow", () => {
             share_cards_resolved: 1,
             share_cards_unresolved: 0,
             uncertain_links_total: 1,
+            image_items_seen: 1,
+            image_items_processed: 1,
+            image_items_needs_review: 0,
+            type_outcomes: {
+              direct_url: { seen: 1, recorded: 1, uncertain: 0, skipped: 0, unresolved: 0, deduplicated: 0 },
+              video_channel: { seen: 1, recorded: 0, uncertain: 0, skipped: 0, unresolved: 1, deduplicated: 0 },
+              image: { seen: 1, recorded: 1, uncertain: 0, skipped: 0, unresolved: 0, deduplicated: 0 },
+            },
             browser_fallback_used: 0,
               skipped_by_rule: {},
             },
@@ -123,12 +150,31 @@ describe("scan flow", () => {
     assert.equal(result.manifest.share_cards_resolved, 1);
     assert.equal(result.manifest.uncertain_links_total, 1);
     assert.equal(result.manifest.unresolved_items_total, 1);
+    assert.equal(result.manifest.image_contents_total, 1);
+    assert.equal(result.manifest.image_items_seen, 1);
+    assert.equal(result.manifest.image_items_processed, 1);
+    assert.equal(result.manifest.type_outcome_invariant.status, "passed");
+    assert.equal(result.manifest.type_outcomes.image.seen, 1);
     assert.equal(result.manifest.max_candidates, 1);
     assert.equal(capturedUiOptions.maxCandidates, 1);
     assert.equal(result.newRecords[0].source, "ui");
     assert.equal(result.uncertainRecords[0].record_type, "uncertain_link");
     assert.equal(result.unresolvedRecords[0].record_type, "unresolved_item");
     assert.ok(result.merged.some((record) => record.dedupe_key === "dedupe-ui-3"));
+    assert.equal(result.contentRecords[0].content_type, "image_ocr");
+    assert.ok(result.merged.some((record) => record.dedupe_key === "dedupe-ui-4"));
+  });
+
+  it("rejects type outcomes whose seen count has no final disposition", () => {
+    assert.deepEqual(
+      validateTypeOutcomes({
+        image: { seen: 2, recorded: 1, uncertain: 0, skipped: 0, unresolved: 0, deduplicated: 0 },
+      }),
+      {
+        valid: false,
+        errors: ["image: seen=2, final=1"],
+      },
+    );
   });
 
   it("auto falls back to clipboard when the UI probe is not ready", async () => {
