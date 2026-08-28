@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "description": "Capture links, rich cards, Video Channels, and image OCR from WeChat File Transfer Assistant on macOS with explicit PKM outcomes.",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "playwright": "^1.58.2"
+    "playwright": "1.62.1"
   },
   "scripts": {
     "setup": "node ./scripts/setup.js",

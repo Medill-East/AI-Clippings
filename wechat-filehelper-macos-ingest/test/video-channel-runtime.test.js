@@ -7,6 +7,7 @@ import path from "node:path";
 import { PipelineError } from "../scripts/lib/video-channel-pipeline.js";
 import {
   downloadVideoMedia,
+  loadResolvedVault,
   resolveObsidianClippingsDir,
   summarizeWithCodex,
   transcribeWithV2T,
@@ -225,6 +226,47 @@ describe("resolveObsidianClippingsDir", () => {
         obsidianConfigPaths: [configPath],
       }),
       path.join(vaultDir, "Clippings"),
+    );
+  });
+
+  it("does not accept a regular file as an Obsidian vault", async () => {
+    const root = await makeTempDir("video-obsidian-file-");
+    const runsDir = path.join(root, "runs");
+    const filePath = path.join(root, "not-a-vault");
+    const configPath = path.join(root, "obsidian.json");
+    await fs.mkdir(runsDir, { recursive: true });
+    await fs.writeFile(filePath, "not a directory");
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({ vaults: { invalid: { path: filePath, open: true } } }),
+    );
+
+    await assert.rejects(
+      resolveObsidianClippingsDir({
+        runsDir,
+        obsidianConfigPaths: [configPath],
+      }),
+      (error) => error instanceof PipelineError && error.code === "obsidian_vault_missing",
+    );
+  });
+
+  it("preserves vault permission errors instead of silently choosing another vault", async () => {
+    const permissionError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+
+    await assert.rejects(
+      loadResolvedVault(["/tmp/obsidian.json"], {
+        readJsonIfExistsFn: async () => ({
+          vaults: {
+            active: { path: "/protected/active-vault", open: true, ts: 2 },
+            stale: { path: "/stale-vault", open: false, ts: 1 },
+          },
+        }),
+        statFn: async (candidatePath) => {
+          if (candidatePath === "/protected/active-vault") throw permissionError;
+          return { isDirectory: () => true };
+        },
+      }),
+      (error) => error === permissionError,
     );
   });
 });

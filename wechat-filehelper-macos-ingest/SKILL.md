@@ -24,7 +24,7 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 ## 平台要求
 
 - **macOS only**
-- Node.js 18+
+- Node.js 20+
 - 微信桌面版已安装并登录
 - 若需要 UI-first 或 clipboard fallback，终端应用要有辅助功能权限
 - 若需要 UI-first，终端应用还需要屏幕录制权限
@@ -194,6 +194,7 @@ UI 没显示具体消息时间时，记录使用查询上界作为筛选占位�
 - `unresolved_items_total`
 - `image_contents_total`
 - `image_items_seen / image_items_processed / image_items_needs_review`
+- `image_candidates_rerouted_to_article`（由图片候选经文章 URL 确认后改走 Copy Link 的数量）
 - `type_outcomes`
 - `type_outcome_invariant.status`（必须为 `passed`；失败时 manifest 先落盘再报错）
 - `browser_fallback_used`

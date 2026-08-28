@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { probeWeChatStore } from "../scripts/lib/store.js";
+import { probeWeChatStore, scanStoreLinks } from "../scripts/lib/store.js";
 import {
   createMissingStoreWeChatHome,
   createReadableWeChatHome,
@@ -46,6 +46,30 @@ describe("probeWeChatStore", () => {
     assert.equal(probe.file_presence.message_db, true);
     assert.equal(probe.database_readability.message_db, "readable");
     assert.match(probe.active_account_dir ?? "", /wxid_test_abcd$/);
+  });
+
+  it("marks extracted database times with explicit provenance", async () => {
+    const homeDir = await makeTempHome();
+    await createReadableWeChatHome(homeDir, {
+      messages: [
+        {
+          message_id: "m1",
+          message_time: 1774684800000,
+          url: "https://example.com/article",
+          content: "https://example.com/article",
+        },
+      ],
+    });
+    const probe = await probeWeChatStore({ homeDir });
+
+    const result = await scanStoreLinks({
+      probe,
+      since: new Date("2026-03-28T07:59:00.000Z"),
+      until: new Date("2026-03-28T08:01:00.000Z"),
+    });
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].message_time_source, "database_timestamp");
   });
 
   it("reports missing when the account store is incomplete", async () => {

@@ -140,6 +140,38 @@ describe("query-links.js", () => {
     );
   });
 
+  it("labels timestamps from legacy records as having unknown provenance", async () => {
+    const dir = await makeTempDir("wechat-filehelper-query-legacy-time-");
+    const indexPath = path.join(dir, "links.jsonl");
+    await fs.writeFile(
+      indexPath,
+      JSON.stringify({
+        captured_at: "2026-08-29T02:25:50.000Z",
+        message_time: "2026-08-28T15:59:59.000Z",
+        chat_name: "文件传输助手",
+        record_type: "link",
+        message_type: "share_card",
+        title: "旧索引文章",
+        url: "https://mp.weixin.qq.com/s/legacy-time",
+        dedupe_key: "legacy-time-1",
+        source: "ui",
+      }) + "\n",
+    );
+
+    const result = await runQuery({
+      skillRoot: dir,
+      indexPath,
+      since: new Date("2026-08-28T15:00:00.000Z"),
+      until: new Date("2026-08-28T15:59:59.000Z"),
+      format: "md",
+    });
+
+    assert.match(
+      result.rendered,
+      /2026-08-28T15:59:59\.000Z（旧记录，时间来源未知）/,
+    );
+  });
+
   it("filters historical skipped URLs from query results", async () => {
     const dir = await makeTempDir("wechat-filehelper-query-");
     const indexPath = path.join(dir, "links.jsonl");

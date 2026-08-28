@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const skillRoot = path.resolve(__dirname, "../..");
@@ -369,22 +369,16 @@ export async function authenticateYuanbao({
   }
 }
 
-async function loadPlaywright() {
+export async function loadPlaywright({
+  importModuleFn = (specifier) => import(specifier),
+} = {}) {
   try {
-    return await import("playwright");
-  } catch (localError) {
-    const sharedModulePath = path.resolve(
-      skillRoot,
-      "../obsidian-web-clipper-ingest/node_modules/playwright/index.mjs",
+    return await importModuleFn("playwright");
+  } catch (error) {
+    throw new VideoChannelError(
+      "playwright_missing",
+      "Playwright is unavailable; run npm ci in wechat-filehelper-macos-ingest",
+      error,
     );
-    try {
-      return await import(pathToFileURL(sharedModulePath));
-    } catch (sharedError) {
-      throw new VideoChannelError(
-        "playwright_missing",
-        "Playwright is unavailable; run npm ci in wechat-filehelper-macos-ingest",
-        sharedError ?? localError,
-      );
-    }
   }
 }

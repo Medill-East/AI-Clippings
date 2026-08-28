@@ -37,7 +37,7 @@ export function createImageContentRecord({
   }
 
   const contentText = lines.map((line) => line.text).join("\n");
-  const contentHash = crypto.createHash("sha256").update(contentText.normalize("NFKC"), "utf8").digest("hex");
+  const contentHash = hashContentText(contentText);
   const confidence = roundConfidence(
     lines.reduce((total, line) => total + line.confidence, 0) / lines.length,
   );
@@ -85,6 +85,7 @@ export function renderImageContentNote(record) {
     `message_time_source: ${yamlString(record.message_time_source ?? "unknown")}`,
     `ocr_confidence: ${record.ocr_confidence}`,
     `ocr_line_count: ${record.ocr_line_count}`,
+    `content_hash: ${yamlString(record.content_hash)}`,
     `pkm_status: ${record.pkm_status}`,
     `dedupe_key: ${yamlString(record.dedupe_key)}`,
     "---",
@@ -143,7 +144,7 @@ export async function publishImageContentRecord(
     await fsImpl.mkdir(noteDir, { recursive: true });
     const existing = await readIfExists(notePath, fsImpl);
     if (existing != null) {
-      if (existing !== note) {
+      if (existing !== note && !existingImageNoteMatchesRecord(existing, publishedRecord)) {
         throw new ImageContentError(
           "image_note_conflict",
           `A different note already exists at ${notePath}`,
@@ -182,6 +183,49 @@ function normalizeConfidence(value) {
 
 function roundConfidence(value) {
   return Math.round(value * 10_000) / 10_000;
+}
+
+function hashContentText(value) {
+  return crypto
+    .createHash("sha256")
+    .update(String(value).normalize("NFKC"), "utf8")
+    .digest("hex");
+}
+
+function existingImageNoteMatchesRecord(note, record) {
+  const frontmatter = parseFrontmatter(note);
+  if (frontmatter.content_type !== "image_ocr") return false;
+  if (frontmatter.dedupe_key !== record.dedupe_key) return false;
+  if (frontmatter.content_hash && frontmatter.content_hash !== record.content_hash) {
+    return false;
+  }
+
+  const marker = "## 图片文字";
+  const markerIndex = note.indexOf(marker);
+  if (markerIndex < 0) return false;
+  const existingContent = note
+    .slice(markerIndex + marker.length)
+    .replace(/^\s*\r?\n/, "")
+    .trimEnd();
+  return hashContentText(existingContent) === record.content_hash;
+}
+
+function parseFrontmatter(note) {
+  const match = String(note).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return {};
+
+  const values = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const field = line.match(/^([a-z_]+):\s*(.*)$/);
+    if (!field) continue;
+    const [, key, rawValue] = field;
+    try {
+      values[key] = JSON.parse(rawValue);
+    } catch {
+      values[key] = rawValue.trim();
+    }
+  }
+  return values;
 }
 
 function yamlString(value) {

@@ -127,6 +127,7 @@ describe("scan flow", () => {
             image_items_seen: 1,
             image_items_processed: 1,
             image_items_needs_review: 0,
+            image_candidates_rerouted_to_article: 2,
             type_outcomes: {
               direct_url: { seen: 1, recorded: 1, uncertain: 0, skipped: 0, unresolved: 0, deduplicated: 0 },
               video_channel: { seen: 1, recorded: 0, uncertain: 0, skipped: 0, unresolved: 1, deduplicated: 0 },
@@ -153,6 +154,7 @@ describe("scan flow", () => {
     assert.equal(result.manifest.image_contents_total, 1);
     assert.equal(result.manifest.image_items_seen, 1);
     assert.equal(result.manifest.image_items_processed, 1);
+    assert.equal(result.manifest.image_candidates_rerouted_to_article, 2);
     assert.equal(result.manifest.type_outcome_invariant.status, "passed");
     assert.equal(result.manifest.type_outcomes.image.seen, 1);
     assert.equal(result.manifest.max_candidates, 1);

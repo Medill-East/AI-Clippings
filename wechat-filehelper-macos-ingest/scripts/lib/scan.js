@@ -276,6 +276,8 @@ export async function runScan(
     image_items_seen: scanResult.stats.image_items_seen ?? 0,
     image_items_processed: scanResult.stats.image_items_processed ?? 0,
     image_items_needs_review: scanResult.stats.image_items_needs_review ?? 0,
+    image_candidates_rerouted_to_article:
+      scanResult.stats.image_candidates_rerouted_to_article ?? 0,
     type_outcomes: typeOutcomes,
     type_outcome_invariant: {
       status: typeOutcomeValidation.valid ? "passed" : "failed",

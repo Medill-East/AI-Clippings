@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import {
   VideoChannelError,
   extractFeedProfile,
+  loadPlaywright,
   parseYuanbaoPayload,
   resolveVideoChannel,
   validateSphUrl,
@@ -16,7 +17,26 @@ describe("video browser runtime", () => {
       await fs.readFile(new URL("../package.json", import.meta.url), "utf8"),
     );
 
-    assert.equal(packageJson.dependencies?.playwright, "^1.58.2");
+    assert.equal(packageJson.dependencies?.playwright, "1.62.1");
+    assert.equal(packageJson.engines?.node, ">=20");
+  });
+
+  it("does not hide a broken local install behind a sibling package", async () => {
+    const imports = [];
+
+    await assert.rejects(
+      loadPlaywright({
+        importModuleFn: async (specifier) => {
+          imports.push(specifier);
+          throw new Error("local install is broken");
+        },
+      }),
+      (error) =>
+        error instanceof VideoChannelError &&
+        error.code === "playwright_missing" &&
+        error.cause?.message === "local install is broken",
+    );
+    assert.deepEqual(imports, ["playwright"]);
   });
 });
 

@@ -437,9 +437,15 @@ function sanitizeProcessDetail(value) {
     .slice(0, 500);
 }
 
-async function loadResolvedVault(configPaths) {
+export async function loadResolvedVault(
+  configPaths,
+  {
+    readJsonIfExistsFn = readJsonIfExists,
+    statFn = fs.stat,
+  } = {},
+) {
   for (const configPath of configPaths) {
-    const config = await readJsonIfExists(configPath);
+    const config = await readJsonIfExistsFn(configPath);
     const vaults = Object.values(config?.vaults ?? {})
       .filter((vault) => typeof vault?.path === "string" && vault.path.trim())
       .sort(
@@ -448,10 +454,19 @@ async function loadResolvedVault(configPaths) {
           Number(right.ts ?? 0) - Number(left.ts ?? 0),
       );
     for (const vault of vaults) {
-      if (await pathExists(vault.path)) return vault;
+      if (await isDirectory(vault.path, statFn)) return vault;
     }
   }
   return null;
+}
+
+async function isDirectory(filePath, statFn = fs.stat) {
+  try {
+    return (await statFn(filePath)).isDirectory();
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
+    throw error;
+  }
 }
 
 async function readJsonIfExists(filePath) {
@@ -467,7 +482,8 @@ async function pathExists(filePath) {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
+    throw error;
   }
 }

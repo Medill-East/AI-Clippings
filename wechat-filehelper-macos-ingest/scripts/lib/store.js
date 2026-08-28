@@ -298,6 +298,7 @@ export async function scanStoreLinks({ probe, since, until, debug = false } = {}
       records.push({
         captured_at: new Date().toISOString(),
         message_time: messageTime.toISOString(),
+        message_time_source: "database_timestamp",
         chat_name: chatName,
         message_type: messageType,
         title: title ?? "",

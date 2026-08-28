@@ -1259,7 +1259,7 @@ describe("scanUiLinks", () => {
     });
   });
 
-  it("reroutes an OCR image candidate to article Copy Link when the opened viewer proves its type", async () => {
+  it("reroutes an OCR image candidate only after article Copy Link confirms its type", async () => {
     let imageExtractorCalls = 0;
     let articleExtractorCalls = 0;
     const result = await scanUiLinks(
@@ -1301,11 +1301,16 @@ describe("scanUiLinks", () => {
         extractImageContentFn: async () => {
           imageExtractorCalls += 1;
           return {
-            status: "reroute",
+            status: "type_hint",
             reason: "image_candidate_opened_article_viewer",
             failureStage: "viewer_type",
             actualContentType: "article",
-            record: null,
+            record: {
+              content_type: "image_ocr",
+              content_hash: "fallback-image",
+              dedupe_key: "fallback-image",
+              pkm_status: "pending",
+            },
           };
         },
         extractShareCardUrlFn: async () => {
@@ -1329,6 +1334,265 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.image_candidates_rerouted_to_article, 1);
     assert.equal(result.stats.type_outcomes.image, undefined);
     assert.equal(result.stats.type_outcomes.article.recorded, 1);
+  });
+
+  it("keeps a hinted candidate as image OCR when article Copy Link cannot confirm it", async () => {
+    let publishCalls = 0;
+    const fallbackRecord = {
+      captured_at: "2026-03-29T18:06:00.000Z",
+      message_time: "2026-03-29T18:05:00.000Z",
+      message_time_source: "visible_timestamp",
+      chat_name: "文件传输助手",
+      record_type: "content",
+      content_type: "image_ocr",
+      message_type: "image",
+      title: "元宝页面截图",
+      content_text: "截图正文",
+      content_hash: "b".repeat(64),
+      ocr_confidence: 0.9,
+      ocr_line_count: 1,
+      pkm_status: "pending",
+      dedupe_key: "fallback-image-record",
+      capture_session_id: "image-session",
+      source: "ui",
+    };
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      0,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "article-screenshot",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["元宝页面截图", "截图正文"],
+              rawText: "元宝页面截图\n截图正文",
+              directUrls: [],
+              shareCardTitle: "元宝页面截图",
+              skipReason: null,
+              contentType: "image",
+              classificationReason: "plain_text_block",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "article-screenshot",
+            {
+              itemKey: "article-screenshot",
+              title: "元宝页面截图",
+              clickX: 500,
+              clickY: 400,
+            },
+          ]]),
+        }),
+        extractImageContentFn: async () => ({
+          status: "type_hint",
+          reason: "image_candidate_opened_article_viewer",
+          failureStage: "viewer_type",
+          actualContentType: "article",
+          record: fallbackRecord,
+        }),
+        extractShareCardUrlFn: async () => ({
+          status: "failed",
+          reason: "viewer_detected_but_menu_not_found",
+        }),
+        publishImageContentRecordFn: async (record) => {
+          publishCalls += 1;
+          return {
+            ...record,
+            pkm_status: "written",
+            note_path: "/vault/Clippings/article-screenshot.md",
+          };
+        },
+      },
+    );
+
+    assert.equal(publishCalls, 1);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.contentRecords.length, 1);
+    assert.equal(result.contentRecords[0].content_text, "截图正文");
+    assert.equal(result.contentRecords[0].pkm_status, "written");
+    assert.equal(result.unresolvedRecords.length, 0);
+    assert.equal(result.stats.image_items_seen, 1);
+    assert.equal(result.stats.image_items_processed, 1);
+    assert.equal(result.stats.image_candidates_rerouted_to_article, 0);
+    assert.equal(result.stats.type_outcomes.image.recorded, 1);
+  });
+
+  it("keeps a confirmed article URL and exposes viewer recovery failure without publishing OCR", async () => {
+    let publishCalls = 0;
+    let scrollCalls = 0;
+    const fallbackRecord = {
+      captured_at: "2026-03-29T18:06:00.000Z",
+      message_time: "2026-03-29T18:05:00.000Z",
+      message_time_source: "visible_timestamp",
+      chat_name: "文件传输助手",
+      record_type: "content",
+      content_type: "image_ocr",
+      message_type: "image",
+      title: "误判文章",
+      content_text: "文章 viewer OCR",
+      content_hash: "c".repeat(64),
+      ocr_confidence: 0.9,
+      ocr_line_count: 1,
+      pkm_status: "pending",
+      dedupe_key: "recovery-fallback-image",
+      capture_session_id: "image-session",
+      source: "ui",
+    };
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        scrollPageFn: () => {
+          scrollCalls += 1;
+        },
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "recovery-failed-article",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["误判文章"],
+              rawText: "误判文章",
+              directUrls: [],
+              shareCardTitle: "误判文章",
+              skipReason: null,
+              contentType: "image",
+              classificationReason: "plain_text_block",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "recovery-failed-article",
+            {
+              itemKey: "recovery-failed-article",
+              title: "误判文章",
+              clickX: 500,
+              clickY: 400,
+            },
+          ]]),
+        }),
+        extractImageContentFn: async () => ({
+          status: "type_hint",
+          reason: "image_candidate_opened_article_viewer",
+          failureStage: "viewer_type",
+          actualContentType: "article",
+          record: fallbackRecord,
+        }),
+        extractShareCardUrlFn: async () => ({
+          status: "failed",
+          reason: "chat_not_recovered",
+          url: "https://mp.weixin.qq.com/s/recovery-confirmed",
+          usedBrowserFallback: false,
+        }),
+        publishImageContentRecordFn: async () => {
+          publishCalls += 1;
+          throw new Error("recovery failures must not publish the OCR fallback");
+        },
+      },
+    );
+
+    assert.equal(publishCalls, 0);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0].url, "https://mp.weixin.qq.com/s/recovery-confirmed");
+    assert.equal(result.contentRecords.length, 0);
+    assert.equal(result.unresolvedRecords.length, 1);
+    assert.equal(result.unresolvedRecords[0].failure_stage, "viewer_recovery");
+    assert.equal(result.unresolvedRecords[0].error_code, "chat_not_recovered");
+    assert.equal(scrollCalls, 0);
+    assert.equal(result.stats.image_candidates_rerouted_to_article, 1);
+    assert.equal(result.stats.type_outcomes.article.recorded, 1);
+  });
+
+  it("does not publish OCR or keep scanning when an article probe cannot close its viewer", async () => {
+    let publishCalls = 0;
+    let scrollCalls = 0;
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        scrollPageFn: () => {
+          scrollCalls += 1;
+        },
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "viewer-not-closed",
+              timestampText: "Yesterday 18:05",
+              rawLines: ["类型仍未确认"],
+              rawText: "类型仍未确认",
+              directUrls: [],
+              shareCardTitle: "类型仍未确认",
+              skipReason: null,
+              contentType: "image",
+              classificationReason: "plain_text_block",
+            }],
+            stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+          },
+          candidateMap: new Map([[
+            "viewer-not-closed",
+            {
+              itemKey: "viewer-not-closed",
+              title: "类型仍未确认",
+              clickX: 500,
+              clickY: 400,
+            },
+          ]]),
+        }),
+        extractImageContentFn: async () => ({
+          status: "type_hint",
+          reason: "image_candidate_opened_article_viewer",
+          failureStage: "viewer_type",
+          actualContentType: "article",
+          record: {
+            content_type: "image_ocr",
+            content_text: "候选 OCR",
+            content_hash: "d".repeat(64),
+            dedupe_key: "viewer-not-closed-image",
+            pkm_status: "pending",
+          },
+        }),
+        extractShareCardUrlFn: async () => ({
+          status: "failed",
+          reason: "viewer_not_closed",
+          url: null,
+        }),
+        publishImageContentRecordFn: async () => {
+          publishCalls += 1;
+          throw new Error("an unknown UI state must not publish fallback OCR");
+        },
+      },
+    );
+
+    assert.equal(publishCalls, 0);
+    assert.equal(scrollCalls, 0);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.contentRecords.length, 0);
+    assert.equal(result.unresolvedRecords.length, 1);
+    assert.equal(result.unresolvedRecords[0].failure_stage, "viewer_recovery");
+    assert.equal(result.unresolvedRecords[0].error_code, "viewer_not_closed");
+    assert.equal(result.stats.type_outcomes.image.unresolved, 1);
   });
 
   it("only opens the viewer for blocks that lack a direct URL", async () => {
@@ -3187,7 +3451,7 @@ describe("extractImageContent", () => {
     assert.equal(result.failureStage, "viewer_open");
   });
 
-  it("identifies an article viewer before publishing its chrome as image OCR", async () => {
+  it("returns an article type hint without publishing viewer chrome as image OCR", async () => {
     let publishCalls = 0;
     let closed = false;
     const result = await extractImageContent(
@@ -3227,11 +3491,45 @@ describe("extractImageContent", () => {
 
     assert.equal(closed, true);
     assert.equal(publishCalls, 0);
-    assert.equal(result.status, "reroute");
+    assert.equal(result.status, "type_hint");
     assert.equal(result.actualContentType, "article");
     assert.equal(result.reason, "image_candidate_opened_article_viewer");
     assert.equal(result.failureStage, "viewer_type");
     assert.equal(result.record, null);
+  });
+
+  it("preserves meaningful OCR from a top-aligned yuanbao screenshot until type confirmation", async () => {
+    let publishCalls = 0;
+    const result = await extractImageContent(
+      { itemKey: "top-article-screenshot", title: "文章页面截图", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => ({
+          width: 2374,
+          height: 1402,
+          lines: [
+            {
+              text: "Summary Provided by yuanbao",
+              x: 80,
+              y: 20,
+              width: 500,
+              height: 32,
+              confidence: 0.9,
+            },
+            { text: "截图正文", x: 80, y: 120, width: 300, height: 60, confidence: 0.9 },
+          ],
+        }),
+        publishImageContentRecordFn: async () => {
+          publishCalls += 1;
+          throw new Error("type hints must be confirmed before publication");
+        },
+      }),
+    );
+
+    assert.equal(publishCalls, 0);
+    assert.equal(result.status, "type_hint");
+    assert.equal(result.actualContentType, "article");
+    assert.equal(result.record.content_text, "截图正文");
   });
 
   it("does not reroute an image merely because its body contains the article chrome phrase", async () => {

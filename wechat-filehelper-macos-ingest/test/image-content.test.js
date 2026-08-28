@@ -143,4 +143,46 @@ describe("publishImageContentRecord", () => {
     assert.equal(result.pkm_status, "needs_review");
     assert.match(await fs.readFile(result.note_path, "utf8"), /请对照原图复核/);
   });
+
+  it("treats a legacy note without timestamp provenance as the same image content", async () => {
+    const root = await makeTempDir("wechat-image-legacy-");
+    const noteDir = path.join(root, "Clippings");
+    const record = buildRecord();
+    const first = await publishImageContentRecord(record, {
+      resolveObsidianDirFn: async () => noteDir,
+    });
+    const legacyNote = (await fs.readFile(first.note_path, "utf8"))
+      .replace(/^message_time_source:.*\n/m, "")
+      .replace(/^content_hash:.*\n/m, "");
+    await fs.writeFile(first.note_path, legacyNote);
+
+    const second = await publishImageContentRecord(record, {
+      resolveObsidianDirFn: async () => noteDir,
+    });
+
+    assert.equal(second.note_path, first.note_path);
+    assert.equal(second.pkm_status, "written");
+    assert.equal(await fs.readFile(first.note_path, "utf8"), legacyNote);
+  });
+
+  it("still rejects a legacy note whose OCR body differs", async () => {
+    const root = await makeTempDir("wechat-image-conflict-");
+    const noteDir = path.join(root, "Clippings");
+    const record = buildRecord();
+    const first = await publishImageContentRecord(record, {
+      resolveObsidianDirFn: async () => noteDir,
+    });
+    const conflictingNote = (await fs.readFile(first.note_path, "utf8"))
+      .replace(/^message_time_source:.*\n/m, "")
+      .replace(/^content_hash:.*\n/m, "")
+      .replace("先验证假设，再做完整实现", "已经被人工改成不同内容");
+    await fs.writeFile(first.note_path, conflictingNote);
+
+    await assert.rejects(
+      publishImageContentRecord(record, {
+        resolveObsidianDirFn: async () => noteDir,
+      }),
+      (error) => error instanceof ImageContentError && error.code === "image_note_conflict",
+    );
+  });
 });

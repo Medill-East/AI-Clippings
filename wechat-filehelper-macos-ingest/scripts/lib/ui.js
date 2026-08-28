@@ -81,6 +81,13 @@ const VIDEO_CHANNEL_SHARE_X_RATIO = 0.78;
 const VIDEO_CHANNEL_SHARE_Y_RATIO = 0.93;
 const OCR_CLUSTER_OPEN_RETRY_OFFSET_POINTS = 100;
 const VIDEO_CHANNEL_VIEWER_LABELS = ["视频号", "channels"];
+const VIEWER_RECOVERY_FAILURE_REASONS = new Set([
+  "viewer_not_closed",
+  "chat_not_recovered",
+  "image_viewer_not_closed",
+  "image_chat_not_recovered",
+  "image_candidate_chat_not_recovered",
+]);
 const IMAGE_OCR_CANDIDATE_REASONS = new Set([
   "image_card",
   "plain_text_block",
@@ -1372,6 +1379,7 @@ export async function scanUiLinks(
     probeUiEnvironmentFn = probeUiEnvironment,
     extractShareCardUrlFn = extractShareCardUrl,
     extractImageContentFn = extractImageContent,
+    publishImageContentRecordFn = publishImageContentRecord,
     nowFn = () => new Date(),
   } = {}
 ) {
@@ -1983,30 +1991,86 @@ export async function scanUiLinks(
               recoverChatFn: navigateToFileHelperFn,
             });
 
+      let extractionTimingsAccumulated = false;
       if (
         block.contentType === "image" &&
-        extraction.status === "reroute" &&
+        extraction.status === "type_hint" &&
         extraction.actualContentType === "article"
       ) {
         accumulateExtractionTimings(extraction);
-        stats.image_items_seen = Math.max(0, stats.image_items_seen - 1);
-        stats.image_candidates_rerouted_to_article += 1;
-        reclassifyTypeOutcome(blockOutcomeObservation, "article");
-        block.contentType = null;
-        block.classificationReason = "viewer_type_reroute";
-        artifactRecord.content_type = "article";
-        artifactRecord.classification_reason = "viewer_type_reroute";
-        extraction = await extractShareCardUrlFn(candidate, {
+        const hintedImageExtraction = extraction;
+        const articleExtraction = await extractShareCardUrlFn(candidate, {
           debug,
           artifactDir,
         }, {
           recoverChatFn: navigateToFileHelperFn,
         });
+        accumulateExtractionTimings(articleExtraction);
+        extractionTimingsAccumulated = true;
+        const articleUrlConfirmed = isSupportedArticleViewerUrl(articleExtraction.url);
+        const articleRecoveryFailed = isViewerRecoveryFailure(articleExtraction);
+
+        if (articleUrlConfirmed) {
+          stats.image_items_seen = Math.max(0, stats.image_items_seen - 1);
+          stats.image_candidates_rerouted_to_article += 1;
+          reclassifyTypeOutcome(blockOutcomeObservation, "article");
+          block.contentType = null;
+          block.classificationReason = "viewer_type_reroute";
+          artifactRecord.content_type = "article";
+          artifactRecord.classification_reason = "viewer_type_reroute";
+          extraction = articleExtraction;
+        } else if (articleRecoveryFailed) {
+          extraction = {
+            ...articleExtraction,
+            failureStage: "viewer_recovery",
+          };
+        } else if (hintedImageExtraction.record) {
+          try {
+            const published = await publishImageContentRecordFn(hintedImageExtraction.record);
+            extraction = {
+              ...hintedImageExtraction,
+              status: "ok",
+              reason: null,
+              failureStage: null,
+              actualContentType: undefined,
+              record:
+                published.pkm_status === "needs_review" && hintedImageExtraction.artifactPath
+                  ? { ...published, review_artifact_path: hintedImageExtraction.artifactPath }
+                  : published,
+            };
+          } catch (error) {
+            extraction = {
+              ...hintedImageExtraction,
+              status: "failed",
+              reason: error?.code || "image_note_write_failed",
+              failureStage: "pkm_write",
+              actualContentType: undefined,
+              record: {
+                ...hintedImageExtraction.record,
+                pkm_status: "write_failed",
+                ...(hintedImageExtraction.artifactPath
+                  ? { artifact_path: hintedImageExtraction.artifactPath }
+                  : {}),
+              },
+            };
+          }
+        } else {
+          extraction = {
+            ...hintedImageExtraction,
+            status: "failed",
+            reason: "viewer_type_unconfirmed",
+            failureStage: "viewer_type",
+            actualContentType: undefined,
+          };
+        }
       }
 
-      accumulateExtractionTimings(extraction);
+      if (!extractionTimingsAccumulated) {
+        accumulateExtractionTimings(extraction);
+      }
 
       if (block.contentType === "image") {
+        const viewerRecoveryFailed = isViewerRecoveryFailure(extraction);
         if (extraction.record) {
           extraction.record = {
             ...extraction.record,
@@ -2065,6 +2129,14 @@ export async function scanUiLinks(
           });
         }
 
+        if (viewerRecoveryFailed) {
+          limitReached = true;
+          if (debug) {
+            console.log("[debug] Viewer recovery failed; stopping UI scan to avoid acting on an unknown window.");
+          }
+          break;
+        }
+
         if (stats.share_cards_attempted >= maxCandidates) {
           limitReached = true;
           if (debug) {
@@ -2075,7 +2147,8 @@ export async function scanUiLinks(
         continue;
       }
 
-      if (extraction.status === "ok" && extraction.url) {
+      const viewerRecoveryFailed = isViewerRecoveryFailure(extraction);
+      if ((extraction.status === "ok" || viewerRecoveryFailed) && extraction.url) {
         const canonicalUrl = canonicalizeUrl(extraction.url);
         const skipReason = classifySkipReason(canonicalUrl);
         if (skipReason) {
@@ -2125,15 +2198,30 @@ export async function scanUiLinks(
           finalizeTypeOutcome(blockOutcomeObservation, "deduplicated");
         }
 
-        artifactRecord.status = "resolved";
+        artifactRecord.status = viewerRecoveryFailed
+          ? "resolved_with_recovery_failure"
+          : "resolved";
         artifactRecord.url = canonicalUrl;
         artifactRecord.used_browser_fallback = Boolean(extraction.usedBrowserFallback);
+        artifactRecord.reason = viewerRecoveryFailed ? extraction.reason : null;
         stats.share_cards_resolved += 1;
+        if (viewerRecoveryFailed) {
+          stats.share_cards_unresolved += 1;
+          pushUnresolvedRecord({
+            messageTime,
+            block,
+            candidate,
+            failureStage: "viewer_recovery",
+            errorCode: extraction.reason,
+            attemptCount: 1,
+            pageIndex: scrollCount,
+          });
+        }
         upsertArticleState(articleStates, articleFingerprints, {
-          status: "resolved",
+          status: viewerRecoveryFailed ? "resolved_with_recovery_failure" : "resolved",
           attempted: true,
           resolved: true,
-          failed: false,
+          failed: viewerRecoveryFailed,
           skipped: false,
           lastSeenPage: scrollCount,
           lastSeenYBand: candidateYBand,
@@ -2150,7 +2238,7 @@ export async function scanUiLinks(
           messageTime,
           block,
           candidate,
-          failureStage: "link_extraction",
+          failureStage: viewerRecoveryFailed ? "viewer_recovery" : "link_extraction",
           errorCode: artifactRecord.reason,
           attemptCount: 1,
           pageIndex: scrollCount,
@@ -2164,6 +2252,14 @@ export async function scanUiLinks(
           lastSeenPage: scrollCount,
           lastSeenYBand: candidateYBand,
         });
+      }
+
+      if (viewerRecoveryFailed) {
+        limitReached = true;
+        if (debug) {
+          console.log("[debug] Viewer recovery failed; stopping UI scan to avoid acting on an unknown window.");
+        }
+        break;
       }
 
       if (stats.share_cards_attempted >= maxCandidates) {
@@ -2495,6 +2591,29 @@ function isSupportedWeChatViewerUrl(value) {
   return /^https:\/\/(?:mp\.weixin\.qq\.com\/|weixin\.qq\.com\/sph\/)/i.test(String(value ?? ""));
 }
 
+function isSupportedArticleViewerUrl(value) {
+  try {
+    const parsed = new URL(String(value ?? ""));
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname.toLowerCase() === "mp.weixin.qq.com" &&
+      /^\/s(?:\/|$)/.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isViewerRecoveryFailure(extraction) {
+  return (
+    extraction?.status === "failed" &&
+    (
+      extraction?.failureStage === "viewer_recovery" ||
+      VIEWER_RECOVERY_FAILURE_REASONS.has(extraction?.reason)
+    )
+  );
+}
+
 function waitForClipboardWeChatUrl(
   { timeoutMs = 420, pollMs = 25 } = {},
   { readClipboardTextFn = readClipboardText, sleepMsFn = sleepMs } = {}
@@ -2542,7 +2661,29 @@ function removeImageViewerChromeOcr(ocrResult) {
       const y = Number(line?.y);
       if (!Number.isFinite(y)) return true;
       const height = Math.max(0, Number(line?.height ?? 0));
-      return y + height > toolbarBottom;
+      if (y + height > toolbarBottom) return true;
+
+      const text = String(line?.text ?? "").trim();
+      const hasMeaningfulText = /[A-Za-z0-9]{2,}|[\p{Script=Han}]{2,}/u.test(text);
+      return hasMeaningfulText;
+    }),
+  };
+}
+
+function removeArticleViewerHintOcr(ocrResult) {
+  const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
+  const imageHeight = Number(ocrResult?.height ?? 0);
+  const chromeBottom = Math.max(64, imageHeight * 0.05);
+  return {
+    ...ocrResult,
+    lines: lines.filter((line) => {
+      const y = Number(line?.y);
+      const height = Math.max(0, Number(line?.height ?? 0));
+      if (!Number.isFinite(y) || y + height > chromeBottom) return true;
+      return !(
+        /\bloading\b/i.test(line?.text ?? "") ||
+        /summary\s+provided\s+by\s+yuanbao/i.test(line?.text ?? "")
+      );
     }),
   };
 }
@@ -3044,62 +3185,65 @@ export async function extractImageContent(
       );
     }
 
-    if (looksLikeArticleViewerChrome(ocrResult)) {
+    const articleTypeHint = looksLikeArticleViewerChrome(ocrResult);
+    const contentOcrResult = removeImageViewerChromeOcr(ocrResult);
+    const recordOcrResult = articleTypeHint
+      ? removeArticleViewerHintOcr(contentOcrResult)
+      : contentOcrResult;
+    let record;
+    try {
+      record = createImageContentRecordFn({
+        capturedAt,
+        messageTime,
+        messageTimeSource,
+        chatName,
+        title: candidate.title ?? "",
+        captureSessionId,
+        source: "ui",
+        ocrResult: recordOcrResult,
+      });
+    } catch (error) {
       result = {
         ...result,
-        status: "reroute",
+        reason: error?.code || "image_ocr_failed",
+        failureStage: "image_ocr",
+      };
+      record = null;
+    }
+
+    if (articleTypeHint) {
+      result = {
+        ...result,
+        status: "type_hint",
         reason: "image_candidate_opened_article_viewer",
         failureStage: "viewer_type",
         actualContentType: "article",
+        record,
       };
-    } else {
-      const contentOcrResult = removeImageViewerChromeOcr(ocrResult);
-      let record;
+    } else if (record) {
       try {
-        record = createImageContentRecordFn({
-          capturedAt,
-          messageTime,
-          messageTimeSource,
-          chatName,
-          title: candidate.title ?? "",
-          captureSessionId,
-          source: "ui",
-          ocrResult: contentOcrResult,
-        });
+        const published = await publishImageContentRecordFn(record);
+        result = {
+          ...result,
+          status: "ok",
+          reason: null,
+          failureStage: null,
+          record:
+            published.pkm_status === "needs_review" && artifactDir != null
+              ? { ...published, review_artifact_path: screenshotPath }
+              : published,
+        };
       } catch (error) {
         result = {
           ...result,
-          reason: error?.code || "image_ocr_failed",
-          failureStage: "image_ocr",
+          reason: error?.code || "image_note_write_failed",
+          failureStage: "pkm_write",
+          record: {
+            ...record,
+            pkm_status: "write_failed",
+            ...(artifactDir != null ? { artifact_path: screenshotPath } : {}),
+          },
         };
-        record = null;
-      }
-
-      if (record) {
-        try {
-          const published = await publishImageContentRecordFn(record);
-          result = {
-            ...result,
-            status: "ok",
-            reason: null,
-            failureStage: null,
-            record:
-              published.pkm_status === "needs_review" && artifactDir != null
-                ? { ...published, review_artifact_path: screenshotPath }
-                : published,
-          };
-        } catch (error) {
-          result = {
-            ...result,
-            reason: error?.code || "image_note_write_failed",
-            failureStage: "pkm_write",
-            record: {
-              ...record,
-              pkm_status: "write_failed",
-              ...(artifactDir != null ? { artifact_path: screenshotPath } : {}),
-            },
-          };
-        }
       }
     }
   } catch (error) {

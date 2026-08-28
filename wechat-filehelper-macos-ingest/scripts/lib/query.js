@@ -326,9 +326,13 @@ export function renderQueryResults(
 
 function formatRecordMessageTime(record) {
   const value = String(record?.message_time ?? "unknown");
-  return record?.message_time_source === "range_until_fallback"
-    ? `${value}（界面未显示具体时间，按查询上界占位）`
-    : value;
+  if (record?.message_time_source === "range_until_fallback") {
+    return `${value}（界面未显示具体时间，按查询上界占位）`;
+  }
+  if (!record?.message_time_source) {
+    return `${value}（旧记录，时间来源未知）`;
+  }
+  return value;
 }
 
 function isVideoChannelShareUrl(value) {
