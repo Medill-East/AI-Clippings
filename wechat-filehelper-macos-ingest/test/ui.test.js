@@ -218,6 +218,50 @@ describe("ui helpers", () => {
     assert.equal(directBlocks[1].timestampText, "Sunday 19:41");
   });
 
+  it("promotes a single OCR URL line before the old right-pane boundary", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { blocks: [] },
+      ocrResult: {
+        width: 1470,
+        height: 956,
+        lines: [
+          { text: "File Transfer", x: 630, y: 30, width: 190, height: 30 },
+          { text: "23:40", x: 990, y: 350, width: 80, height: 24 },
+          { text: "https://example.org/game-rankings/", x: 833, y: 410, width: 560, height: 24 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 1470, height: 956 },
+    });
+
+    assert.deepEqual(
+      snapshot.effectiveBlocks.flatMap((block) => block.directUrls ?? []),
+      ["https://example.org/game-rankings"]
+    );
+  });
+
+  it("reconstructs a wrapped OCR URL beginning before the old right-pane boundary", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { blocks: [] },
+      ocrResult: {
+        width: 1470,
+        height: 956,
+        lines: [
+          { text: "File Transfer", x: 630, y: 30, width: 190, height: 30 },
+          { text: "23:45", x: 990, y: 350, width: 80, height: 24 },
+          { text: "https://example.org/press/How-is-theory-", x: 779, y: 410, width: 600, height: 24 },
+          { text: "translated-to-technology-", x: 779, y: 438, width: 500, height: 24 },
+          { text: "design", x: 779, y: 466, width: 100, height: 24 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 1470, height: 956 },
+    });
+
+    assert.deepEqual(
+      snapshot.effectiveBlocks.flatMap((block) => block.directUrls ?? []),
+      ["https://example.org/press/How-is-theory-translated-to-technology-design"]
+    );
+  });
+
   it("keeps only the most complete OCR direct URL when fragments also produce truncated prefixes", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
@@ -1287,6 +1331,115 @@ describe("scanUiLinks", () => {
     assert.equal(result.records.length, 2);
   });
 
+  it("does not deduplicate distinct cards with a long shared title prefix", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+    const titles = [
+      "这是一段完全相同的长标题前缀（上）",
+      "这是一段完全相同的长标题前缀（下）",
+    ];
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => {
+          const index = captureCalls++;
+          const blockId = `shared-prefix-${index}`;
+          const title = titles[index];
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [{
+                blockId,
+                timestampText: "Yesterday 09:51",
+                rawLines: [title, "共同来源"],
+                rawText: `${title}\n共同来源`,
+                directUrls: [],
+                shareCardTitle: title,
+                skipReason: null,
+              }],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([[
+              blockId,
+              { itemKey: blockId, title, clickX: 500, clickY: 400 },
+            ]]),
+          };
+        },
+        extractShareCardUrlFn: async () => ({
+          status: "ok",
+          url: `https://mp.weixin.qq.com/s/shared-prefix-${++extractorCalls}`,
+          usedBrowserFallback: false,
+        }),
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 2);
+    assert.equal(result.records.length, 2);
+    assert.equal(result.stats.duplicate_skipped, 0);
+  });
+
+  it("does not deduplicate different cards that share only a source footer", async () => {
+    let extractorCalls = 0;
+    let captureCalls = 0;
+    const titles = ["南洋理工全新游戏设计硕士", "让程序员具备艺术和设计思维"];
+
+    const result = await scanUiLinks(
+      new Date("2026-03-28T00:00:00.000Z"),
+      new Date("2026-03-29T23:59:59.000Z"),
+      1,
+      false,
+      {
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => {
+          const index = captureCalls++;
+          const blockId = `shared-footer-${index}`;
+          const title = titles[index];
+          return {
+            samplingMode: "ocr_only",
+            clipboardSnapshot: {
+              rawText: "",
+              blocks: [{
+                blockId,
+                timestampText: "Yesterday 09:51",
+                rawLines: [title, "GameRes 游资网"],
+                rawText: `${title}\nGameRes 游资网`,
+                directUrls: [],
+                shareCardTitle: title,
+                skipReason: null,
+              }],
+              stats: { share_cards_seen: 1, share_cards_unresolved: 1, skipped_by_rule: {} },
+            },
+            candidateMap: new Map([[
+              blockId,
+              { itemKey: blockId, title, clickX: 500, clickY: 400 },
+            ]]),
+          };
+        },
+        extractShareCardUrlFn: async () => ({
+          status: "ok",
+          url: `https://mp.weixin.qq.com/s/shared-footer-${++extractorCalls}`,
+          usedBrowserFallback: false,
+        }),
+        scrollPageFn: () => {},
+      }
+    );
+
+    assert.equal(extractorCalls, 2);
+    assert.equal(result.records.length, 2);
+    assert.equal(result.stats.duplicate_skipped, 0);
+  });
+
   it("does not retry the same article after a failed extraction in the same run", async () => {
     let extractorCalls = 0;
     let captureCalls = 0;
@@ -1348,7 +1501,7 @@ describe("scanUiLinks", () => {
     assert.equal(result.stats.duplicate_skipped, 1);
   });
 
-  it("deduplicates the same untimed article across pages when OCR title drifts", async () => {
+  it("rechecks untimed OCR title drift but records the resolved URL only once", async () => {
     let extractorCalls = 0;
     let captureCalls = 0;
 
@@ -1427,9 +1580,9 @@ describe("scanUiLinks", () => {
       }
     );
 
-    assert.equal(extractorCalls, 1);
+    assert.equal(extractorCalls, 2);
     assert.equal(result.records.length, 1);
-    assert.equal(result.stats.duplicate_skipped, 1);
+    assert.equal(result.stats.duplicate_skipped, 0);
   });
 });
 

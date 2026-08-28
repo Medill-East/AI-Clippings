@@ -59,6 +59,7 @@ const VIEWER_MENU_PROBE_POINTS = [
 ];
 const BILIBILI_BRAND_TOKENS = ["哔哩哔哩", "bilibili", "b23tv", "bolilbi", "bolibili", "bililbi", "blbl"];
 const OCR_RIGHT_PANE_RATIO = 0.58;
+const OCR_URL_CONTENT_LEFT_RATIO = 0.48;
 const OCR_TOP_CONTENT_RATIO = 0.15;
 const OCR_CLUSTER_GAP_PX = 54;
 const OCR_TIMESTAMP_MIN_RATIO = 0.60;
@@ -130,6 +131,57 @@ export function looksLikeTimestampOcrText(text) {
   );
 }
 
+function inferDirectUrlItemsFromOcr(
+  ocrLines,
+  { imageWidth = 0, imageHeight = 0, timestampLines = [] } = {}
+) {
+  const contentTop = imageHeight * OCR_TOP_CONTENT_RATIO;
+  const contentLeft = imageWidth * OCR_URL_CONTENT_LEFT_RATIO;
+  const lines = (ocrLines ?? [])
+    .filter(
+      (line) =>
+        line?.text &&
+        line.y >= contentTop &&
+        line.x >= contentLeft &&
+        !looksLikeTimestampOcrText(line.text)
+    )
+    .sort((left, right) => left.y - right.y || left.x - right.x);
+  const consumedLines = new Set();
+  const items = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const anchor = lines[index];
+    const normalizedAnchor = normalizeOcrUrlText(anchor.text);
+    if (!/^https?:\/\//i.test(normalizedAnchor) || consumedLines.has(anchor)) continue;
+
+    const cluster = [anchor];
+    for (let offset = 1; offset <= 3 && index + offset < lines.length; offset += 1) {
+      const previous = cluster[cluster.length - 1];
+      const next = lines[index + offset];
+      const verticalGap = next.y - (previous.y + previous.height);
+      if (verticalGap > Math.max(previous.height, next.height) * 1.4) break;
+      if (Math.abs(next.x - anchor.x) > imageWidth * 0.12) break;
+      cluster.push(next);
+    }
+
+    const rawLines = cluster.map((line) => line.text);
+    if (extractOcrUrlEntries(rawLines).length === 0) continue;
+    for (const line of cluster) consumedLines.add(line);
+    const timestampLine = findNearestTimestampLine(anchor, timestampLines);
+    items.push({
+      kind: "text_url",
+      itemKey: `ocr-url-${items.length}`,
+      timestampText: timestampLine?.text ?? null,
+      rawText: rawLines.join(" "),
+      title: "",
+      skipReason: null,
+      ocrCluster: cluster,
+    });
+  }
+
+  return { items, consumedLines };
+}
+
 export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeight = 0 } = {}) {
   const rightBoundary = imageWidth * OCR_RIGHT_PANE_RATIO;
   const topBoundary = imageHeight * OCR_TOP_CONTENT_RATIO;
@@ -158,10 +210,18 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
     if (line.x < rightBoundary) continue;
     candidateLines.push(line);
   }
+  const directUrlResult = inferDirectUrlItemsFromOcr(ocrLines, {
+    imageWidth,
+    imageHeight,
+    timestampLines,
+  });
+  const shareCardCandidateLines = candidateLines.filter(
+    (line) => !directUrlResult.consumedLines.has(line)
+  );
 
   const clusters = [];
   let currentCluster = [];
-  for (const line of candidateLines) {
+  for (const line of shareCardCandidateLines) {
     const previous = currentCluster[currentCluster.length - 1];
     if (
       previous &&
@@ -177,8 +237,8 @@ export function inferShareCardItemsFromOcr(ocrLines, { imageWidth = 0, imageHeig
   }
   timestampLines.sort((a, b) => a.y - b.y);
 
-  const items = [];
-  let index = 0;
+  const items = [...directUrlResult.items];
+  let index = items.length;
   for (const cluster of clusters) {
     if (cluster.length < 2) continue;
 
@@ -504,7 +564,13 @@ function isTruncatedUrlPrefix(candidate, preferred) {
   if (!preferred.startsWith(candidate)) return false;
 
   const nextChar = preferred.slice(candidate.length, candidate.length + 1);
-  return nextChar === "/" || nextChar === "?" || nextChar === "&" || nextChar === "=";
+  return (
+    candidate.endsWith("-") ||
+    nextChar === "/" ||
+    nextChar === "?" ||
+    nextChar === "&" ||
+    nextChar === "="
+  );
 }
 
 function countCharDifferences(left, right) {
@@ -821,25 +887,9 @@ function buildArticleFingerprintAliases(block) {
         .map((line) => line.trim())
         .filter(Boolean);
   const signatureLines = rawLines.map(normalizeArticleSignatureLine).filter(Boolean);
-  const primary = title || signatureLines[0] || truncateComparableText(block?.rawText ?? "", 18);
-  const secondary = signatureLines.find((line) => line !== primary) || "";
-  const tertiary = signatureLines.find((line) => line !== primary && line !== secondary) || "";
-  const aliases = [
-    [timestamp, primary ? primary.slice(0, 18) : ""].filter(Boolean).join("|"),
-    [timestamp, signatureLines[0] ? signatureLines[0].slice(0, 18) : ""].filter(Boolean).join("|"),
-    [timestamp, primary ? primary.slice(0, 14) : "", secondary ? secondary.slice(0, 12) : ""]
-      .filter(Boolean)
-      .join("|"),
-    [timestamp, primary ? primary.slice(0, 10) : ""].filter(Boolean).join("|"),
-    [timestamp, primary ? primary.slice(0, 10) : "", secondary ? secondary.slice(0, 8) : ""]
-      .filter(Boolean)
-      .join("|"),
-    [timestamp, primary ? primary.slice(0, 10) : "", tertiary ? tertiary.slice(0, 8) : ""]
-      .filter(Boolean)
-      .join("|"),
-  ].filter(Boolean);
-
-  return [...new Set(aliases)];
+  const primary = title || signatureLines[0] || normalizeComparableText(block?.rawText ?? "");
+  const identity = [timestamp, primary].filter(Boolean).join("|");
+  return identity ? [identity] : [];
 }
 
 function buildArticleFingerprint(block) {
