@@ -109,6 +109,9 @@ describe("runVideoBatch", () => {
           note_path: path.join(skillRoot, "vault", "Clippings", "note.md"),
           media_bytes: 123,
           transcript_chars: 456,
+          evidence_type: "visual_ocr",
+          speech_transcript_chars: 3,
+          visual_ocr_frames: 7,
           key_points_count: 4,
         }),
         nowFn: () => new Date("2026-08-22T10:00:00.000Z"),
@@ -125,8 +128,72 @@ describe("runVideoBatch", () => {
     const manifest = JSON.parse(await fs.readFile(result.manifestPath, "utf8"));
     assert.equal(manifest.results[0].state, "written");
     assert.equal(manifest.results[0].media_bytes, 123);
+    assert.equal(manifest.results[0].evidence_type, "visual_ocr");
+    assert.equal(manifest.results[0].speech_transcript_chars, 3);
+    assert.equal(manifest.results[0].visual_ocr_frames, 7);
     assert.equal("video_url" in manifest.results[0], false);
     assert.equal("transcript" in manifest.results[0], false);
+  });
+
+  it("counts a content duplicate as skipped and records its canonical task", async () => {
+    const skillRoot = await makeTempDir("video-batch-duplicate-");
+    const indexPath = path.join(skillRoot, "local", "index", "links.jsonl");
+    await fs.mkdir(path.dirname(indexPath), { recursive: true });
+    await fs.writeFile(
+      indexPath,
+      ["First1", "Duplicate2"]
+        .map((id) =>
+          JSON.stringify({
+            message_time: "2026-08-22T07:00:00.000Z",
+            url: `https://weixin.qq.com/sph/${id}`,
+          }),
+        )
+        .join("\n") + "\n",
+    );
+
+    let taskCalls = 0;
+    const result = await runVideoBatch(
+      {
+        skillRoot,
+        since: new Date("2026-08-22T06:00:00.000Z"),
+        until: new Date("2026-08-22T08:00:00.000Z"),
+        indexPath,
+      },
+      {
+        resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        runTaskFn: async (record) => {
+          taskCalls += 1;
+          if (taskCalls === 1) {
+            return {
+              task_id: "canonical-task",
+              source_url: record.url,
+              state: "written",
+              note_path: path.join(skillRoot, "vault", "Clippings", "note.md"),
+            };
+          }
+          return {
+            task_id: "duplicate-task",
+            source_url: record.url,
+            state: "skipped_duplicate",
+            skipped_duplicate: true,
+            duplicate_of_task_id: "canonical-task",
+            note_path: path.join(skillRoot, "vault", "Clippings", "note.md"),
+          };
+        },
+        nowFn: () => new Date("2026-08-22T10:00:00.000Z"),
+      },
+    );
+
+    assert.deepEqual(result.counts, {
+      selected: 2,
+      written: 1,
+      failed: 0,
+      skipped: 1,
+      not_attempted: 0,
+    });
+    assert.equal(result.results[1].state, "skipped_duplicate");
+    assert.equal(result.results[1].skipped_duplicate, true);
+    assert.equal(result.results[1].duplicate_of_task_id, "canonical-task");
   });
 
   it("finishes the manifest with explicit failures when the Obsidian target is unavailable", async () => {

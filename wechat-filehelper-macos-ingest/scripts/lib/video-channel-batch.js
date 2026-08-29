@@ -194,7 +194,7 @@ export async function runVideoBatch(
 
     const redacted = redactTaskResult(task);
     manifest.results.push(redacted);
-    if (task.skipped_existing) {
+    if (task.skipped_existing || task.skipped_duplicate) {
       manifest.counts.skipped += 1;
     } else if (task.state === "written") {
       manifest.counts.written += 1;
@@ -250,10 +250,15 @@ function redactTaskResult(task) {
     source_url: task.source_url ?? null,
     state: task.state,
     skipped_existing: Boolean(task.skipped_existing),
+    skipped_duplicate: Boolean(task.skipped_duplicate),
+    duplicate_of_task_id: task.duplicate_of_task_id ?? null,
     note_path: task.note_path ?? null,
     media_bytes: task.media_bytes ?? null,
     media_duration_seconds: task.media_duration_seconds ?? null,
     transcript_chars: task.transcript_chars ?? null,
+    evidence_type: task.evidence_type ?? null,
+    speech_transcript_chars: task.speech_transcript_chars ?? null,
+    visual_ocr_frames: task.visual_ocr_frames ?? null,
     summary_chars: task.summary_chars ?? null,
     key_points_count: task.key_points_count ?? null,
     failed_stage: task.failed_stage ?? null,

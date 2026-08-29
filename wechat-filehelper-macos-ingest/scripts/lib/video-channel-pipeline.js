@@ -55,7 +55,7 @@ export async function runVideoChannelTask(
 
   const previous = await readJsonIfExists(taskPath);
   if (
-    previous?.state === "written" &&
+    ["written", "skipped_duplicate"].includes(previous?.state) &&
     previous.note_path &&
     (await pathExists(previous.note_path))
   ) {
@@ -101,7 +101,24 @@ export async function runVideoChannelTask(
       media_type: profile.mediaType ?? null,
       create_time: profile.createTime ?? null,
       media_url_fingerprint: profile.urlFingerprint ?? null,
+      content_fingerprint: fingerprintVideoProfile(profile),
     };
+
+    const duplicate = task.metadata.content_fingerprint
+      ? await findWrittenDuplicateTask(
+          rootDir,
+          taskId,
+          task.metadata.content_fingerprint,
+        )
+      : null;
+    if (duplicate) {
+      task.skipped_duplicate = true;
+      task.duplicate_of_task_id = duplicate.task_id;
+      task.note_path = duplicate.note_path;
+      task.finished_at = timestamp(nowFn);
+      await transition("skipped_duplicate");
+      return task;
+    }
 
     await transition("downloading");
     const download = await downloadFn(profile, mediaPath);
@@ -109,13 +126,20 @@ export async function runVideoChannelTask(
     task.media_duration_seconds = download.durationSeconds ?? null;
 
     await transition("transcribing");
-    const transcription = await transcribeFn(mediaPath, transcriptPath, profile);
+    const transcription = await transcribeFn(mediaPath, transcriptPath, {
+      ...profile,
+      durationSeconds: download.durationSeconds ?? null,
+    });
     const transcript = String(transcription?.text ?? "").trim();
     if (!transcript) {
       throw new PipelineError("asr_empty", "ASR returned no usable text");
     }
     task.transcript_chars = transcript.length;
     task.asr_provider = transcription.provider ?? null;
+    task.evidence_type = transcription.evidenceType ?? "speech_asr";
+    task.speech_transcript_chars =
+      transcription.speechTranscriptChars ?? transcript.length;
+    task.visual_ocr_frames = transcription.visualOcrFrames ?? 0;
 
     await transition("summarizing");
     const summary = normalizeSummary(
@@ -129,11 +153,14 @@ export async function runVideoChannelTask(
     );
     task.summary_chars = summary.summary.length;
     task.key_points_count = summary.key_points.length;
+    const noteTitle = conciseVideoTitle(
+      profile.title || record.title || "微信视频号",
+    );
 
     const notePath = await writeNoteFn(
       {
         sourceUrl: record.url,
-        title: profile.title || record.title || "微信视频号",
+        title: noteTitle,
         author: profile.author || "",
         publishedAt: normalizePublishedAt(profile.createTime),
         createdAt: timestamp(nowFn),
@@ -284,6 +311,16 @@ function normalizeSummary(value) {
   return { summary, key_points: keyPoints };
 }
 
+function conciseVideoTitle(value) {
+  const firstLine = String(value ?? "")
+    .normalize("NFKC")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  const withoutHashtags = String(firstLine ?? "").split("#", 1)[0].trim();
+  return withoutHashtags.slice(0, 160) || "微信视频号";
+}
+
 function safeFileStem(value) {
   return (
     String(value)
@@ -322,6 +359,47 @@ function sanitizeErrorMessage(message) {
     .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
     .replace(/\b(token|eid|access_token)=([^\s&]+)/gi, "$1=[REDACTED]")
     .slice(0, 600);
+}
+
+function fingerprintVideoProfile(profile) {
+  const title = normalizeIdentityText(profile.title);
+  const author = normalizeIdentityText(profile.author);
+  const createTime = profile.createTime ?? null;
+  if (createTime == null || (!title && !author)) return null;
+
+  return createHash("sha256")
+    .update(JSON.stringify([title, author, String(createTime), profile.mediaType ?? null]))
+    .digest("hex");
+}
+
+function normalizeIdentityText(value) {
+  return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+async function findWrittenDuplicateTask(rootDir, currentTaskId, contentFingerprint) {
+  const tasksDir = path.join(rootDir, "tasks");
+  let entries;
+  try {
+    entries = await fs.readdir(tasksDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory() || entry.name === currentTaskId) continue;
+    const candidate = await readJsonIfExists(path.join(tasksDir, entry.name, "task.json"));
+    if (
+      candidate?.state !== "written" ||
+      candidate.metadata?.content_fingerprint !== contentFingerprint ||
+      !candidate.note_path ||
+      !(await pathExists(candidate.note_path))
+    ) {
+      continue;
+    }
+    return candidate;
+  }
+  return null;
 }
 
 async function writeJsonAtomic(filePath, value) {

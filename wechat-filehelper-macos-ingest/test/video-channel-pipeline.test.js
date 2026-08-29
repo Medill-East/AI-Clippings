@@ -35,12 +35,13 @@ describe("runVideoChannelTask", () => {
     const rootDir = await makeTempDir("video-channel-task-");
     const obsidianDir = path.join(rootDir, "vault", "Clippings");
     const observedStates = [];
+    let transcriptionProfile;
 
     const result = await runVideoChannelTask(record, {
       rootDir,
       obsidianDir,
       resolveFn: async () => ({
-        title: "真实标题",
+        title: "真实标题\n\n#标签一 #标签二",
         author: "作者",
         videoUrl: "https://media.example.test/video.mp4",
         urlFingerprint: "1234567890abcdef",
@@ -49,7 +50,8 @@ describe("runVideoChannelTask", () => {
         await fs.writeFile(mediaPath, "media");
         return { bytes: 5, durationSeconds: 42 };
       },
-      transcribeFn: async (_mediaPath, transcriptPath) => {
+      transcribeFn: async (_mediaPath, transcriptPath, profile) => {
+        transcriptionProfile = profile;
         const transcript = "这是经过本机 V2T 转写的有效内容，包含足够的信息用于后续摘要。";
         await fs.writeFile(transcriptPath, transcript, "utf8");
         return { text: transcript, provider: "v2t-local" };
@@ -71,7 +73,10 @@ describe("runVideoChannelTask", () => {
       "written",
     ]);
     assert.ok(result.note_path);
-    assert.equal(await fs.readFile(result.note_path, "utf8").then(Boolean), true);
+    const note = await fs.readFile(result.note_path, "utf8");
+    assert.equal(Boolean(note), true);
+    assert.match(note, /^# 真实标题$/m);
+    assert.doesNotMatch(note, /^#标签一/m);
     await assert.rejects(fs.access(result.artifacts.media_path), { code: "ENOENT" });
     await assert.rejects(fs.access(result.artifacts.transcript_path), { code: "ENOENT" });
 
@@ -80,6 +85,61 @@ describe("runVideoChannelTask", () => {
     assert.equal(persisted.media_bytes, 5);
     assert.equal(persisted.transcript_chars > 0, true);
     assert.equal("video_url" in persisted, false);
+    assert.equal(transcriptionProfile.durationSeconds, 42);
+  });
+
+  it("skips a second share URL that resolves to an already written video", async () => {
+    const rootDir = await makeTempDir("video-channel-duplicate-");
+    const obsidianDir = path.join(rootDir, "vault", "Clippings");
+    const profile = {
+      title: "同一个真实视频",
+      author: "同一个作者",
+      createTime: 1_787_220_604,
+      mediaType: 4,
+      videoUrl: "https://media.example.test/video.mp4?token=rotating",
+      urlFingerprint: "1234567890abcdef",
+    };
+    let downloadCalls = 0;
+    let transcribeCalls = 0;
+    let summarizeCalls = 0;
+    const options = {
+      rootDir,
+      obsidianDir,
+      resolveFn: async () => profile,
+      downloadFn: async (_profile, mediaPath) => {
+        downloadCalls += 1;
+        await fs.writeFile(mediaPath, "media");
+        return { bytes: 5, durationSeconds: 42 };
+      },
+      transcribeFn: async (_mediaPath, transcriptPath) => {
+        transcribeCalls += 1;
+        const transcript = "同一个视频对应的有效逐字稿。";
+        await fs.writeFile(transcriptPath, transcript, "utf8");
+        return { text: transcript, provider: "v2t-local" };
+      },
+      summarizeFn: async () => {
+        summarizeCalls += 1;
+        return {
+          summary: "同一个视频只应生成一份摘要和一篇 PKM 笔记。",
+          key_points: ["同一媒体", "不同分享短链", "只写一次"],
+        };
+      },
+    };
+
+    const first = await runVideoChannelTask(record, options);
+    const second = await runVideoChannelTask(
+      { ...record, url: "https://weixin.qq.com/sph/Different456" },
+      options,
+    );
+
+    assert.equal(first.state, "written");
+    assert.equal(second.state, "skipped_duplicate");
+    assert.equal(second.skipped_duplicate, true);
+    assert.equal(second.duplicate_of_task_id, first.task_id);
+    assert.equal(second.note_path, first.note_path);
+    assert.equal(downloadCalls, 1);
+    assert.equal(transcribeCalls, 1);
+    assert.equal(summarizeCalls, 1);
   });
 
   it("records a transcribe failure with a non-empty code and failure log", async () => {

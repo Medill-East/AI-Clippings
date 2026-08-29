@@ -5,13 +5,15 @@ import os from "node:os";
 import path from "node:path";
 
 import { PipelineError } from "../scripts/lib/video-channel-pipeline.js";
-import {
+import * as videoChannelRuntime from "../scripts/lib/video-channel-runtime.js";
+
+const {
   downloadVideoMedia,
   loadResolvedVault,
   resolveObsidianClippingsDir,
   summarizeWithCodex,
   transcribeWithV2T,
-} from "../scripts/lib/video-channel-runtime.js";
+} = videoChannelRuntime;
 
 const tempDirs = [];
 
@@ -83,6 +85,88 @@ describe("downloadVideoMedia", () => {
 });
 
 describe("transcribeWithV2T", () => {
+  it("finds V2T in the Director workspace when the checkout sibling is absent", async () => {
+    const homeDir = await makeTempDir("video-v2t-layout-");
+    const clippingsRootPath = path.join(
+      homeDir,
+      "Documents",
+      "GitHub",
+      "AI-Clippings",
+    );
+    const expectedPath = path.join(
+      homeDir,
+      "Documents",
+      "AI",
+      "Codex",
+      "V2T",
+      "dist",
+      "core",
+      "asrProviders.js",
+    );
+    await fs.mkdir(path.dirname(expectedPath), { recursive: true });
+    await fs.writeFile(expectedPath, "export const runtime = true;\n");
+
+    assert.equal(
+      typeof videoChannelRuntime.resolveV2TRuntimeModulePath,
+      "function",
+    );
+    assert.equal(
+      await videoChannelRuntime.resolveV2TRuntimeModulePath({
+        clippingsRootPath,
+        homeDir,
+      }),
+      expectedPath,
+    );
+  });
+
+  it("extracts ordered frame text and removes recurring visual watermarks", async () => {
+    const root = await makeTempDir("video-visual-ocr-");
+    const mediaPath = path.join(root, "media.mp4");
+    const framesDir = path.join(root, "frames");
+    await fs.writeFile(mediaPath, "media");
+
+    assert.equal(
+      typeof videoChannelRuntime.extractVisualTextFromVideo,
+      "function",
+    );
+    const result = await videoChannelRuntime.extractVisualTextFromVideo(mediaPath, {
+      durationSeconds: 14,
+      framesDir,
+      ignoredTexts: ["同炁TONGQI"],
+      execFileFn: async (_command, args) => {
+        const outputPattern = args.at(-1);
+        await fs.mkdir(path.dirname(outputPattern), { recursive: true });
+        for (let index = 1; index <= 3; index += 1) {
+          await fs.writeFile(
+            outputPattern.replace("%03d", String(index).padStart(3, "0")),
+            `frame-${index}`,
+          );
+        }
+      },
+      recognizeTextFromImageFn: async (framePath) => {
+        const frame = path.basename(framePath);
+        const unique = frame === "frame-001.jpg" ? "毛发收集" :
+          frame === "frame-002.jpg" ? "碳化提纯" : "";
+        const watermark = frame === "frame-002.jpg" ? "同悉TONGOI" : "同炁TONGQI";
+        return {
+          lines: [
+            ...(unique ? [{ text: unique, confidence: 0.95 }] : []),
+            ...(frame === "frame-001.jpg"
+              ? [{ text: "79", confidence: 0.9 }]
+              : []),
+            { text: watermark, confidence: 0.9 },
+          ],
+        };
+      },
+    });
+
+    assert.equal(result.frameCount, 3);
+    assert.match(result.text, /毛发收集/);
+    assert.match(result.text, /碳化提纯/);
+    assert.doesNotMatch(result.text, /TONG[QO]I/);
+    assert.doesNotMatch(result.text, /79/);
+  });
+
   it("reuses the configured local V2T model and writes a temporary transcript", async () => {
     const root = await makeTempDir("video-v2t-");
     const mediaPath = path.join(root, "media.mp4");
@@ -137,6 +221,60 @@ describe("transcribeWithV2T", () => {
     assert.equal(providerOptions.onChunkProgress, onProgress);
     assert.equal(await fs.readFile(transcriptPath, "utf8"), result.text);
   });
+
+  it("falls back to frame OCR when local ASR contains no usable video content", async () => {
+    const root = await makeTempDir("video-v2t-visual-fallback-");
+    const mediaPath = path.join(root, "media.mp4");
+    const transcriptPath = path.join(root, "transcript.txt");
+    const settingsPath = path.join(root, "settings.json");
+    const modelPath = path.join(root, "model", "model.int8.onnx");
+    await fs.mkdir(path.dirname(modelPath), { recursive: true });
+    await fs.writeFile(mediaPath, "media");
+    await fs.writeFile(modelPath, "model");
+    await fs.writeFile(
+      settingsPath,
+      JSON.stringify({
+        providers: {
+          asr: {
+            modelId: "sensevoice-test",
+            modelPath,
+            sherpaModelType: "senseVoice",
+          },
+        },
+      }),
+    );
+
+    let visualCalls = 0;
+    const result = await transcribeWithV2T(mediaPath, transcriptPath, {
+      settingsPath,
+      profile: { durationSeconds: 14 },
+      execFileFn: async (_command, args) => {
+        await fs.writeFile(args.at(-1), "wav-bytes");
+      },
+      importV2TFn: async () => ({
+        LocalSherpaAsrProvider: class {
+          async transcribe() {
+            return { text: "系统。" };
+          }
+        },
+      }),
+      extractVisualTextFn: async () => {
+        visualCalls += 1;
+        return {
+          text: "[00:00] 毛发收集\n[00:04] 取出钻石原坯\n[00:10] 人工精磨",
+          frameCount: 7,
+        };
+      },
+    });
+
+    assert.equal(visualCalls, 1);
+    assert.equal(result.evidenceType, "visual_ocr");
+    assert.equal(result.visualOcrFrames, 7);
+    assert.match(result.text, /\[画面 OCR\]/);
+    assert.match(result.text, /毛发收集/);
+    assert.doesNotMatch(result.text, /系统。/);
+    assert.equal(await fs.readFile(transcriptPath, "utf8"), result.text);
+  });
 });
 
 describe("summarizeWithCodex", () => {
@@ -151,6 +289,8 @@ describe("summarizeWithCodex", () => {
       {
         invokeCodexFn: async ({ outputPath, prompt }) => {
           assert.match(prompt, /untrusted_transcript/);
+          assert.match(prompt, /视频内容证据/);
+          assert.match(prompt, /画面 OCR/);
           await fs.writeFile(
             outputPath,
             JSON.stringify({
