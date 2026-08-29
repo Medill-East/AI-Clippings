@@ -70,6 +70,8 @@ const VIEWER_DETECT_TIMEOUT_MS = 900;
 const VIEWER_DETECT_POLL_MS = 60;
 const VIEWER_READY_TIMEOUT_MS = 420;
 const VIEWER_READY_POLL_MS = 40;
+const IMAGE_VIEWER_READY_ATTEMPTS = 5;
+const IMAGE_VIEWER_READY_POLL_MS = 180;
 const VIEWER_MENU_SETTLE_MS = 45;
 const VIEWER_COPY_SETTLE_MS = 0;
 const VIEWER_BROWSER_SETTLE_MS = 500;
@@ -87,6 +89,12 @@ const VIEWER_RECOVERY_FAILURE_REASONS = new Set([
   "image_viewer_not_closed",
   "image_chat_not_recovered",
   "image_candidate_chat_not_recovered",
+]);
+const INCOMPLETE_TIMELINE_TERMINATIONS = new Set([
+  "max_scrolls_reached",
+  "max_candidates_reached",
+  "candidate_generation_failed",
+  "viewer_recovery_failed",
 ]);
 const IMAGE_OCR_CANDIDATE_REASONS = new Set([
   "image_card",
@@ -731,6 +739,16 @@ function hasSuspiciousOcrUrlTail(url) {
   }
 }
 
+function hasStandaloneTerminalPeriod(rawLines, url) {
+  return rawLines.some((line) => {
+    const text = String(line ?? "").trim();
+    if (!/^https?:\/\/\S+\.$/i.test(text)) return false;
+    return extractUrlsFromText(text).some(
+      (extractedUrl) => canonicalizeUrl(extractedUrl) === url,
+    );
+  });
+}
+
 function extractOcrUrlEntries(linesOrText) {
   const rawLines = Array.isArray(linesOrText)
     ? linesOrText.map((line) => String(line ?? "").trim()).filter(Boolean)
@@ -773,6 +791,9 @@ function extractOcrUrlEntries(linesOrText) {
   for (const candidate of candidates) {
     if (isMalformedOcrUrl(candidate.url)) addReason(candidate.url, "malformed_url");
     if (hasSuspiciousOcrUrlTail(candidate.url)) addReason(candidate.url, "suspicious_tail");
+    if (hasStandaloneTerminalPeriod(rawLines, candidate.url)) {
+      addReason(candidate.url, "terminal_period");
+    }
   }
 
   for (let index = 0; index < candidates.length; index++) {
@@ -1410,6 +1431,11 @@ export async function scanUiLinks(
     viewer_copy_wait_ms_total: 0,
     viewer_close_wait_ms_total: 0,
     image_ocr_wait_ms_total: 0,
+    pages_scanned: 0,
+    scrolls_performed: 0,
+    termination_reason: null,
+    range_coverage: "unverified",
+    oldest_visible_message_time: null,
   };
 
   const records = [];
@@ -1588,6 +1614,8 @@ export async function scanUiLinks(
   let consecutiveDuplicatePages = 0;
   let limitReached = false;
   let lastUrlLikeSignature = uiProbe.captured_page?.urlLikeSignature ?? null;
+  let terminationReason = null;
+  let oldestVisibleMessageTime = null;
 
   while (scrollCount <= maxScrolls && !limitReached) {
     let page = await captureVisibleUiPageFn({
@@ -1623,6 +1651,7 @@ export async function scanUiLinks(
         previousUrlLikeSignature: null,
       });
     }
+    stats.pages_scanned += 1;
 
     const pageBlocks = normalizeSnapshotBlocks(page.clipboardSnapshot);
     if (page.samplingMode === "ocr_plus_clipboard") {
@@ -1634,7 +1663,10 @@ export async function scanUiLinks(
     const pageSignature = pageBlocks.map((block) => buildBlockSignature(block)).join(";");
     if (seenPages.has(pageSignature)) {
       consecutiveDuplicatePages += 1;
-      if (consecutiveDuplicatePages >= 2) break;
+      if (consecutiveDuplicatePages >= 2) {
+        terminationReason = "duplicate_pages";
+        break;
+      }
     } else {
       seenPages.add(pageSignature);
       consecutiveDuplicatePages = 0;
@@ -1653,6 +1685,9 @@ export async function scanUiLinks(
       let messageTime = null;
       if (block.timestampText) {
         messageTime = parseWeChatTimestamp(block.timestampText, referenceNow);
+      }
+      if (messageTime && (!oldestVisibleMessageTime || messageTime < oldestVisibleMessageTime)) {
+        oldestVisibleMessageTime = messageTime;
       }
 
       if (messageTime) {
@@ -2256,6 +2291,7 @@ export async function scanUiLinks(
 
       if (viewerRecoveryFailed) {
         limitReached = true;
+        terminationReason = "viewer_recovery_failed";
         if (debug) {
           console.log("[debug] Viewer recovery failed; stopping UI scan to avoid acting on an unknown window.");
         }
@@ -2264,6 +2300,7 @@ export async function scanUiLinks(
 
       if (stats.share_cards_attempted >= maxCandidates) {
         limitReached = true;
+        terminationReason = "max_candidates_reached";
         if (debug) {
           console.log(`[debug] Reached max candidate limit (${maxCandidates}), stopping early.`);
         }
@@ -2271,9 +2308,13 @@ export async function scanUiLinks(
       }
     }
 
-    if (reachedBeforeRange) break;
+    if (reachedBeforeRange) {
+      terminationReason = "reached_before_since";
+      break;
+    }
     if (limitReached) break;
     if (pageHasCandidateGenerationFailure) {
+      terminationReason = "candidate_generation_failed";
       if (debug) {
         console.log("[debug] Failed to generate clickable candidates for actionable blocks; stopping early.");
       }
@@ -2283,9 +2324,19 @@ export async function scanUiLinks(
     scrollCount += 1;
     if (scrollCount <= maxScrolls) {
       scrollPageFn(debug);
+      stats.scrolls_performed += 1;
+    } else {
+      terminationReason = "max_scrolls_reached";
     }
   }
 
+  stats.termination_reason = terminationReason ?? "unknown";
+  stats.range_coverage = terminationReason === "reached_before_since"
+    ? "complete"
+    : INCOMPLETE_TIMELINE_TERMINATIONS.has(terminationReason)
+      ? "incomplete"
+      : "unverified";
+  stats.oldest_visible_message_time = oldestVisibleMessageTime?.toISOString() ?? null;
   stats.type_outcomes = summarizeTypeOutcomes();
 
   if (artifactDir) {
@@ -2296,7 +2347,12 @@ export async function scanUiLinks(
     );
   }
 
-  console.log(`Scrolled ${scrollCount} time(s), found ${records.length} unique link(s).`);
+  console.log(
+    `Scrolled ${stats.scrolls_performed} time(s), found ${records.length} unique link(s).`,
+  );
+  console.log(
+    `Timeline coverage: ${stats.range_coverage} (${stats.termination_reason}; oldest visible: ${stats.oldest_visible_message_time ?? "unknown"}).`,
+  );
   return { records, uncertainRecords, skippedRecords, unresolvedRecords, contentRecords, stats };
 }
 
@@ -2661,13 +2717,43 @@ function removeImageViewerChromeOcr(ocrResult) {
       const y = Number(line?.y);
       if (!Number.isFinite(y)) return true;
       const height = Math.max(0, Number(line?.height ?? 0));
-      if (y + height > toolbarBottom) return true;
-
-      const text = String(line?.text ?? "").trim();
-      const hasMeaningfulText = /[A-Za-z0-9]{2,}|[\p{Script=Han}]{2,}/u.test(text);
-      return hasMeaningfulText;
+      return y + height > toolbarBottom;
     }),
   };
+}
+
+async function captureImageViewerOcrWhenReady(
+  screenRect,
+  screenshotPath,
+  { debug = false } = {},
+  {
+    captureRectScreenshotFn = captureRectScreenshot,
+    recognizeTextFromImageFn = recognizeTextFromImage,
+    sleepMsFn = sleepMs,
+  } = {},
+) {
+  let ocrResult = { lines: [] };
+
+  for (let attempt = 1; attempt <= IMAGE_VIEWER_READY_ATTEMPTS; attempt += 1) {
+    captureRectScreenshotFn(screenRect, screenshotPath);
+    ocrResult = await recognizeTextFromImageFn(screenshotPath);
+    const contentLines = removeImageViewerChromeOcr(ocrResult).lines.filter((line) =>
+      String(line?.text ?? "").trim(),
+    );
+    if (!viewerLooksLoading(ocrResult) && contentLines.length > 0) {
+      return ocrResult;
+    }
+    if (attempt < IMAGE_VIEWER_READY_ATTEMPTS) {
+      if (debug) {
+        console.log(
+          `[debug] Image viewer has no loaded content yet; retrying (${attempt}/${IMAGE_VIEWER_READY_ATTEMPTS})...`,
+        );
+      }
+      sleepMsFn(IMAGE_VIEWER_READY_POLL_MS);
+    }
+  }
+
+  return ocrResult;
 }
 
 function removeArticleViewerHintOcr(ocrResult) {
@@ -3175,8 +3261,12 @@ export async function extractImageContent(
       await fsImpl.mkdir(artifactDir, { recursive: true });
     }
     const ocrStartedAt = Date.now();
-    captureRectScreenshotFn(viewerContext.screenRect, screenshotPath);
-    const ocrResult = await recognizeTextFromImageFn(screenshotPath);
+    const ocrResult = await captureImageViewerOcrWhenReady(
+      viewerContext.screenRect,
+      screenshotPath,
+      { debug },
+      { captureRectScreenshotFn, recognizeTextFromImageFn, sleepMsFn },
+    );
     timings.image_ocr_wait_ms = Date.now() - ocrStartedAt;
     if (artifactDir != null) {
       await writeJsonArtifact(

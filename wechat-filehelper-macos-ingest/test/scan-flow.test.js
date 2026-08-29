@@ -134,9 +134,14 @@ describe("scan flow", () => {
               image: { seen: 1, recorded: 1, uncertain: 0, skipped: 0, unresolved: 0, deduplicated: 0 },
             },
             browser_fallback_used: 0,
-              skipped_by_rule: {},
-            },
-          };
+            pages_scanned: 3,
+            scrolls_performed: 2,
+            termination_reason: "reached_before_since",
+            range_coverage: "complete",
+            oldest_visible_message_time: "2026-03-28T06:59:00.000Z",
+            skipped_by_rule: {},
+          },
+        };
         },
         scanClipboardLinksFn: async () => {
           throw new Error("clipboard fallback should not run");
@@ -155,6 +160,11 @@ describe("scan flow", () => {
     assert.equal(result.manifest.image_items_seen, 1);
     assert.equal(result.manifest.image_items_processed, 1);
     assert.equal(result.manifest.image_candidates_rerouted_to_article, 2);
+    assert.equal(result.manifest.pages_scanned, 3);
+    assert.equal(result.manifest.scrolls_performed, 2);
+    assert.equal(result.manifest.termination_reason, "reached_before_since");
+    assert.equal(result.manifest.range_coverage, "complete");
+    assert.equal(result.manifest.oldest_visible_message_time, "2026-03-28T06:59:00.000Z");
     assert.equal(result.manifest.type_outcome_invariant.status, "passed");
     assert.equal(result.manifest.type_outcomes.image.seen, 1);
     assert.equal(result.manifest.max_candidates, 1);

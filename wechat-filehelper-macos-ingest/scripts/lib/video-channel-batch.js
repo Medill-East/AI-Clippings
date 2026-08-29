@@ -88,7 +88,13 @@ export async function runVideoBatch(
       until: until?.toISOString?.() ?? null,
       explicit_url: url ?? null,
     },
-    counts: { selected: selected.length, written: 0, failed: 0, skipped: 0 },
+    counts: {
+      selected: selected.length,
+      written: 0,
+      failed: 0,
+      skipped: 0,
+      not_attempted: 0,
+    },
     results: [],
   };
   await writeJsonAtomic(manifestPath, manifest);
@@ -203,6 +209,33 @@ export async function runVideoBatch(
       state: task.state,
       errorCode: task.error_code ?? null,
     });
+
+    if (task.error_code === "auth_required") {
+      const remaining = selected.slice(index + 1);
+      manifest.results.push(
+        ...remaining.map((pendingRecord) =>
+          redactTaskResult({
+            task_id: null,
+            source_url: pendingRecord.url,
+            state: "not_attempted",
+            failed_stage: "resolving",
+            error_code: "auth_required_not_attempted",
+            error_message: "Not attempted after Yuanbao authentication failed earlier in this batch",
+          }),
+        ),
+      );
+      manifest.counts.not_attempted += remaining.length;
+      manifest.status = "blocked_auth";
+      manifest.finished_at = timestamp(nowFn);
+      await writeJsonAtomic(manifestPath, manifest);
+      onEvent({
+        type: "batch_blocked_auth",
+        failed: manifest.counts.failed,
+        notAttempted: manifest.counts.not_attempted,
+        recoveryCommand: "npm run video:auth",
+      });
+      return { ...manifest, manifestPath };
+    }
   }
 
   manifest.status = manifest.counts.failed > 0 ? "completed_with_failures" : "complete";

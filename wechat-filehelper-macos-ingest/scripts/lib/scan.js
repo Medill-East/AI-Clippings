@@ -278,6 +278,11 @@ export async function runScan(
     image_items_needs_review: scanResult.stats.image_items_needs_review ?? 0,
     image_candidates_rerouted_to_article:
       scanResult.stats.image_candidates_rerouted_to_article ?? 0,
+    pages_scanned: scanResult.stats.pages_scanned ?? null,
+    scrolls_performed: scanResult.stats.scrolls_performed ?? null,
+    termination_reason: scanResult.stats.termination_reason ?? "unknown",
+    range_coverage: scanResult.stats.range_coverage ?? "unverified",
+    oldest_visible_message_time: scanResult.stats.oldest_visible_message_time ?? null,
     type_outcomes: typeOutcomes,
     type_outcome_invariant: {
       status: typeOutcomeValidation.valid ? "passed" : "failed",

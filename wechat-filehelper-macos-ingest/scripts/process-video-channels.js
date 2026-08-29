@@ -85,6 +85,12 @@ function usage() {
 }
 
 function formatEvent(event, stream) {
+  if (event.type === "batch_blocked_auth") {
+    stream.write(
+      `Yuanbao authentication is required; ${event.notAttempted} remaining video(s) were not attempted. Run: ${event.recoveryCommand}\n`,
+    );
+    return;
+  }
   const prefix = `[video ${event.index}/${event.total}]`;
   if (event.type === "task_state") {
     stream.write(`${prefix} ${event.state}\n`);
@@ -137,7 +143,7 @@ async function main() {
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(
-      `Video batch complete: selected=${result.counts.selected}, written=${result.counts.written}, skipped=${result.counts.skipped}, failed=${result.counts.failed}`,
+      `Video batch complete: selected=${result.counts.selected}, written=${result.counts.written}, skipped=${result.counts.skipped}, failed=${result.counts.failed}, not_attempted=${result.counts.not_attempted}`,
     );
     console.log(`Manifest: ${result.manifestPath}`);
   }

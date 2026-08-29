@@ -122,6 +122,10 @@ async function main() {
             console.log(`${prefix} ASR ${event.current}/${event.chunks}`);
           } else if (event.type === "task_finished" && event.state === "failed") {
             console.log(`${prefix} failed: ${event.errorCode}`);
+          } else if (event.type === "batch_blocked_auth") {
+            console.log(
+              `视频号需要重新登录元宝；其余 ${event.notAttempted} 条未尝试。请先运行：${event.recoveryCommand}`,
+            );
           }
         },
       },
@@ -129,7 +133,7 @@ async function main() {
     if (videoResult.counts.selected > 0) {
       console.log("");
       console.log(
-        `视频号后台处理：written=${videoResult.counts.written}，skipped=${videoResult.counts.skipped}，failed=${videoResult.counts.failed}`,
+        `视频号后台处理：written=${videoResult.counts.written}，skipped=${videoResult.counts.skipped}，failed=${videoResult.counts.failed}，not_attempted=${videoResult.counts.not_attempted}`,
       );
       console.log(`视频号 manifest：${videoResult.manifestPath}`);
     }

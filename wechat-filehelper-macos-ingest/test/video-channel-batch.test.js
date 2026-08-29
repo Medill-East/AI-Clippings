@@ -115,7 +115,13 @@ describe("runVideoBatch", () => {
       },
     );
 
-    assert.deepEqual(result.counts, { selected: 1, written: 1, failed: 0, skipped: 0 });
+    assert.deepEqual(result.counts, {
+      selected: 1,
+      written: 1,
+      failed: 0,
+      skipped: 0,
+      not_attempted: 0,
+    });
     const manifest = JSON.parse(await fs.readFile(result.manifestPath, "utf8"));
     assert.equal(manifest.results[0].state, "written");
     assert.equal(manifest.results[0].media_bytes, 123);
@@ -149,10 +155,83 @@ describe("runVideoBatch", () => {
     );
 
     assert.equal(result.status, "failed");
-    assert.deepEqual(result.counts, { selected: 1, written: 0, failed: 1, skipped: 0 });
+    assert.deepEqual(result.counts, {
+      selected: 1,
+      written: 0,
+      failed: 1,
+      skipped: 0,
+      not_attempted: 0,
+    });
     assert.equal(result.results[0].error_code, "obsidian_vault_missing");
     const manifest = JSON.parse(await fs.readFile(result.manifestPath, "utf8"));
     assert.equal(manifest.status, "failed");
     assert.ok(manifest.finished_at);
+  });
+
+  it("stops the batch after the first auth failure and marks remaining videos as not attempted", async () => {
+    const skillRoot = await makeTempDir("video-batch-auth-");
+    const indexPath = path.join(skillRoot, "local", "index", "links.jsonl");
+    await fs.mkdir(path.dirname(indexPath), { recursive: true });
+    await fs.writeFile(
+      indexPath,
+      ["First1", "Second2", "Third3"]
+        .map((id) => JSON.stringify({
+          message_time: "2026-08-22T07:00:00.000Z",
+          url: `https://weixin.qq.com/sph/${id}`,
+        }))
+        .join("\n") + "\n",
+    );
+
+    let taskCalls = 0;
+    const events = [];
+    const result = await runVideoBatch(
+      {
+        skillRoot,
+        since: new Date("2026-08-22T06:00:00.000Z"),
+        until: new Date("2026-08-22T08:00:00.000Z"),
+        indexPath,
+      },
+      {
+        resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        runTaskFn: async (record) => {
+          taskCalls += 1;
+          return {
+            task_id: `task-${taskCalls}`,
+            source_url: record.url,
+            state: "failed",
+            failed_stage: "resolving",
+            error_code: "auth_required",
+            error_message: "Yuanbao session was rejected with HTTP 401",
+          };
+        },
+        nowFn: () => new Date("2026-08-22T10:00:00.000Z"),
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    assert.equal(taskCalls, 1);
+    assert.equal(result.status, "blocked_auth");
+    assert.deepEqual(result.counts, {
+      selected: 3,
+      written: 0,
+      failed: 1,
+      skipped: 0,
+      not_attempted: 2,
+    });
+    assert.deepEqual(result.results.map((entry) => entry.state), [
+      "failed",
+      "not_attempted",
+      "not_attempted",
+    ]);
+    assert.deepEqual(result.results.slice(1).map((entry) => entry.error_code), [
+      "auth_required_not_attempted",
+      "auth_required_not_attempted",
+    ]);
+    assert.deepEqual(events.at(-1), {
+      type: "batch_blocked_auth",
+      failed: 1,
+      notAttempted: 2,
+      recoveryCommand: "npm run video:auth",
+    });
   });
 });

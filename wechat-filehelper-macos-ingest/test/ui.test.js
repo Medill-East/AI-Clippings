@@ -270,6 +270,31 @@ describe("ui helpers", () => {
     );
   });
 
+  it("marks a standalone OCR URL ending in a period as truncated instead of confirmed", () => {
+    const snapshot = buildUiSnapshot({
+      clipboardSnapshot: { blocks: [] },
+      ocrResult: {
+        width: 1470,
+        height: 1844,
+        lines: [
+          { text: "File Transfer", x: 630, y: 50, width: 190, height: 30 },
+          { text: "https://en.itu.", x: 784, y: 1154, width: 164, height: 27 },
+        ],
+      },
+      windowBounds: { x: 0, y: 0, width: 1470, height: 1844 },
+    });
+
+    const entries = snapshot.effectiveBlocks.flatMap((block) => block.directUrlEntries ?? []);
+    assert.deepEqual(snapshot.effectiveBlocks.flatMap((block) => block.directUrls ?? []), []);
+    assert.deepEqual(entries, [
+      {
+        url: "https://en.itu/",
+        confidence: "uncertain",
+        confidenceReason: "terminal_period",
+      },
+    ]);
+  });
+
   it("keeps only the most complete OCR direct URL when fragments also produce truncated prefixes", () => {
     const snapshot = buildUiSnapshot({
       clipboardSnapshot: {
@@ -1011,6 +1036,51 @@ describe("scanUiLinks", () => {
       "https://example.com/in-range",
     ]);
     assert.equal(result.records[0].message_time, "2026-08-28T15:38:00.000Z");
+    assert.equal(result.stats.pages_scanned, 2);
+    assert.equal(result.stats.scrolls_performed, 1);
+    assert.equal(result.stats.termination_reason, "reached_before_since");
+    assert.equal(result.stats.range_coverage, "complete");
+    assert.equal(result.stats.oldest_visible_message_time, "2026-08-28T14:59:00.000Z");
+  });
+
+  it("marks timeline coverage incomplete when the scroll limit is exhausted", async () => {
+    const result = await scanUiLinks(
+      new Date("2026-08-28T15:00:00.000Z"),
+      new Date("2026-08-28T15:59:59.000Z"),
+      0,
+      false,
+      {
+        nowFn: () => new Date("2026-08-28T18:25:50.000Z"),
+        waitForUserReadyFn: async () => {},
+        navigateToFileHelperFn: async () => {},
+        probeUiEnvironmentFn: async () => ({ ui_probe_status: "ready", captured_page: {} }),
+        captureVisibleUiPageFn: async () => ({
+          samplingMode: "ocr_only",
+          clipboardSnapshot: {
+            rawText: "",
+            blocks: [{
+              blockId: "untimed-url",
+              timestampText: null,
+              rawLines: ["https://example.com/in-range"],
+              rawText: "https://example.com/in-range",
+              directUrls: ["https://example.com/in-range"],
+              shareCardTitle: null,
+              skipReason: null,
+            }],
+            stats: { share_cards_seen: 0, share_cards_unresolved: 0, skipped_by_rule: {} },
+          },
+          candidateMap: new Map(),
+        }),
+        scrollPageFn: () => {
+          throw new Error("maxScrolls=0 must not scroll");
+        },
+      },
+    );
+
+    assert.equal(result.stats.pages_scanned, 1);
+    assert.equal(result.stats.scrolls_performed, 0);
+    assert.equal(result.stats.termination_reason, "max_scrolls_reached");
+    assert.equal(result.stats.range_coverage, "incomplete");
   });
 
   it("keeps an untimed visible item in range and marks its timestamp as a boundary fallback", async () => {
@@ -3347,6 +3417,39 @@ describe("extractImageContent", () => {
     assert.equal(result.record.pkm_status, "written");
     assert.deepEqual(clicks, [{ x: 500, y: 400 }]);
     assert.deepEqual(captures, [viewerWindow]);
+  });
+
+  it("waits for image-viewer content instead of publishing the loading toolbar", async () => {
+    let ocrCalls = 0;
+    const result = await extractImageContent(
+      { itemKey: "image-loading", title: "图片正文", clickX: 500, clickY: 400 },
+      imageContext(),
+      imageDependencies({
+        recognizeTextFromImageFn: async () => {
+          ocrCalls += 1;
+          if (ocrCalls === 1) {
+            return {
+              width: 1470,
+              height: 1844,
+              lines: [
+                { text: "•••6upeoT", x: 404, y: 28, width: 129, height: 28, confidence: 0.3 },
+              ],
+            };
+          }
+          return {
+            width: 1470,
+            height: 1844,
+            lines: [
+              { text: "真正的图片正文", x: 120, y: 150, width: 520, height: 48, confidence: 0.9 },
+            ],
+          };
+        },
+      }),
+    );
+
+    assert.equal(ocrCalls, 2);
+    assert.equal(result.status, "ok");
+    assert.equal(result.record.content_text, "真正的图片正文");
   });
 
   it("removes image-viewer toolbar OCR before creating the content record", async () => {
