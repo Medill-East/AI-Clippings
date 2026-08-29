@@ -128,3 +128,36 @@
 - 主要修改：时间来源、图片/文章类型确认、图片笔记兼容、macOS vault、Playwright 隔离、恢复失败审计与 manifest 统计。
 
 原始对话：dialogues/2026-0829.md「0342 整批运行时间线与图片处理修复」
+
+## 1130 新批次假成功修复与时间线覆盖核实
+
+决策：無涘（沿用“全部修复、直接实现并同步 GitHub”的既定授权） ｜ 记录：Codex ｜ session 01a049ca-4030-75e0-bbbb-80faba453e51
+
+### 结论
+
+- 新批次滚动 20 次、取得 36 条链接；第 20 页真实出现 `Yesterday 21:25`，早于请求下界 23:00，因此时间线这次实际完整跑过。用户之所以无法判断，是旧 manifest 只写 `max_scrolls`，没有保存真实终止原因。
+- 3 条图片内容中，Apple 与 Sac 截图正文有效；第三张截图仍停在空白 `Loading....`，OCR 只得到 `•••6upeoT`，却被作为 `needs_review` 写入 PKM。根因是图片链只等 viewer 窗口出现，没有等待 viewer 内容加载。
+- 直接链接中的 `https://en.itu/` 来自独立页 OCR 片段 `https://en.itu.`；同页候选比较无法利用上一页的完整 `en.itu.dk` URL，且行尾句点被清洗后失去截断信号。
+- 8 条视频号链接均已取得；后台全部失败是元宝独立浏览器 profile 返回 HTTP 401。微信重新登录与该认证无关，旧批处理还会对余下 7 条重复同一必败请求。
+
+### 修复
+
+- 图片 viewer 最多重复截图/OCR 5 次，只有工具栏下方出现正文才发布；顶部工具栏 OCR 全部剔除，持续空白会显式报 `image_ocr_empty`。
+- OCR 独立 URL 行若以句点结尾，按 `terminal_period` 进入 uncertain，不再进入已确认链接。
+- UI 扫描新增页数、实际滚动次数、最早可见时间、终止原因与 `complete / incomplete / unverified` 覆盖状态；终端同步显示结论。
+- 视频批处理首个 `auth_required` 后熔断，只把已尝试项计为 failed，其余计为 `not_attempted`，manifest 状态为 `blocked_auth` 并给出恢复命令。
+- 已将唯一确认的 Loading 假笔记移出 Obsidian Clippings，保存在本地 quarantine；两条真实图片笔记未动。
+
+### 验证
+
+- 四项行为均先加入失败回归并观察红灯，再修改生产代码转绿。
+- 使用本次 page 20 原始 OCR 回放，新结果仅产生 `https://en.itu/ / uncertain / terminal_period`。
+- `npm test`：182 pass / 0 fail；全部 JS 语法检查和 `git diff --check` 通过。
+- 未重跑微信 UI 或 8 条视频后台任务；视频仍需先完成元宝独立认证，不能把代码熔断修复表述为视频处理成功。
+
+### 产出
+
+- 代码提交：`b8ac875`。
+- 修改：UI 图片等待与时间线审计、scan manifest、视频认证熔断及对应测试。
+
+原始对话：dialogues/2026-0829.md「1130 新批次假成功修复与时间线覆盖核实」
