@@ -14,6 +14,8 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - 若 UI 环境不满足，则回退到 clipboard 扫描
 - `store` 保留为诊断/实验来源，不再是默认主路线
 - `/sph/` 视频号链接由独立状态机处理：`pending → resolving → downloading → transcribing → summarizing → written`
+- 视频语音信息不足时自动抽取最多 10 个时间序列帧，用本机 Vision OCR 补足视觉证据；语音与画面文字在摘要提示中明确区分
+- 同一个视频即使多次复制出不同 `/sph/` 短链，也只写一篇 PKM 笔记；其余任务显式记为 `skipped_duplicate`
 - 裸链接在打开 viewer 前直接收录，支持单行及 OCR 跨行 URL
 - 图文 viewer 即使只加载出部分标题，也会继续尝试 `Copy Link`
 - 图片候选只有在点击后确认打开图片 viewer 才执行 OCR；低置信度笔记标为 `needs_review`
@@ -29,7 +31,7 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - 若需要 UI-first 或 clipboard fallback，终端应用要有辅助功能权限
 - 若需要 UI-first，终端应用还需要屏幕录制权限
 - `ffmpeg` / `ffprobe`（当前默认路径 `/opt/homebrew/bin/`）
-- 本机 V2T 已安装可用的 sherpa-onnx 模型
+- 本机 V2T 已安装可用的 sherpa-onnx 模型；默认依次寻找当前仓库兄弟目录及 `~/Documents/AI/Codex/V2T`，其他位置用 `V2T_ROOT` 指定
 - 已登录的 Codex CLI（用于我们自己的结构化摘要）
 - Obsidian 已有可解析的 vault；优先复用最近一次 Web Clipper 成功笔记的目录
 - 当前目录已通过 `package.json` 声明 Playwright；首次运行前执行 `npm ci`
@@ -144,7 +146,7 @@ npm run video:process -- \
 npm run video:process -- --url 'https://weixin.qq.com/sph/...'
 ```
 
-成功任务再次运行会直接计入 `skipped`，不会重复下载、转写或写笔记。临时 MP4、WAV 和逐字稿在结束后默认删除；只有诊断时显式使用 `--keep-artifacts`。
+成功任务再次运行会直接计入 `skipped`，不会重复下载、转写或写笔记。不同分享短链解析到同一标题、作者和发布时间时，也会以 `skipped_duplicate` 指向已验证的 canonical 笔记。临时 MP4、WAV、抽帧图片和逐字稿在结束后默认删除；只有诊断时显式使用 `--keep-artifacts`。
 
 ### 4. 查询索引
 
@@ -202,11 +204,13 @@ UI 没显示具体消息时间时，记录使用查询上界作为筛选占位�
 
 视频号批处理另写入 `local/video-channel/runs/<timestamp>/manifest.json`；每条任务的可恢复状态在 `local/video-channel/tasks/<task-id>/task.json`，自动化失败追加到 `local/video-channel/automation-failures.log`。重点核对：
 
-- `counts.selected / written / skipped / failed`
+- `counts.selected / written / skipped / failed / not_attempted`
 - `state`
+- `skipped_duplicate / duplicate_of_task_id`
 - `failed_stage`
 - `error_code`（如 `auth_required`、`parse_rejected`、`media_missing`、`asr_empty`、`summary_invalid_json`）
 - `media_bytes / media_duration_seconds`
+- `evidence_type / speech_transcript_chars / visual_ocr_frames`
 - `transcript_chars / summary_chars / key_points_count`
 - `note_path`
 
@@ -280,6 +284,8 @@ node scripts/inspect-accessibility.js [--depth N] [--window N]
 - `playwright_missing`：在当前 `wechat-filehelper-macos-ingest` 目录执行 `npm ci`，不再依赖兄弟项目的 `node_modules`
 - `parse_rejected`：元宝未公开解析接口可能漂移；不要返回空摘要兜底
 - `media_missing` / `media_invalid`：官方 feed 没有可验证媒体，不能把封面 JPEG 冒充视频
-- `asr_*`：检查 V2T 设置、模型文件和 `ffmpeg`
+- `asr_runtime_missing`：检查 `V2T_ROOT`，或确认 V2T 位于当前仓库兄弟目录 / `~/Documents/AI/Codex/V2T`
+- `video_evidence_insufficient`：语音转写与抽帧 OCR 都没有足够内容，任务会失败而不是生成空洞摘要
+- 其他 `asr_*`：检查 V2T 设置、模型文件和 `ffmpeg`
 - `summary_*`：检查 Codex CLI 登录态与 JSON Schema 输出
 - 默认失败也会清理临时媒体；确需诊断时用 `--keep-artifacts`
