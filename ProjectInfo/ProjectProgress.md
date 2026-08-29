@@ -2,7 +2,7 @@
 
 > 现状快照，覆盖写，不堆历史。历史看 `ProjectInfo/sessions/` 与 `ProjectInfo/dialogues/`。
 
-*更新于 2026-08-29 · 记录者 Codex*
+*更新于 2026-08-29 12:35 · 记录者 Codex*
 
 ## 现在在哪
 
@@ -19,13 +19,17 @@
 - TDD 红绿证据覆盖图片 Loading 假成功、OCR 句点截断 URL、时间线完整/不完整状态，以及视频认证熔断。
 - 完成前验证：`npm test` 为 182 pass / 0 fail；全部 `scripts/` 与 `test/` JavaScript 通过 `node --check`；`git diff --check` 通过。
 - 未重新执行微信 UI 整批，也未在缺少批量外部调用确认时重跑 8 条视频处理；当前现场数据由既有 run artifacts 回放验证。
+- 本轮附件已解析出 28 条完整文章/网页 URL，生成 `obsidian-web-clipper-ingest/local/inputs/2026-08-29-filehelper-links.txt`；输入校验为 28 条唯一 URL、无视频号链接。
+- `obsidian-web-clipper-ingest/scripts/setup.js` 本地预检通过：Chrome、自动化 profile 与 Web Clipper `1.7.1_1` 可用；尚未启动网页访问或解释器调用。
 
 ## 下一步
 
 - 先运行 `npm run video:auth` 完成元宝独立 profile 登录；得到明确批量处理确认后，可用现有索引运行 `npm run video:process -- --since 2026-08-28T23:00:00 --until 2026-08-28T23:59:59`，无需再次扫描微信。
+- 得到对本轮 28 条文章/网页的明确批量调用确认后，以 `OBSIDIAN_CLIPPER_MAX_CONCURRENCY=10` 运行 Web Clipper；按技能最多执行首轮 1 次及失败重试 2、1 两轮，并以实际 Obsidian 笔记逐条验收。
 - 下次正常 `--reindex` 后，以新 manifest 的 `range_coverage: complete` 与 `termination_reason: reached_before_since` 验收时间线，并确认空白 Loading 图片只进入 unresolved、不再生成笔记。
 
 ## 阻塞 / 待定
 
 - 视频内容写回仍受元宝独立登录态阻塞；微信重新登录不能替代该 profile 的认证。
+- 文章批量剪藏等待明确授权；解释器使用的服务、模型与现实费用不能从本地配置可靠确定，获授权前不启动批量调用。
 - 代码无已知阻塞；视频端到端结果在重新认证并实际处理前保持“未验证”，不表述为成功。
