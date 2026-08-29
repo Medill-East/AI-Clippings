@@ -161,3 +161,30 @@
 - 修改：UI 图片等待与时间线审计、scan manifest、视频认证熔断及对应测试。
 
 原始对话：dialogues/2026-0829.md「1130 新批次假成功修复与时间线覆盖核实」
+
+## 1317 视频号真实处理、视觉 OCR 与内容级去重
+
+决策：無涘（完成元宝登录后明确要求直接处理） ｜ 记录：Codex
+
+### 结论
+
+- 元宝认证已恢复，8 条 `/sph/` 均能解析和下载；首次批处理的新失败是 `asr_runtime_missing`。根因不是缺模型，而是 GitHub 副本只推导 `/Users/haodong/Documents/GitHub/V2T`，实际 V2T 位于 Director 工作区 `/Users/haodong/Documents/AI/Codex/V2T`。
+- 8 个分享短链实际只对应 3 个视频。同一卡片内多个 OCR 点击点会生成不同 `/sph/`，但解析后的作者、完整描述和发布时间一致；现以该稳定身份去重，首篇写入后其余任务明确记为 `skipped_duplicate` 并指向 canonical 笔记。
+- 14 秒戒指视频的本机 ASR 只有“系统。”；旧管线因“非空”而生成了一篇内容不足的假成功笔记。抽帧实验验证 Vision OCR 能还原“毛发收集 → 碳化提纯 → 培育组装 → 取出钻石原坯 → 激光切割 → 人工精磨 → 成品”，因此正式实现只在语音信息不足时启用最多 10 帧视觉 OCR。
+- Swift Vision helper 改为编译到 gitignored 本地运行目录并复用，避免逐帧 `swift` 解释执行在 60 秒硬超时。摘要提示会区分 ASR 与画面 OCR，不把标题扩写成内容证据；视频标题只保留描述首段，避免 hashtags 变成 Markdown 标题。
+
+### 真实结果
+
+- 最终 manifest：`local/video-channel/runs/2026-08-29T04-55-14-837Z/manifest.json`，`selected=8 / written=3 / skipped=5 / failed=0 / not_attempted=0`，状态 `complete`。
+- 班尼特·福迪视频：`speech_asr`，1182 字证据、526 字摘要、7 个要点。
+- 头发钻石视频：`visual_ocr`，3 字低信息语音被舍弃，10 帧生成 254 字视觉证据、194 字摘要、6 个要点。
+- Token 工具视频：`speech_asr`，116 字证据、279 字摘要、6 个要点；摘要显式保留额度说法不一致和项目名疑似 ASR 错误的不确定性。
+- 三篇 PKM 文件逐篇回读，来源链接、标题、摘要和要点均存在；不含“系统。”或“无法据此生成可靠摘要”的探针假成功措辞。探针笔记保存在 `local/video-channel/quarantine/false-success/`，可恢复但不再位于 Clippings。
+
+### 验证与产出
+
+- 所有行为先观察失败回归，再以最小实现转绿；最终 `npm test` 为 188 pass / 0 fail，全部 JavaScript 通过 `node --check`，`git diff --check` 通过。
+- 代码提交：`bba46be`；合并 Director 侧两条既有 Web Clipper 留痕后，两份本地 AI-Clippings 与 GitHub 统一到 `b659cdf`。
+- 本次是实现缺陷修复，没有新增产品决策，因此不追加 roadmap。
+
+原始对话：dialogues/2026-0829.md「1317 视频号真实处理与视觉 OCR」
