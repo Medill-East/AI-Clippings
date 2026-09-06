@@ -53,6 +53,11 @@ export async function launchChromeContext(config) {
   }
   const extensionPath = `${extensionRoot}/${extensionVersion}`.replace(/\\/g, "/");
   const context = await chromium.launchPersistentContext(automationDir, {
+    executablePath: config.chromePath,
+    ignoreDefaultArgs: [
+      "--disable-extensions",
+      "--disable-component-extensions-with-background-pages",
+    ],
     headless: false,
     viewport: null,
     args: [
@@ -95,6 +100,17 @@ export async function getActiveTabId(worker) {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     return tabs[0]?.id ?? null;
   });
+}
+
+export function selectTabIdForUrl(tabs, pageUrl) {
+  return tabs.find((tab) => tab.url === pageUrl)?.id ?? null;
+}
+
+export async function getTabIdForUrl(worker, pageUrl) {
+  return worker.evaluate(async (url) => {
+    const tabs = await chrome.tabs.query({});
+    return tabs.find((tab) => tab.url === url)?.id ?? null;
+  }, pageUrl);
 }
 
 export async function getExtensionWorker(context, extensionId) {

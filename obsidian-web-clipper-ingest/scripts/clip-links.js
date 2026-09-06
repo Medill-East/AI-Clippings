@@ -10,8 +10,8 @@ import {
   closeClipperIframe,
   configureExtensionForAutomation,
   findInstalledExtensionVersion,
-  getActiveTabId,
   getExtensionWorker,
+  getTabIdForUrl,
   launchChromeContext,
   pathExists,
   toggleClipperIframe,
@@ -74,9 +74,9 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
     await page.bringToFront();
     await page.waitForTimeout(300);
 
-    const tabId = await getActiveTabId(worker);
+    const tabId = await getTabIdForUrl(worker, page.url());
     if (!tabId) {
-      throw new Error("Could not determine the active tab ID for Web Clipper.");
+      throw new Error(`Could not determine the tab ID for Web Clipper page: ${page.url()}`);
     }
 
     await toggleClipperIframe(worker, tabId);
