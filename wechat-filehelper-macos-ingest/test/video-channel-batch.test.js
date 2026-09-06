@@ -102,6 +102,13 @@ describe("runVideoBatch", () => {
       },
       {
         resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        resolveFn: async () => ({
+          videoUrl: "https://media.example.test/first.mp4",
+          title: "第一个视频",
+          author: "作者",
+          createTime: 1_787_000_000,
+          mediaType: 4,
+        }),
         runTaskFn: async (record) => ({
           task_id: "task-1",
           source_url: record.url,
@@ -120,6 +127,9 @@ describe("runVideoBatch", () => {
 
     assert.deepEqual(result.counts, {
       selected: 1,
+      unique_videos: 1,
+      duplicate_links: 0,
+      identity_failed_links: 0,
       written: 1,
       failed: 0,
       skipped: 0,
@@ -161,6 +171,13 @@ describe("runVideoBatch", () => {
       },
       {
         resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        resolveFn: async (url) => ({
+          videoUrl: `https://media.example.test/${url.split("/").at(-1)}.mp4`,
+          title: "同一个视频",
+          author: "同一个作者",
+          createTime: 1_787_000_000,
+          mediaType: 4,
+        }),
         runTaskFn: async (record) => {
           taskCalls += 1;
           if (taskCalls === 1) {
@@ -186,6 +203,9 @@ describe("runVideoBatch", () => {
 
     assert.deepEqual(result.counts, {
       selected: 2,
+      unique_videos: 1,
+      duplicate_links: 1,
+      identity_failed_links: 0,
       written: 1,
       failed: 0,
       skipped: 1,
@@ -194,6 +214,107 @@ describe("runVideoBatch", () => {
     assert.equal(result.results[1].state, "skipped_duplicate");
     assert.equal(result.results[1].skipped_duplicate, true);
     assert.equal(result.results[1].duplicate_of_task_id, "canonical-task");
+  });
+
+  it("resolves share-link aliases before starting one unique video job", async () => {
+    const skillRoot = await makeTempDir("video-batch-aliases-");
+    const indexPath = path.join(skillRoot, "local", "index", "links.jsonl");
+    await fs.mkdir(path.dirname(indexPath), { recursive: true });
+    const ids = ["Alias1", "Alias2", "Alias3"];
+    await fs.writeFile(
+      indexPath,
+      `${ids
+        .map((id) =>
+          JSON.stringify({
+            message_time: "2026-08-22T07:00:00.000Z",
+            url: `https://weixin.qq.com/sph/${id}`,
+          }),
+        )
+        .join("\n")}\n`,
+    );
+
+    const sequence = [];
+    const events = [];
+    let downloadCalls = 0;
+    let transcribeCalls = 0;
+    let summarizeCalls = 0;
+    const result = await runVideoBatch(
+      {
+        skillRoot,
+        since: new Date("2026-08-22T06:00:00.000Z"),
+        until: new Date("2026-08-22T08:00:00.000Z"),
+        indexPath,
+      },
+      {
+        resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        resolveFn: async (url) => {
+          sequence.push(`resolve:${url.split("/").at(-1)}`);
+          return {
+            videoUrl: `https://media.example.test/${url.split("/").at(-1)}.mp4`,
+            title: "同一个视频",
+            author: "同一个作者",
+            createTime: 1_787_000_000,
+            mediaType: 4,
+          };
+        },
+        downloadFn: async (_profile, mediaPath) => {
+          sequence.push("download");
+          downloadCalls += 1;
+          await fs.mkdir(path.dirname(mediaPath), { recursive: true });
+          await fs.writeFile(mediaPath, "media");
+          return { bytes: 5, durationSeconds: 20 };
+        },
+        transcribeFn: async (_mediaPath, transcriptPath) => {
+          transcribeCalls += 1;
+          const text = "这是足够长的真实转写内容。";
+          await fs.writeFile(transcriptPath, text);
+          return { text };
+        },
+        summarizeFn: async () => {
+          summarizeCalls += 1;
+          return {
+            summary: "这是忠于视频内容的摘要。",
+            key_points: ["要点一", "要点二", "要点三"],
+          };
+        },
+        nowFn: () => new Date("2026-08-22T10:00:00.000Z"),
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    assert.deepEqual(sequence.slice(0, 3), [
+      "resolve:Alias1",
+      "resolve:Alias2",
+      "resolve:Alias3",
+    ]);
+    assert.equal(downloadCalls, 1);
+    assert.equal(transcribeCalls, 1);
+    assert.equal(summarizeCalls, 1);
+    assert.equal(result.counts.selected, 3);
+    assert.equal(result.counts.unique_videos, 1);
+    assert.equal(result.counts.duplicate_links, 2);
+    assert.equal(result.counts.written, 1);
+    assert.equal(result.counts.skipped, 2);
+    assert.equal(result.results.length, 3);
+    assert.ok(
+      result.results
+        .slice(1)
+        .every((entry) => entry.state === "skipped_duplicate"),
+    );
+    assert.deepEqual(
+      events.find((event) => event.type === "batch_prepared"),
+      {
+        type: "batch_prepared",
+        selectedLinks: 3,
+        uniqueVideos: 1,
+        duplicateLinks: 2,
+      },
+    );
+    assert.ok(
+      events
+        .filter((event) => event.type === "task_state")
+        .every((event) => event.total === 1),
+    );
   });
 
   it("finishes the manifest with explicit failures when the Obsidian target is unavailable", async () => {
@@ -224,6 +345,9 @@ describe("runVideoBatch", () => {
     assert.equal(result.status, "failed");
     assert.deepEqual(result.counts, {
       selected: 1,
+      unique_videos: null,
+      duplicate_links: null,
+      identity_failed_links: 0,
       written: 0,
       failed: 1,
       skipped: 0,
@@ -260,6 +384,12 @@ describe("runVideoBatch", () => {
       },
       {
         resolveObsidianDirFn: async () => path.join(skillRoot, "vault", "Clippings"),
+        resolveFn: async () => {
+          throw new PipelineError(
+            "auth_required",
+            "Yuanbao session was rejected with HTTP 401",
+          );
+        },
         runTaskFn: async (record) => {
           taskCalls += 1;
           return {
@@ -280,6 +410,9 @@ describe("runVideoBatch", () => {
     assert.equal(result.status, "blocked_auth");
     assert.deepEqual(result.counts, {
       selected: 3,
+      unique_videos: null,
+      duplicate_links: null,
+      identity_failed_links: 1,
       written: 0,
       failed: 1,
       skipped: 0,

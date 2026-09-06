@@ -15,7 +15,8 @@ description: 通过 macOS 微信桌面客户端扫描「文件传输助手」的
 - `store` 保留为诊断/实验来源，不再是默认主路线
 - `/sph/` 视频号链接由独立状态机处理：`pending → resolving → downloading → transcribing → summarizing → written`
 - 视频语音信息不足时自动抽取最多 10 个时间序列帧，用本机 Vision OCR 补足视觉证据；语音与画面文字在摘要提示中明确区分
-- 同一个视频即使多次复制出不同 `/sph/` 短链，也只写一篇 PKM 笔记；其余任务显式记为 `skipped_duplicate`
+- 批次先轻量解析所有未完成的 `/sph/` 短链，再按内容身份去重；进度总数表示唯一视频数，同一视频的其余短链显式记为 `skipped_duplicate`
+- 本机 ASR 复用 V2T 的可恢复分片执行器，每个分片在独立 worker 中运行；失败会保留已完成分片供重试，不让原生模型内存拖死整个批次
 - 裸链接在打开 viewer 前直接收录，支持单行及 OCR 跨行 URL
 - 图文 viewer 即使只加载出部分标题，也会继续尝试 `Copy Link`
 - 图片候选只有在点击后确认打开图片 viewer 才执行 OCR；低置信度笔记标为 `needs_review`
@@ -146,7 +147,7 @@ npm run video:process -- \
 npm run video:process -- --url 'https://weixin.qq.com/sph/...'
 ```
 
-成功任务再次运行会直接计入 `skipped`，不会重复下载、转写或写笔记。不同分享短链解析到同一标题、作者和发布时间时，也会以 `skipped_duplicate` 指向已验证的 canonical 笔记。临时 MP4、WAV、抽帧图片和逐字稿在结束后默认删除；只有诊断时显式使用 `--keep-artifacts`。
+成功任务再次运行会直接计入 `skipped`，不会重复下载、转写或写笔记。不同分享短链解析到同一标题、作者和发布时间时，会先合并成一个唯一视频任务；其余短链以 `skipped_duplicate` 指向已验证的 canonical 笔记。成功后临时 MP4、WAV、ASR 恢复分片、抽帧图片和逐字稿默认删除；ASR 中断或失败时保留逐片恢复状态，重试可从未完成分片继续。只有诊断时显式使用 `--keep-artifacts` 保留常规中间产物。
 
 ### 4. 查询索引
 
@@ -204,7 +205,9 @@ UI 没显示具体消息时间时，记录使用查询上界作为筛选占位�
 
 视频号批处理另写入 `local/video-channel/runs/<timestamp>/manifest.json`；每条任务的可恢复状态在 `local/video-channel/tasks/<task-id>/task.json`，自动化失败追加到 `local/video-channel/automation-failures.log`。重点核对：
 
-- `counts.selected / written / skipped / failed / not_attempted`
+- `counts.selected`（分享短链数）
+- `counts.unique_videos / duplicate_links`（解析后的唯一视频数 / 被合并的重复短链数；身份解析未完成时为 `null`）
+- `counts.identity_failed_links / written / skipped / failed / not_attempted`
 - `state`
 - `skipped_duplicate / duplicate_of_task_id`
 - `failed_stage`

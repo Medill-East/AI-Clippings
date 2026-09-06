@@ -115,6 +115,24 @@ async function main() {
       },
       {
         onEvent: (event) => {
+          if (event.type === "identity_state") {
+            console.log(
+              `[video link ${event.index}/${event.total}] identity ${event.state}`,
+            );
+            return;
+          }
+          if (event.type === "batch_prepared") {
+            if (event.uniqueVideos == null || event.duplicateLinks == null) {
+              console.log(
+                `视频号身份解析未完成：共 ${event.selectedLinks} 个分享短链，唯一视频数未知。`,
+              );
+            } else {
+              console.log(
+                `视频号去重：${event.selectedLinks} 个分享短链 → ${event.uniqueVideos} 个唯一视频（合并 ${event.duplicateLinks} 个重复短链）。`,
+              );
+            }
+            return;
+          }
           const prefix = `[video ${event.index}/${event.total}]`;
           if (event.type === "task_state") {
             console.log(`${prefix} ${event.state}`);
@@ -133,7 +151,7 @@ async function main() {
     if (videoResult.counts.selected > 0) {
       console.log("");
       console.log(
-        `视频号后台处理：written=${videoResult.counts.written}，skipped=${videoResult.counts.skipped}，failed=${videoResult.counts.failed}，not_attempted=${videoResult.counts.not_attempted}`,
+        `视频号后台处理：share_links=${videoResult.counts.selected}，unique_videos=${String(videoResult.counts.unique_videos)}，duplicate_links=${String(videoResult.counts.duplicate_links)}，identity_failed_links=${videoResult.counts.identity_failed_links}，written=${videoResult.counts.written}，skipped=${videoResult.counts.skipped}，failed=${videoResult.counts.failed}，not_attempted=${videoResult.counts.not_attempted}`,
       );
       console.log(`视频号 manifest：${videoResult.manifestPath}`);
     }

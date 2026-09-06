@@ -91,6 +91,24 @@ function formatEvent(event, stream) {
     );
     return;
   }
+  if (event.type === "identity_state") {
+    stream.write(
+      `[video link ${event.index}/${event.total}] identity ${event.state}\n`,
+    );
+    return;
+  }
+  if (event.type === "batch_prepared") {
+    if (event.uniqueVideos == null || event.duplicateLinks == null) {
+      stream.write(
+        `Video identity resolution incomplete: ${event.selectedLinks} share link(s); unique video count is unknown.\n`,
+      );
+    } else {
+      stream.write(
+        `Video deduplication: ${event.selectedLinks} share link(s) -> ${event.uniqueVideos} unique video(s) (${event.duplicateLinks} duplicate link(s)).\n`,
+      );
+    }
+    return;
+  }
   const prefix = `[video ${event.index}/${event.total}]`;
   if (event.type === "task_state") {
     stream.write(`${prefix} ${event.state}\n`);
@@ -143,7 +161,7 @@ async function main() {
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(
-      `Video batch complete: selected=${result.counts.selected}, written=${result.counts.written}, skipped=${result.counts.skipped}, failed=${result.counts.failed}, not_attempted=${result.counts.not_attempted}`,
+      `Video batch complete: share_links=${result.counts.selected}, unique_videos=${String(result.counts.unique_videos)}, duplicate_links=${String(result.counts.duplicate_links)}, identity_failed_links=${result.counts.identity_failed_links}, written=${result.counts.written}, skipped=${result.counts.skipped}, failed=${result.counts.failed}, not_attempted=${result.counts.not_attempted}`,
     );
     console.log(`Manifest: ${result.manifestPath}`);
   }

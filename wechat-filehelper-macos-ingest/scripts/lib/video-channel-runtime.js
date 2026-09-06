@@ -169,7 +169,7 @@ export async function transcribeWithV2T(
     execFileFn = execFileAsync,
     onProgress,
     profile = {},
-    importV2TFn,
+    transcribeRecoverablyFn = transcribeRecoverablyWithV2T,
     resolveRuntimeModulePathFn = resolveV2TRuntimeModulePath,
     extractVisualTextFn = extractVisualTextFromVideo,
     pathExistsFn = pathExists,
@@ -227,14 +227,9 @@ export async function transcribeWithV2T(
       );
     }
 
-    let module;
+    let runtimeModulePath;
     try {
-      if (importV2TFn) {
-        module = await importV2TFn();
-      } else {
-        const runtimeModulePath = await resolveRuntimeModulePathFn();
-        module = await import(pathToFileURL(runtimeModulePath).toString());
-      }
+      runtimeModulePath = await resolveRuntimeModulePathFn();
     } catch (error) {
       if (error instanceof PipelineError) throw error;
       throw new PipelineError(
@@ -243,24 +238,16 @@ export async function transcribeWithV2T(
         error,
       );
     }
-    if (typeof module.LocalSherpaAsrProvider !== "function") {
-      throw new PipelineError(
-        "asr_runtime_invalid",
-        "V2T runtime does not export LocalSherpaAsrProvider",
-      );
-    }
-
-    const audio = await fs.readFile(wavPath);
-    const provider = new module.LocalSherpaAsrProvider({
-      modelId: asr.modelId,
-      modelPath: asr.modelPath,
-      sherpaModelType: asr.sherpaModelType,
-      language: asr.language ?? "zh",
-      onChunkProgress: onProgress,
-    });
     let result;
     try {
-      result = await provider.transcribe(audio);
+      result = await transcribeRecoverablyFn(wavPath, {
+        transcriptPath,
+        runtimeModulePath,
+        asr,
+        durationSeconds: profile.durationSeconds,
+        onProgress,
+        pathExistsFn,
+      });
     } catch (error) {
       const code = typeof error?.code === "string" ? error.code : "asr_failed";
       throw new PipelineError(code, "V2T local transcription failed", error);
@@ -304,6 +291,127 @@ export async function transcribeWithV2T(
       fs.rm(framesDir, { recursive: true, force: true }).catch(() => {}),
     ]);
   }
+}
+
+export async function transcribeRecoverablyWithV2T(
+  wavPath,
+  {
+    transcriptPath,
+    runtimeModulePath,
+    asr = {},
+    durationSeconds,
+    onProgress,
+    chunkTimeoutMs = 5 * 60_000,
+    pathExistsFn = pathExists,
+    importModuleFn = (modulePath) =>
+      import(pathToFileURL(modulePath).toString()),
+    nowFn = () => new Date(),
+  } = {},
+) {
+  if (!transcriptPath || !runtimeModulePath) {
+    throw new PipelineError(
+      "asr_runtime_invalid",
+      "transcriptPath and the V2T runtime module path are required",
+    );
+  }
+
+  const distDir = path.dirname(path.dirname(runtimeModulePath));
+  const recoverableModulePath = path.join(
+    distDir,
+    "main",
+    "recoverableAsrTranscriber.js",
+  );
+  const recoveryStoreModulePath = path.join(
+    distDir,
+    "main",
+    "voiceInputRecoveryStore.js",
+  );
+  const workerPath = path.join(
+    distDir,
+    "main",
+    "asrTranscriptionWorker.js",
+  );
+
+  for (const requiredPath of [
+    recoverableModulePath,
+    recoveryStoreModulePath,
+    workerPath,
+  ]) {
+    if (!(await pathExistsFn(requiredPath))) {
+      throw new PipelineError(
+        "asr_runtime_missing",
+        `V2T recoverable ASR runtime is incomplete: ${requiredPath}`,
+      );
+    }
+  }
+
+  let RecoverableAsrTranscriber;
+  let VoiceInputRecoveryStore;
+  try {
+    const [recoverableModule, recoveryStoreModule] = await Promise.all([
+      importModuleFn(recoverableModulePath),
+      importModuleFn(recoveryStoreModulePath),
+    ]);
+    RecoverableAsrTranscriber = recoverableModule.RecoverableAsrTranscriber;
+    VoiceInputRecoveryStore = recoveryStoreModule.VoiceInputRecoveryStore;
+  } catch (error) {
+    throw new PipelineError(
+      "asr_runtime_missing",
+      "V2T recoverable ASR runtime could not be loaded",
+      error,
+    );
+  }
+  if (
+    typeof RecoverableAsrTranscriber !== "function" ||
+    typeof VoiceInputRecoveryStore !== "function"
+  ) {
+    throw new PipelineError(
+      "asr_runtime_invalid",
+      "V2T recoverable ASR runtime exports are unavailable",
+    );
+  }
+
+  const jobId = "transcription";
+  const recoveryStore = new VoiceInputRecoveryStore(
+    path.dirname(transcriptPath),
+  );
+  const transcriber = new RecoverableAsrTranscriber({
+    recoveryStore,
+    workerPath,
+    timeoutMs: chunkTimeoutMs,
+    onChunkProgress: (_jobId, progress) =>
+      onProgress?.(progress.current, progress.total),
+  });
+  const audioBytes = (await fs.stat(wavPath)).size;
+  const now = nowFn();
+  const createdAt = (now instanceof Date ? now : new Date(now)).toISOString();
+  const request = {
+    jobId,
+    audioPath: wavPath,
+    chunksDir: recoveryStore.chunksDir(jobId),
+    modelId: asr.modelId,
+    modelPath: asr.modelPath,
+    sherpaModelType: asr.sherpaModelType,
+    language: asr.language ?? "zh",
+    processing: {
+      id: jobId,
+      recoveryJobId: jobId,
+      createdAt,
+      stage: "asr",
+      mode: "natural",
+      audioBytes,
+      audioDurationSeconds: durationSeconds,
+      modelId: asr.modelId,
+      modelPath: asr.modelPath,
+      sherpaModelType: asr.sherpaModelType,
+      audioPath: wavPath,
+      partialResultPath: recoveryStore.partialResultPath(jobId),
+    },
+  };
+
+  const result = await transcriber.transcribe(request);
+  await recoveryStore.deleteJob(jobId);
+  return result;
 }
 
 export async function extractVisualTextFromVideo(

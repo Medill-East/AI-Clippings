@@ -119,6 +119,103 @@ describe("transcribeWithV2T", () => {
     );
   });
 
+  it("runs local ASR through V2T's recoverable per-chunk worker path", async () => {
+    const root = await makeTempDir("video-v2t-recoverable-");
+    const wavPath = path.join(root, "transcript.txt.wav");
+    const transcriptPath = path.join(root, "transcript.txt");
+    const runtimeModulePath = path.join(
+      root,
+      "V2T",
+      "dist",
+      "core",
+      "asrProviders.js",
+    );
+    await fs.writeFile(wavPath, "wav-bytes");
+
+    const imported = [];
+    const progress = [];
+    let transcriberOptions;
+    let transcriptionRequest;
+    let deletedJobId = null;
+
+    class FakeRecoveryStore {
+      constructor(userDataDir) {
+        assert.equal(userDataDir, root);
+      }
+
+      chunksDir(jobId) {
+        return path.join(root, "recovery", jobId, "chunks");
+      }
+
+      partialResultPath(jobId) {
+        return path.join(root, "recovery", jobId, "partial-results.json");
+      }
+
+      async deleteJob(jobId) {
+        deletedJobId = jobId;
+      }
+    }
+
+    class FakeRecoverableTranscriber {
+      constructor(options) {
+        transcriberOptions = options;
+      }
+
+      async transcribe(request) {
+        transcriptionRequest = request;
+        transcriberOptions.onChunkProgress(request.jobId, {
+          current: 2,
+          total: 4,
+        });
+        return { text: "第一段。第二段。" };
+      }
+    }
+
+    const result = await videoChannelRuntime.transcribeRecoverablyWithV2T(
+      wavPath,
+      {
+        transcriptPath,
+        runtimeModulePath,
+        durationSeconds: 80,
+        asr: {
+          modelId: "qwen-test",
+          modelPath: path.join(root, "model", "encoder.int8.onnx"),
+          sherpaModelType: "qwen3Asr",
+          language: "zh",
+        },
+        onProgress: (current, total) => progress.push([current, total]),
+        pathExistsFn: async () => true,
+        importModuleFn: async (modulePath) => {
+          imported.push(path.basename(modulePath));
+          if (modulePath.endsWith("recoverableAsrTranscriber.js")) {
+            return { RecoverableAsrTranscriber: FakeRecoverableTranscriber };
+          }
+          if (modulePath.endsWith("voiceInputRecoveryStore.js")) {
+            return { VoiceInputRecoveryStore: FakeRecoveryStore };
+          }
+          throw new Error(`unexpected import: ${modulePath}`);
+        },
+      },
+    );
+
+    assert.equal(result.text, "第一段。第二段。");
+    assert.deepEqual(imported.sort(), [
+      "recoverableAsrTranscriber.js",
+      "voiceInputRecoveryStore.js",
+    ]);
+    assert.equal(
+      transcriberOptions.workerPath,
+      path.join(root, "V2T", "dist", "main", "asrTranscriptionWorker.js"),
+    );
+    assert.equal(transcriptionRequest.jobId, "transcription");
+    assert.equal(transcriptionRequest.audioPath, wavPath);
+    assert.equal(transcriptionRequest.modelId, "qwen-test");
+    assert.equal(transcriptionRequest.processing.audioBytes, 9);
+    assert.equal(transcriptionRequest.processing.audioDurationSeconds, 80);
+    assert.deepEqual(progress, [[2, 4]]);
+    assert.equal(deletedJobId, "transcription");
+  });
+
   it("extracts ordered frame text and removes recurring visual watermarks", async () => {
     const root = await makeTempDir("video-visual-ocr-");
     const mediaPath = path.join(root, "media.mp4");
@@ -190,7 +287,7 @@ describe("transcribeWithV2T", () => {
       }),
     );
 
-    let providerOptions;
+    let asrOptions;
     const onProgress = () => {};
     const result = await transcribeWithV2T(mediaPath, transcriptPath, {
       settingsPath,
@@ -200,25 +297,19 @@ describe("transcribeWithV2T", () => {
         await fs.writeFile(wavPath, "wav-bytes");
         return { stdout: "", stderr: "" };
       },
-      importV2TFn: async () => ({
-        LocalSherpaAsrProvider: class {
-          constructor(options) {
-            providerOptions = options;
-          }
-
-          async transcribe(audio) {
-            assert.equal(audio.toString(), "wav-bytes");
-            return { text: "这是 V2T 本地模型输出的有效逐字稿。" };
-          }
-        },
-      }),
+      resolveRuntimeModulePathFn: async () => "/tmp/v2t/dist/core/asrProviders.js",
+      transcribeRecoverablyFn: async (wavPath, options) => {
+        assert.equal(await fs.readFile(wavPath, "utf8"), "wav-bytes");
+        asrOptions = options.asr;
+        assert.equal(options.onProgress, onProgress);
+        return { text: "这是 V2T 本地模型输出的有效逐字稿。" };
+      },
     });
 
     assert.equal(result.text, "这是 V2T 本地模型输出的有效逐字稿。");
     assert.equal(result.provider, "v2t-local:sensevoice-test");
-    assert.equal(providerOptions.modelPath, modelPath);
-    assert.equal(providerOptions.sherpaModelType, "senseVoice");
-    assert.equal(providerOptions.onChunkProgress, onProgress);
+    assert.equal(asrOptions.modelPath, modelPath);
+    assert.equal(asrOptions.sherpaModelType, "senseVoice");
     assert.equal(await fs.readFile(transcriptPath, "utf8"), result.text);
   });
 
@@ -251,13 +342,8 @@ describe("transcribeWithV2T", () => {
       execFileFn: async (_command, args) => {
         await fs.writeFile(args.at(-1), "wav-bytes");
       },
-      importV2TFn: async () => ({
-        LocalSherpaAsrProvider: class {
-          async transcribe() {
-            return { text: "系统。" };
-          }
-        },
-      }),
+      resolveRuntimeModulePathFn: async () => "/tmp/v2t/dist/core/asrProviders.js",
+      transcribeRecoverablyFn: async () => ({ text: "系统。" }),
       extractVisualTextFn: async () => {
         visualCalls += 1;
         return {

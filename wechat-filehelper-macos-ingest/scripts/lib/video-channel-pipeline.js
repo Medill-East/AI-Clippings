@@ -45,7 +45,7 @@ export async function runVideoChannelTask(
     }
   }
 
-  const taskId = createHash("sha256").update(record.url).digest("hex").slice(0, 16);
+  const taskId = videoTaskIdForUrl(record.url);
   const taskDir = path.join(rootDir, "tasks", taskId);
   const taskPath = path.join(taskDir, "task.json");
   const mediaPath = path.join(taskDir, "media.mp4");
@@ -361,7 +361,11 @@ function sanitizeErrorMessage(message) {
     .slice(0, 600);
 }
 
-function fingerprintVideoProfile(profile) {
+export function videoTaskIdForUrl(url) {
+  return createHash("sha256").update(url).digest("hex").slice(0, 16);
+}
+
+export function fingerprintVideoProfile(profile) {
   const title = normalizeIdentityText(profile.title);
   const author = normalizeIdentityText(profile.author);
   const createTime = profile.createTime ?? null;
