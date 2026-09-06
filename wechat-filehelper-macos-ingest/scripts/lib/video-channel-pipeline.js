@@ -97,7 +97,6 @@ export async function runVideoChannelTask(
     task.metadata = {
       title: profile.title ?? "微信视频号",
       author: profile.author ?? "",
-      cover_url: profile.coverUrl ?? "",
       media_type: profile.mediaType ?? null,
       create_time: profile.createTime ?? null,
       media_url_fingerprint: profile.urlFingerprint ?? null,

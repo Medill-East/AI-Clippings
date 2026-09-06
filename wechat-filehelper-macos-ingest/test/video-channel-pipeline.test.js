@@ -44,6 +44,7 @@ describe("runVideoChannelTask", () => {
         title: "真实标题\n\n#标签一 #标签二",
         author: "作者",
         videoUrl: "https://media.example.test/video.mp4",
+        coverUrl: "https://media.example.test/cover.jpg?token=temporary-secret",
         urlFingerprint: "1234567890abcdef",
       }),
       downloadFn: async (_profile, mediaPath) => {
@@ -85,6 +86,8 @@ describe("runVideoChannelTask", () => {
     assert.equal(persisted.media_bytes, 5);
     assert.equal(persisted.transcript_chars > 0, true);
     assert.equal("video_url" in persisted, false);
+    assert.equal("cover_url" in persisted.metadata, false);
+    assert.doesNotMatch(JSON.stringify(persisted), /temporary-secret/);
     assert.equal(transcriptionProfile.durationSeconds, 42);
   });
 
