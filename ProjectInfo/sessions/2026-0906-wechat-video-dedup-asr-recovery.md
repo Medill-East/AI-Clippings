@@ -1,6 +1,6 @@
 # 微信视频号重复短链与长视频 ASR 恢复
 
-*更新于 2026-09-06 15:41 · 记录者 Codex*
+*更新于 2026-09-06 15:53 · 记录者 Codex*
 
 ## 1541 三短链去重与 SIGKILL 修复
 
@@ -40,3 +40,28 @@
 - `649641d` — `fix: keep signed cover URLs out of video tasks`
 
 原始对话：dialogues/2026-0906.md「1541 视频号重复短链与长视频中断」
+
+## 1553 首次正式重跑暴露 recovery 初始化缺口
+
+授权：無涘（确认重跑一个唯一视频） ｜ 记录：Codex
+
+### 运行结果
+
+- 命令按同一时间范围选中 3 个短链，身份预解析正确收束为 1 个唯一视频、2 个重复短链；终端正确显示 `[video 1/1]`。
+- canonical 视频下载 151,861,509 bytes 后，在转写阶段以 `ENOENT` 失败。manifest 为 `completed_with_failures`，计数 `written=0 / failed=1 / not_attempted=2`；Codex 摘要没有被调用。
+- 失败 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-09-06T07-47-49-921Z/manifest.json`。
+
+### 新根因与修复
+
+- V2T 的 `splitWavForLocalSherpa()` 只在音频超过 20 秒时向传入的 `chunksDir` 写文件；它不自行创建目录，而标准调用方会先通过 `VoiceInputRecoveryStore.createJob()` 建立 recovery job。
+- 此前实现直接构造 `RecoverableAsrTranscriber`，遗漏 `createJob()`。3 秒探针走单分片返回原 WAV，不写 chunk，因此产生假阴性；50 分钟音频写第一片时才暴露 `ENOENT`。
+- 修复后首次运行先 `createJob`，已有 recovery job 则 `loadJob` 并复用 partial chunks，不会重置已完成进度。
+
+### 验证与状态
+
+- 两个新回归测试均经历红绿：首次建 job；已有 job 不调用 `createJob` 且继续使用原 recovery audio/partial 路径。
+- 21 秒本地合成 WAV 真实跨过 20 秒边界，两个 V2T worker 完成 `1/2`、`2/2`，退出码 0。
+- 全量 `wechat-filehelper-macos-ingest` 测试：191 pass / 0 fail；修复提交 `d3c2384` 已推送并同步两份本地副本。
+- 首次正式重跑的失败清理已删除媒体和 WAV。第二次正式运行需要重新解析 3 个短链、重新下载约 152 MB、执行 172 个本地 ASR 分片，并在成功后调用最多 1 次 Codex 摘要；零重试。该范围超过此前“一次下载”确认，等待無涘重新确认。
+
+原始对话：dialogues/2026-0906.md「1553 首次重跑与长音频边界修复」
