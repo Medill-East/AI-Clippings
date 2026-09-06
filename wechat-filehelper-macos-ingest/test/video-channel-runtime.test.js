@@ -136,6 +136,7 @@ describe("transcribeWithV2T", () => {
     const progress = [];
     let transcriberOptions;
     let transcriptionRequest;
+    let createdJob;
     let deletedJobId = null;
 
     class FakeRecoveryStore {
@@ -149,6 +150,19 @@ describe("transcribeWithV2T", () => {
 
       partialResultPath(jobId) {
         return path.join(root, "recovery", jobId, "partial-results.json");
+      }
+
+      async loadJob() {
+        return undefined;
+      }
+
+      async createJob(diagnostic, audio) {
+        createdJob = { diagnostic, audio: Buffer.from(audio) };
+        return {
+          id: "transcription",
+          audioPath: path.join(root, "recovery", "transcription", "recording.wav"),
+          partialResultPath: this.partialResultPath("transcription"),
+        };
       }
 
       async deleteJob(jobId) {
@@ -199,6 +213,8 @@ describe("transcribeWithV2T", () => {
     );
 
     assert.equal(result.text, "第一段。第二段。");
+    assert.equal(createdJob.diagnostic.recoveryJobId, "transcription");
+    assert.equal(createdJob.audio.toString(), "wav-bytes");
     assert.deepEqual(imported.sort(), [
       "recoverableAsrTranscriber.js",
       "voiceInputRecoveryStore.js",
@@ -208,12 +224,84 @@ describe("transcribeWithV2T", () => {
       path.join(root, "V2T", "dist", "main", "asrTranscriptionWorker.js"),
     );
     assert.equal(transcriptionRequest.jobId, "transcription");
-    assert.equal(transcriptionRequest.audioPath, wavPath);
+    assert.equal(
+      transcriptionRequest.audioPath,
+      path.join(root, "recovery", "transcription", "recording.wav"),
+    );
     assert.equal(transcriptionRequest.modelId, "qwen-test");
     assert.equal(transcriptionRequest.processing.audioBytes, 9);
     assert.equal(transcriptionRequest.processing.audioDurationSeconds, 80);
     assert.deepEqual(progress, [[2, 4]]);
     assert.equal(deletedJobId, "transcription");
+  });
+
+  it("reuses an existing V2T recovery job without resetting partial chunks", async () => {
+    const root = await makeTempDir("video-v2t-resume-");
+    const wavPath = path.join(root, "transcript.txt.wav");
+    const transcriptPath = path.join(root, "transcript.txt");
+    const runtimeModulePath = path.join(root, "V2T", "dist", "core", "asrProviders.js");
+    const recoveryAudioPath = path.join(root, "recovery", "transcription", "recording.wav");
+    const partialResultPath = path.join(root, "recovery", "transcription", "partial-results.json");
+    await fs.writeFile(wavPath, "wav-bytes");
+
+    let createCalls = 0;
+    let transcriptionRequest;
+    class FakeRecoveryStore {
+      async loadJob() {
+        return {
+          id: "transcription",
+          audioPath: recoveryAudioPath,
+          partialResultPath,
+        };
+      }
+
+      async createJob() {
+        createCalls += 1;
+        throw new Error("existing recovery must not be reset");
+      }
+
+      chunksDir(jobId) {
+        return path.join(root, "recovery", jobId, "chunks");
+      }
+
+      partialResultPath() {
+        return partialResultPath;
+      }
+
+      async deleteJob() {}
+    }
+    class FakeRecoverableTranscriber {
+      async transcribe(request) {
+        transcriptionRequest = request;
+        return { text: "恢复后的完整转写。" };
+      }
+    }
+
+    const result = await videoChannelRuntime.transcribeRecoverablyWithV2T(
+      wavPath,
+      {
+        transcriptPath,
+        runtimeModulePath,
+        asr: {
+          modelId: "qwen-test",
+          modelPath: path.join(root, "model", "encoder.int8.onnx"),
+          sherpaModelType: "qwen3Asr",
+        },
+        pathExistsFn: async () => true,
+        importModuleFn: async (modulePath) =>
+          modulePath.endsWith("recoverableAsrTranscriber.js")
+            ? { RecoverableAsrTranscriber: FakeRecoverableTranscriber }
+            : { VoiceInputRecoveryStore: FakeRecoveryStore },
+      },
+    );
+
+    assert.equal(result.text, "恢复后的完整转写。");
+    assert.equal(createCalls, 0);
+    assert.equal(transcriptionRequest.audioPath, recoveryAudioPath);
+    assert.equal(
+      transcriptionRequest.processing.partialResultPath,
+      partialResultPath,
+    );
   });
 
   it("extracts ordered frame text and removes recurring visual watermarks", async () => {

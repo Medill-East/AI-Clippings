@@ -385,27 +385,39 @@ export async function transcribeRecoverablyWithV2T(
   const audioBytes = (await fs.stat(wavPath)).size;
   const now = nowFn();
   const createdAt = (now instanceof Date ? now : new Date(now)).toISOString();
+  const initialDiagnostic = {
+    id: jobId,
+    recoveryJobId: jobId,
+    createdAt,
+    stage: "processing",
+    mode: "natural",
+    audioBytes,
+    audioDurationSeconds: durationSeconds,
+    modelId: asr.modelId,
+    modelPath: asr.modelPath,
+    sherpaModelType: asr.sherpaModelType,
+  };
+  const recoveryJob =
+    (await recoveryStore.loadJob(jobId)) ??
+    (await recoveryStore.createJob(
+      initialDiagnostic,
+      await fs.readFile(wavPath),
+    ));
   const request = {
     jobId,
-    audioPath: wavPath,
+    audioPath: recoveryJob.audioPath,
     chunksDir: recoveryStore.chunksDir(jobId),
     modelId: asr.modelId,
     modelPath: asr.modelPath,
     sherpaModelType: asr.sherpaModelType,
     language: asr.language ?? "zh",
     processing: {
-      id: jobId,
-      recoveryJobId: jobId,
-      createdAt,
+      ...initialDiagnostic,
       stage: "asr",
-      mode: "natural",
-      audioBytes,
-      audioDurationSeconds: durationSeconds,
-      modelId: asr.modelId,
-      modelPath: asr.modelPath,
-      sherpaModelType: asr.sherpaModelType,
-      audioPath: wavPath,
-      partialResultPath: recoveryStore.partialResultPath(jobId),
+      audioPath: recoveryJob.audioPath,
+      partialResultPath:
+        recoveryJob.partialResultPath ??
+        recoveryStore.partialResultPath(jobId),
     },
   };
 
