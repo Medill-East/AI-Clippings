@@ -1,6 +1,6 @@
 # 微信视频号重复短链与长视频 ASR 恢复
 
-*更新于 2026-09-06 16:28 · 记录者 Codex*
+*更新于 2026-09-06 17:10 · 记录者 Codex*
 
 ## 1541 三短链去重与 SIGKILL 修复
 
@@ -89,3 +89,28 @@
 - 本轮视频处理无剩余阻塞；重复运行相同时间范围应直接复用 canonical 笔记并计入 skipped，不再下载或转写。
 
 原始对话：dialogues/2026-0906.md「1628 视频号第二次重跑完成」
+
+## 1710 纠正为既定可移植文件名
+
+要求：無涘 ｜ 记录：Codex
+
+### 纠正结论
+
+- 1628 节记录的 `《九阴真经：武侠》.md` 仅是正确语义标题，不是合规文件名；该路径由本节取代。
+- 项目既定的 portable basename 为 `YYYY-MMDD-主要标题.md`。视频发布时间 `2026-08-30T16:07:24.000Z` 按 Asia/Shanghai 为 2026-08-31；书名号和冒号不属于文件名白名单，因此最终 basename 为 `2026-0831-九阴真经 武侠.md`。
+- YAML `title` 与 H1 继续保留 `《九阴真经：武侠》`，没有把可移植清洗结果倒灌进语义标题。
+
+### 根因与修复
+
+- portable naming 的完整实现只在 `codex/clippings-portable-filenames` worktree；`35d317a`、`d11aae6`、`1a2d401`、`ebea994` 均不是当前 `main` 的祖先。文档写成已完成，但真实默认 producer 从未接入，是一次未验证执行路径的假完成。
+- 本轮此前的 `b8eee8b` 只测试 `conciseVideoTitle()`，没有断言最终 basename；人工改名又把 semantic title 直接复制成文件名，因此 192 项测试全绿仍不满足命名契约。
+- 已将现有共享日期/白名单/稳定冲突后缀逻辑接回当前视频 writer，并新增 producer 级精确 basename 测试和共享模块边界测试。
+
+### 验证与产出
+
+- TDD 红：实际 basename 为 `《九阴真经 武侠》.md`；绿：精确为 `2026-0831-九阴真经 武侠.md`，同时 task naming 为 `semantic_title=《九阴真经：武侠》 / portable_stem=2026-0831-九阴真经 武侠 / date_source=published`。
+- 全量 `wechat-filehelper-macos-ingest` 测试为 196 pass / 0 fail。
+- AI-Clippings：`572ff14 fix: restore portable video note names`。
+- PKM：`c9a870b4 修正视频号笔记为可移植日期命名`。
+
+原始对话：dialogues/2026-0906.md「1710 视频号可移植命名纠正」
