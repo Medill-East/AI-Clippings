@@ -1,6 +1,6 @@
 # 微信视频号重复短链与长视频 ASR 恢复
 
-*更新于 2026-09-06 15:53 · 记录者 Codex*
+*更新于 2026-09-06 16:28 · 记录者 Codex*
 
 ## 1541 三短链去重与 SIGKILL 修复
 
@@ -65,3 +65,27 @@
 - 首次正式重跑的失败清理已删除媒体和 WAV。第二次正式运行需要重新解析 3 个短链、重新下载约 152 MB、执行 172 个本地 ASR 分片，并在成功后调用最多 1 次 Codex 摘要；零重试。该范围超过此前“一次下载”确认，等待無涘重新确认。
 
 原始对话：dialogues/2026-0906.md「1553 首次重跑与长音频边界修复」
+
+## 1628 第二次正式重跑完成并收束标题
+
+授权：無涘（确认第二次重跑） ｜ 记录：Codex
+
+### 完成结果
+
+- 成功 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-09-06T07-55-51-264Z/manifest.json`，状态 `complete`。
+- 守恒结果为 `selected=3 / unique_videos=1 / duplicate_links=2 / written=1 / skipped=2 / failed=0 / not_attempted=0`；两个 alias task 均为 `skipped_duplicate`，且 `duplicate_of_task_id` 指向唯一 canonical task `fb356e1bd25c6c7e`。
+- 50 分 54 秒媒体完整完成 172/172 个本地 worker 分片，得到 `evidence_type=speech_asr`、16,328 字语音证据；一次 Codex 摘要生成 873 字摘要和 8 个关键要点。
+- 最终笔记为 `PlayWithExperiences/Clippings/《九阴真经：武侠》.md`。回读验证文件非空、含 canonical 源链接、`video-channel` 类型、摘要和 8 个要点，且不含临时 token、签名媒体地址或逐字稿正文。
+- 媒体、WAV、逐字稿与 recovery 分片均已清理；任务目录仅保留状态文件。
+
+### 标题收束
+
+- 运行初产物直接把长简介截到 160 字，标题和文件名在句中断裂，不满足 PKM 可用性。
+- 新回归测试先复现该结果；最小修复规定仅当简介超过 80 字时，优先选择其中最长、最具体的 `《作品名》`，无作品名才退回首句或 80 字截断。当前标题由长简介收束为 `《九阴真经：武侠》`。
+- 标题修复后全量测试为 192 pass / 0 fail；AI-Clippings 提交 `b8eee8b`、PKM 笔记提交 `7ed56493` 均已推送。
+
+### 当前状态
+
+- 本轮视频处理无剩余阻塞；重复运行相同时间范围应直接复用 canonical 笔记并计入 skipped，不再下载或转写。
+
+原始对话：dialogues/2026-0906.md「1628 视频号第二次重跑完成」
