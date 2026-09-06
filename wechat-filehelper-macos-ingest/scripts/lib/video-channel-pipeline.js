@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  buildPortableClippingStem,
+  choosePortableNotePath,
+} from "../../../shared/clippings-naming.mjs";
 
 export class PipelineError extends Error {
   constructor(code, message, cause) {
@@ -102,6 +106,20 @@ export async function runVideoChannelTask(
       media_url_fingerprint: profile.urlFingerprint ?? null,
       content_fingerprint: fingerprintVideoProfile(profile),
     };
+    const noteTitle = conciseVideoTitle(
+      profile.title || record.title || "微信视频号",
+    );
+    const publishedAt = normalizePublishedAt(profile.createTime);
+    const naming = buildPortableClippingStem({
+      title: noteTitle,
+      publishedAt,
+      collectedAt: timestamp(nowFn),
+    });
+    task.naming = {
+      semantic_title: noteTitle,
+      portable_stem: naming.stem,
+      date_source: naming.dateSource,
+    };
 
     const duplicate = task.metadata.content_fingerprint
       ? await findWrittenDuplicateTask(
@@ -152,17 +170,15 @@ export async function runVideoChannelTask(
     );
     task.summary_chars = summary.summary.length;
     task.key_points_count = summary.key_points.length;
-    const noteTitle = conciseVideoTitle(
-      profile.title || record.title || "微信视频号",
-    );
 
     const notePath = await writeNoteFn(
       {
         sourceUrl: record.url,
         title: noteTitle,
         author: profile.author || "",
-        publishedAt: normalizePublishedAt(profile.createTime),
+        publishedAt,
         createdAt: timestamp(nowFn),
+        noteStem: naming.stem,
         summary: summary.summary,
         keyPoints: summary.key_points,
       },
@@ -248,40 +264,46 @@ export function renderVideoNote({
   return lines.join("\n");
 }
 
-export async function writeVideoNote(note, { obsidianDir, taskId }) {
+export async function writeVideoNote(note, { obsidianDir }) {
   await fs.mkdir(obsidianDir, { recursive: true });
   const body = renderVideoNote(note);
-  const base = safeFileStem(note.title || "微信视频号");
-  const candidates = [
-    path.join(obsidianDir, `${base}.md`),
-    path.join(obsidianDir, `${base}-${taskId.slice(0, 8)}.md`),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      await fs.writeFile(candidate, body, { encoding: "utf8", flag: "wx" });
-      const written = await fs.readFile(candidate, "utf8");
-      if (!isVerifiedVideoNote(written, note.sourceUrl)) {
-        await fs.rm(candidate, { force: true });
-        throw new PipelineError(
-          "note_verification_failed",
-          "Obsidian note was written but failed content verification",
-        );
-      }
-      return candidate;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const existing = await fs.readFile(candidate, "utf8").catch(() => "");
-      if (isVerifiedVideoNote(existing, note.sourceUrl)) {
-        return candidate;
-      }
+  const selected = await choosePortableNotePath({
+    directory: obsidianDir,
+    stem: note.noteStem,
+    sourceUrl: note.sourceUrl,
+  });
+  if (selected.reused) {
+    const existing = await fs.readFile(selected.path, "utf8");
+    if (isVerifiedVideoNote(existing, note.sourceUrl)) {
+      return selected.path;
     }
+    throw new PipelineError(
+      "note_verification_failed",
+      "Existing Obsidian note failed content verification",
+    );
   }
 
-  throw new PipelineError(
-    "note_name_conflict",
-    "Could not create a unique Obsidian note path",
-  );
+  try {
+    await fs.writeFile(selected.path, body, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const existing = await fs.readFile(selected.path, "utf8").catch(() => "");
+    if (isVerifiedVideoNote(existing, note.sourceUrl)) return selected.path;
+    throw new PipelineError(
+      "note_name_conflict",
+      "Could not create a unique Obsidian note path",
+      error,
+    );
+  }
+  const written = await fs.readFile(selected.path, "utf8");
+  if (!isVerifiedVideoNote(written, note.sourceUrl)) {
+    await fs.rm(selected.path, { force: true });
+    throw new PipelineError(
+      "note_verification_failed",
+      "Obsidian note was written but failed content verification",
+    );
+  }
+  return selected.path;
 }
 
 function isVerifiedVideoNote(content, sourceUrl) {
@@ -332,18 +354,6 @@ export function conciseVideoTitle(value) {
 
   const firstSentence = normalized.match(/^.{1,80}?[。！？!?]/u)?.[0];
   return firstSentence || normalized.slice(0, 80) || "微信视频号";
-}
-
-function safeFileStem(value) {
-  return (
-    String(value)
-      .normalize("NFKC")
-      .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
-      .replace(/\s+/g, " ")
-      .replace(/[. ]+$/g, "")
-      .trim()
-      .slice(0, 100) || "微信视频号"
-  );
 }
 
 function yamlString(value) {

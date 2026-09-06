@@ -181,6 +181,53 @@ describe("runVideoChannelTask", () => {
     );
     assert.match(failureLog, /"error_code":"asr_empty"/);
   });
+
+  it("uses the published Shanghai date and portable title in the note filename", async () => {
+    const rootDir = await makeTempDir("video-channel-portable-name-");
+    const obsidianDir = path.join(rootDir, "vault", "Clippings");
+    const longDescription =
+      "2012 年，蜗牛的《九阴真经》曾经是国产武侠网游里很特别的一款。14 年后，这个 IP 终于更新了。今年科隆，蜗牛正式公布了开放世界武侠 RPG 游戏《九阴真经：武侠》。官方把它称为最接近原版续作的新项目。";
+
+    const result = await runVideoChannelTask(record, {
+      rootDir,
+      obsidianDir,
+      resolveFn: async () => ({
+        title: longDescription,
+        author: "游戏葡萄",
+        createTime: 1_788_106_044,
+        mediaType: 4,
+        videoUrl: "https://media.example.test/video.mp4",
+        urlFingerprint: "1234567890abcdef",
+      }),
+      downloadFn: async (_profile, mediaPath) => {
+        await fs.writeFile(mediaPath, "media");
+        return { bytes: 5, durationSeconds: 42 };
+      },
+      transcribeFn: async (_mediaPath, transcriptPath) => {
+        const transcript = "这是经过本机 V2T 转写的有效内容。";
+        await fs.writeFile(transcriptPath, transcript, "utf8");
+        return { text: transcript, provider: "v2t-local" };
+      },
+      summarizeFn: async () => ({
+        summary: "这是忠于视频内容的摘要。",
+        key_points: ["要点一", "要点二", "要点三"],
+      }),
+      nowFn: () => new Date("2026-09-06T08:23:41.248Z"),
+    });
+
+    assert.equal(
+      path.basename(result.note_path),
+      "2026-0831-九阴真经 武侠.md",
+    );
+    assert.deepEqual(result.naming, {
+      semantic_title: "《九阴真经：武侠》",
+      portable_stem: "2026-0831-九阴真经 武侠",
+      date_source: "published",
+    });
+    const note = await fs.readFile(result.note_path, "utf8");
+    assert.match(note, /^title: "《九阴真经：武侠》"$/m);
+    assert.match(note, /^# 《九阴真经：武侠》$/m);
+  });
 });
 
 describe("renderVideoNote", () => {
