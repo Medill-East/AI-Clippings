@@ -310,14 +310,28 @@ function normalizeSummary(value) {
   return { summary, key_points: keyPoints };
 }
 
-function conciseVideoTitle(value) {
+export function conciseVideoTitle(value) {
   const firstLine = String(value ?? "")
-    .normalize("NFKC")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean);
   const withoutHashtags = String(firstLine ?? "").split("#", 1)[0].trim();
-  return withoutHashtags.slice(0, 160) || "微信视频号";
+  const normalized = withoutHashtags.normalize("NFKC");
+  if (normalized.length <= 80) return normalized || "微信视频号";
+
+  const workNames = [...withoutHashtags.matchAll(/《[^》]{2,48}》/gu)].map(
+    (match) => match[0],
+  );
+  if (workNames.length > 0) {
+    return workNames.reduce((mostSpecific, candidate) =>
+      [...candidate].length > [...mostSpecific].length
+        ? candidate
+        : mostSpecific,
+    );
+  }
+
+  const firstSentence = normalized.match(/^.{1,80}?[。！？!?]/u)?.[0];
+  return firstSentence || normalized.slice(0, 80) || "微信视频号";
 }
 
 function safeFileStem(value) {

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  conciseVideoTitle,
   PipelineError,
   renderVideoNote,
   runVideoChannelTask,
@@ -197,5 +198,14 @@ describe("renderVideoNote", () => {
     assert.match(note, /## 高质量摘要\n\n摘要正文/);
     assert.match(note, /## 关键要点\n\n- 要点一/);
     assert.doesNotMatch(note, /逐字稿/);
+  });
+});
+
+describe("conciseVideoTitle", () => {
+  it("uses the most specific bracketed work name for a long description", () => {
+    const description =
+      "2012 年，蜗牛的《九阴真经》曾经是国产武侠网游里很特别的一款。14 年后，这个 IP 终于更新了。今年科隆，蜗牛正式公布了开放世界武侠 RPG 游戏《九阴真经：武侠》。官方把它称为最接近原版续作的新项目。";
+
+    assert.equal(conciseVideoTitle(description), "《九阴真经：武侠》");
   });
 });
