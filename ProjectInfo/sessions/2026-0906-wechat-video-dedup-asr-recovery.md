@@ -40,4 +40,3 @@
 - `649641d` — `fix: keep signed cover URLs out of video tasks`
 
 原始对话：dialogues/2026-0906.md「1541 视频号重复短链与长视频中断」
-
