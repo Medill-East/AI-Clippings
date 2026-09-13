@@ -91,3 +91,18 @@ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
 - 时间说明保持既有语义：Z是UTC显示，文章发布日期不等于消息转发时间；扫描到旧消息用于停止不等于全部旧消息都已收录。已知16:09截图被无时间占位纳入unresolved的问题在开始边界一侧，不应误称晚于23:59:59。未擅改原时间策略。
 
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+## 2026-09-14 00:28 +0800 跨午夜运行计数与剩余问题核对
+
+决策：無涘（询问是否收得更多、视频/起始边界和跳过原因） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 核对run 2026-09-13T16-13-21 manifest、全部candidate、当前index、video share OCR、viewer-context和cleanup失败截图。25行index已备份到该run/index-snapshot.jsonl。
+- 19链接记录实际18不同URL。新凌晨文章5-L2xUqjhe1SkZAOIOaFdg一条message_time=00:09、一条按until占位；query.js再次按URL去重，输出18。比上轮15新增UCSD、Gwen、凌晨新文章3URL。不能把新增4条record说成4篇文章。
+- duplicate_skipped22次=19 already_resolved+3 already_attempted，单位是重复可见事件，不是22篇漏收。Nicky Case在page5/6/7 OCR都有，却无candidate，是独立的候选漏检。
+- Claude Science裸21:06由parseWeChatTimestamp强制用运行日，解析为9/14 21:06；运行完成于9/14 00:24，故是跨午夜日期归属错误，不能归咎UTC显示。旧无时间占位政策保持未改，但该实际时间错误须另做回归。
+- 当前video-share三张OCR均为终端内容、没有Copy Link。最后context screen_rect为Photos and Videos，screen_bounds却为主窗右半，window也被刷新成主窗；active窗口生命周期/截图改变焦点仍未接对。没有/sph/成功记录，失败不能解释为无视频。
+- cleanup-failed截图显示主窗仍开，右侧多tab压缩为图标，activeTRPG ×位置已移；固定905pt与基于可识别X的回退均不足以稳定清理。不会把猜测性再加等待当成修复完成。
+- 本轮完成诊断和留痕，无代码更改、无整批重跑、无收费调用。此前候选修复的异步范围确认尚无明确回答，未擅改原候选/时间/去重。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」
