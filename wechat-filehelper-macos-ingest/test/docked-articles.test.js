@@ -12,7 +12,7 @@ it('defers closure across two extractions, then closes tabs at the end', async (
     ocr:async()=>[shot('second article'),shot('first article'),shot(null)][count++],
     extract:async (candidate, options)=>{
       assert.equal(options.keepViewerOpen,true);
-      assert.equal(options.preparedViewerContext.articleLeft,835);
+      assert.equal(options.preparedViewerContext.window.x,100);
       return {status:'ok',url:`https://mp.weixin.qq.com/s/${candidate.title}`};
     },
   });
@@ -52,4 +52,17 @@ it('distinguishes absent calibration from corrupt calibration',async()=>{
 it('requires the first article to be open rather than treating an empty right pane as ready',async()=>{
   const session=createDockedArticleSession(layout,{getWindow:()=>win,capture:()=>{},ocr:async()=>shot(null)});
   assert.equal((await session.probe({})).ui_probe_status,'docked_article_not_open');
+});
+it('adapts image-to-article detection and reuses the opened viewer for the original reroute',async()=>{
+  const candidate={title:'Claude Science 用不上，试试学术版 Codex',clickX:537,clickY:707};
+  let calls=0;
+  const session=createDockedArticleSession(layout,{
+    getWindow:()=>win,activate:()=>{},click:()=>{},capture:()=>{},
+    ocr:async()=>({width:1470,height:923,lines:[{text:candidate.title,x:760,y:100,width:500,height:30}]}),
+    extractImage:async(item,options,deps)=>({status:await deps.detectEmbeddedArticleFn(item)?'type_hint':'failed'}),
+    extract:async(item,options)=>{calls++;assert.equal(options.reuseOpenViewer,calls===1);assert.equal(options.allowBrowserFallback,undefined);return {status:'ok'}},
+  });
+  assert.equal((await session.scanOptions.extractImageContentFn(candidate,{})).status,'type_hint');
+  await session.scanOptions.extractShareCardUrlFn(candidate,{});
+  await session.scanOptions.extractShareCardUrlFn(candidate,{});
 });

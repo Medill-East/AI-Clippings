@@ -2847,7 +2847,7 @@ function fastChatRecoveryLooksGood(beforeWindows, currentWindows, frontWindow) {
   return beforeSignatures.has(windowSignature(frontWindow)) || looksLikeFileHelperWindow(frontWindow);
 }
 
-function findViewerTitleLine(ocrResult, candidate) {
+export function findViewerTitleLine(ocrResult, candidate) {
   const lines = Array.isArray(ocrResult?.lines) ? ocrResult.lines : [];
   const imageHeight = Number(ocrResult?.height ?? 0);
   const titleNorm = normalizeComparableText(candidate?.title ?? candidate?.rawText ?? "");
@@ -3048,12 +3048,7 @@ async function waitForViewerReady(
 
     const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
-    const articleLeft = currentContext.articleLeft;
-    const articleOcr = Number.isFinite(articleLeft)
-      ? { ...ocrResult, lines: ocrResult.lines.filter(line =>
-          line.x >= (articleLeft - screenBounds.x) * ocrResult.width / screenBounds.width) }
-      : ocrResult;
-    const ocrAnalysis = analyzeViewerOcr(articleOcr, candidate);
+    const ocrAnalysis = analyzeViewerOcr(ocrResult, candidate);
     const frontWindow = getFrontWeChatWindowFn();
 
     currentContext = {
@@ -3207,6 +3202,7 @@ export async function extractImageContent(
     clickAtPointFn = clickAtPoint,
     sleepMsFn = sleepMs,
     detectImageViewerContextFn = detectImageViewerContext,
+    detectEmbeddedArticleFn = null,
     captureRectScreenshotFn = captureRectScreenshot,
     recognizeTextFromImageFn = recognizeTextFromImage,
     createImageContentRecordFn = createImageContentRecord,
@@ -3239,6 +3235,11 @@ export async function extractImageContent(
   timings.viewer_open_wait_ms = Date.now() - openStartedAt;
 
   if (!viewerContext?.screenRect) {
+    if (detectEmbeddedArticleFn && await detectEmbeddedArticleFn(candidate, { debug, artifactDir })) {
+      return { status: "type_hint", reason: "image_candidate_opened_article_viewer",
+        failureStage: "viewer_type", actualContentType: "article", record: null,
+        artifactPath: null, timings };
+    }
     let recovered = await verifyChatRecoveredFn({ debug, artifactDir });
     if (!recovered && typeof recoverChatFn === "function") {
       await recoverChatFn(debug);
@@ -3398,7 +3399,7 @@ export async function extractImageContent(
 
 export async function extractShareCardUrl(
   candidate,
-  { debug = false, artifactDir = null, allowBrowserFallback = true, keepViewerOpen = false, preparedViewerContext = null } = {},
+  { debug = false, artifactDir = null, allowBrowserFallback = true, keepViewerOpen = false, preparedViewerContext = null, reuseOpenViewer = false } = {},
   {
     clearClipboardTextFn = clearClipboardText,
     clickAtPointFn = clickAtPoint,
@@ -3430,8 +3431,10 @@ export async function extractShareCardUrl(
   clearClipboardTextFn();
 
   const openStartedAt = Date.now();
-  clickAtPointFn(candidate.clickX, candidate.clickY);
-  sleepMsFn(VIEWER_OPEN_SETTLE_MS);
+  if (!reuseOpenViewer) {
+    clickAtPointFn(candidate.clickX, candidate.clickY);
+    sleepMsFn(VIEWER_OPEN_SETTLE_MS);
+  }
 
   let viewerContext = await detectViewerContextFn(
     beforeWindows,
@@ -3474,11 +3477,6 @@ export async function extractShareCardUrl(
     return { status: "failed", reason: "share_card_viewer_not_opened", timings };
   }
 
-  if (preparedViewerContext && /^(weixin|wechat|微信)$/i.test(String(viewerContext.window?.name ?? ""))) {
-    viewerContext = { ...viewerContext, articleLeft: preparedViewerContext.articleLeft,
-      ocrAnalysis: null };
-  }
-
   const readyStartedAt = Date.now();
   const readyViewerContext = await waitForViewerReadyFn(
     viewerContext,
@@ -3493,10 +3491,6 @@ export async function extractShareCardUrl(
   );
   timings.viewer_ready_wait_ms = Date.now() - readyStartedAt;
   const videoChannelViewer = isVideoChannelViewer(readyViewerContext);
-
-  if (Number.isFinite(readyViewerContext.articleLeft) && !readyViewerContext.ocrAnalysis?.titleLine) {
-    return { status: "failed", reason: "article_title_not_confirmed", timings };
-  }
 
   if (artifactDir != null) {
     await writeJsonArtifact(path.join(artifactDir, "viewer-context.json"), {
@@ -3538,6 +3532,9 @@ export async function extractShareCardUrl(
 
     if (menu.copyLine) {
       const copyStartedAt = Date.now();
+      // Screenshot/overlay interactions can restore the previous pasteboard.
+      // Clear at the Copy Link boundary, not only before opening the card.
+      clearClipboardTextFn();
       clickOcrLineInScreen(
         menu.screenBounds ?? readyViewerContext.screenBounds,
         menu.copyLine,

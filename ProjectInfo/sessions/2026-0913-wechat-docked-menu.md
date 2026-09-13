@@ -60,3 +60,18 @@ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
 - 本轮只完成诊断；尚未新增修复或整批验证。此前两条样本验收后的“已修好”结论过宽，当前快照已纠正。
 
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+## 2026-09-13 22:31 +0800 按用户要求恢复原处理流程，只保留点击适配
+
+决策：無涘（明确只改点击，保留原来已跑通的处理流程） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 回查 ProjectInfo/sessions/2026-0828-wechat-mixed-content-scan-diagnosis.md 的 0342 节，确认无时间按查询上界占位并明确来源是此前设计。上一轮将此直接归为新流程错误不准确；时区换算仍正确。没有改动时间规则。
+- 实际新增范围曾包括 docked session、裁切/聚焦、prepared viewer、强制标题门槛、startup gate、cleanup fatal。已撤销强制标题门槛与 cleanup fatal，恢复默认浏览器回退和原 waitForViewerReady。
+- 用 Git de5c9d6 对比，scanUiLinks 完整循环、inferShareCardItemsFromOcr 至 mapOcrRectCenterToScreenPoint 之间的候选/分类函数及 waitForViewerReady 均逐字一致。chat/common/query 本轮没有改动。
+- 原疑似图片分流依靠 viewer 类型确认后回到文章；新内嵌模式没有新图片窗口，之前适配漏接 extractImageContent，导致直接 image_viewer_not_opened。现加入 UI 检测 hook，使用既有标题匹配函数确认右侧文章并返回原 type_hint；下一次原 reroute 复用打开的 viewer，不重复开卡。
+- 单篇旧验证直接调用 extractShareCardUrl，绕过原分类和图片转文章链路，不能证明整批可用。补充该点击适配的集成边界回归，不以测试通过冒充整批采集已修好。
+- Copy Link 边界再次清空剪贴板，减少新截图路径恢复旧剪贴板对复制等待的干扰；已发现错配的具体成因仍不能完全确定。
+- 收尾失败继续保存 viewer-cleanup.json/manifest 并显示警告，不中断既有 collect 后续处理。当前没有再次整批运行，不改原数据或重新定义 19 的含义。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」

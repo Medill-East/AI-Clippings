@@ -73,8 +73,8 @@ node scripts/probe-store.js --json
 
 - `windowWidth` / `windowHeight` 为展开后的窗口尺寸（逻辑点），`chatWidth` 为左侧聊天区域宽度。本次用户截图校准为 1470 / 923 / 735；`tabCloseX` / `tabCloseY` 为标签自身关闭按钮相对窗口的坐标，本次为 905 / 27。这是本机校准值，不是所有微信窗口的通用比例。
 - 只扫描、复制和滚动左侧聊天区域；文章逐篇复制链接后保持阅读栏展开，扫描结束或抛错后再统一点击文章标签自身的关闭按钮；不使用会关闭微信主窗口的 Cmd+W。
-- 不依据窗口数量猜文章已关闭。清理逐次读取标签栏；截图不可读、标签未变化或仍有剩余时显式失败，保留 `viewer-cleanup.json`。正常完成的扫描 manifest 也含 `viewer_cleanup`；清理失败时先保存已采集记录和 manifest，再报错。
-- 窗口尺寸变化会报 `docked_layout_changed`；新文章标题无法在右侧得到确认会报 `article_title_not_confirmed`，不会把上一篇的链接作为成功结果。
+- 不依据窗口数量猜文章已关闭。清理逐次读取标签栏；截图不可读、标签未变化或仍有剩余时显式失败，保留 `viewer-cleanup.json`。正常完成的扫描 manifest 也含 `viewer_cleanup`；清理失败保留记录并输出警告，不中断原 collect 后续处理。
+- 窗口尺寸变化会报 `docked_layout_changed`；疑似图片实际打开内嵌公众号时，补充右侧 viewer 识别，继续原有 image → article 转回路径；不新增强制标题门槛。
 - 无该校准文件时保留原来的独立 viewer 流程。修改布局后须重新校准，不要复制其他电脑的值。
 
 ### 3. 扫描链接

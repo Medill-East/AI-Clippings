@@ -5,7 +5,7 @@ import { activateWeChat, getWeChatChatWindow, clickAtPoint, clearClipboardText,
   sendKeystroke, scrollAtPoint, sleepMs, captureWindowScreenshot } from "./applescript.js";
 import { readVisibleClipboardSnapshot } from "./chat.js";
 import { recognizeTextFromImage } from "./ocr.js";
-import { probeUiEnvironment, captureVisibleUiPage, extractShareCardUrl } from "./ui.js";
+import { probeUiEnvironment, captureVisibleUiPage, extractShareCardUrl, extractImageContent, findViewerTitleLine } from "./ui.js";
 
 export async function loadDockedLayout(skillRoot, fsImpl = fs) {
   let text;
@@ -34,6 +34,8 @@ export function createDockedArticleSession(layout, deps = {}) {
   const extract = deps.extract ?? extractShareCardUrl;
   let attempts = 0;
   let origin = null;
+  let openedArticleKey = null;
+  const candidateKey = candidate => JSON.stringify([candidate.title, candidate.clickX, candidate.clickY]);
   const current = () => {
     const window = getWindow();
     if (!window || Math.abs(window.width - layout.windowWidth) > 2 || Math.abs(window.height - layout.windowHeight) > 2 ||
@@ -95,14 +97,34 @@ export function createDockedArticleSession(layout, deps = {}) {
         (deps.scroll ?? scrollAtPoint)(window.x + window.width * 0.45, window.y + window.height * 0.4, { lineDelta: 4, repeat: 3 });
         sleep(160);
       },
+      extractImageContentFn: (candidate, options, extractionDeps) =>
+        (deps.extractImage ?? extractImageContent)(candidate, options, {
+          ...extractionDeps,
+          detectEmbeddedArticleFn: async item => {
+            const window = current();
+            const screenshot = path.join(os.tmpdir(), `wechat-docked-type-${process.pid}-${Date.now()}.png`);
+            try {
+              capture(window, screenshot);
+              const result = await ocr(screenshot);
+              const articleOcr = { ...result, lines: result.lines.filter(line =>
+                line.x >= layout.chatWidth * result.width / window.width) };
+              if (!findViewerTitleLine(articleOcr, item)) return false;
+              openedArticleKey = candidateKey(item);
+              return true;
+            } finally {
+              await fs.rm(screenshot, { force: true });
+            }
+          },
+        }),
       extractShareCardUrlFn: async (candidate, options, extractionDeps) => {
         const window = current();
         attempts += 1;
+        const reuseOpenViewer = openedArticleKey === candidateKey(candidate);
+        openedArticleKey = null;
         const result = await extract(candidate, {
-          ...options, keepViewerOpen: true, allowBrowserFallback: false,
+          ...options, keepViewerOpen: true, reuseOpenViewer,
           preparedViewerContext: {
             mode: "docked_article", window, screenRect: window, screenBounds: window,
-            articleLeft: window.x + layout.chatWidth,
           },
         }, {
           ...extractionDeps,

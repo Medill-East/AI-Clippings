@@ -3704,24 +3704,12 @@ describe("extractImageContent", () => {
   });
 });
 
-it('does not copy the previous docked article when only the left chat matches the new title', async () => {
-  const window={name:'Weixin',x:0,y:33,width:1470,height:923};
-  const context={mode:'docked_article',window,screenRect:window,screenBounds:window,articleLeft:735};
-  const result=await extractShareCardUrl({title:'新的文章标题必须确认',clickX:500,clickY:600},
-    {keepViewerOpen:true,preparedViewerContext:context}, {
-      getWeChatWindowsFn:()=>[window],getFrontWeChatWindowFn:()=>window,
-      clearClipboardTextFn:()=>{},clickAtPointFn:()=>{},sleepMsFn:()=>{},
-      detectViewerContextFn:async()=>context,captureFullScreenScreenshotFn:()=>window,
-      recognizeTextFromImageFn:async()=>{
-        await new Promise(resolve=>setTimeout(resolve,20));
-        return {width:1470,height:923,lines:[
-          {text:'新的文章标题必须确认',x:420,y:100,width:260,height:30},
-          {text:'旧的文章标题不应被复制',x:760,y:80,width:400,height:30},
-        ]};
-      },
-      openViewerMenuFn:()=>assert.fail('must not copy an unconfirmed article'),
-      closeViewerWindowFn:()=>assert.fail('must leave cleanup to the batch'),
-    });
-  assert.equal(result.status,'failed');
-  assert.equal(result.reason,'article_title_not_confirmed');
+it('returns the existing article type hint when an image candidate opens a docked article',async()=>{
+  const result=await extractImageContent({title:'Claude Science 用不上，试试学术版 Codex',clickX:537,clickY:707},{},{
+    getWeChatWindowsFn:()=>[],getFrontWeChatWindowFn:()=>null,clickAtPointFn:()=>{},sleepMsFn:()=>{},
+    detectImageViewerContextFn:async()=>null,detectEmbeddedArticleFn:async()=>true,
+    createImageContentRecordFn:()=>assert.fail('not an image'),
+    verifyChatRecoveredFn:()=>assert.fail('article remains open for normal reroute'),
+  });
+  assert.equal(result.status,'type_hint');assert.equal(result.actualContentType,'article');
 });

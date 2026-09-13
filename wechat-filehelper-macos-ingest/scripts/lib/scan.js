@@ -335,9 +335,6 @@ export async function runScan(
         `Manifest saved to local/runs/${runTs}/manifest.json`,
     );
   }
-  if (manifest.viewer_cleanup?.status === "failed") {
-    throw new Error(`viewer_cleanup_failed: ${manifest.viewer_cleanup.reason}. Captured records and manifest were saved.`);
-  }
   console.log("Done.");
 
   return {
