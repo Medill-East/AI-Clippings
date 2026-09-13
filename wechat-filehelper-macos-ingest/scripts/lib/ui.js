@@ -2614,6 +2614,13 @@ async function openViewerMenu(
 function buildViewerMenuProbePoints(viewerContext) {
   const probeRect = viewerContext?.screenRect ?? viewerContext?.screenBounds;
 
+  // New WeChat builds dock articles inside the main window. Its toolbar
+  // keeps a fixed inset as the window expands; proportional probes hit
+  // the adjacent "open in separate window" button instead.
+  if (/^(weixin|wechat|微信)$/i.test(String(viewerContext?.window?.name ?? "").trim())) {
+    return [{ x: probeRect.x + probeRect.width - 32, y: probeRect.y + 27 }];
+  }
+
   return VIEWER_MENU_PROBE_POINTS.map((point) =>
     clampProbePoint(
       {

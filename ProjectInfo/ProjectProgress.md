@@ -2,9 +2,11 @@
 
 > 现状快照，覆盖写，不堆历史。历史看 `ProjectInfo/sessions/` 与 `ProjectInfo/dialogues/`。
 
-*更新于 2026-09-06 17:10 · 记录者 Codex*
+*更新于 2026-09-13 19:49 +0800 · 记录者 Codex*
 
 ## 现在在哪
+
+- 2026-09-13 微信新版文章内嵌于主窗口右侧，菜单改按右边缘 32 pt / 顶边缘 27 pt 定位；按用户要求仅改此处，后续复制/关闭流程保持原实现。UI 回归 80/80 通过，真实点击得到右上角菜单窗口；本轮截图通道无法读取该菜单内容，尚未完成真实复制链接及连续扫描验收。
 
 - 2026-09-06 扫描 manifest 已确认时间线完整覆盖：15 页、14 次滚动、25 条唯一链接，`range_coverage=complete`、`termination_reason=reached_before_since`；其中 22 条公众号文章、3 条视频号，另有 2 条图片 OCR 和 4 条 unresolved 项。
 - 图片 OCR 的 2 条内容已由扫描器写入 Obsidian `needs_review`；4 条 unresolved 没有可靠 URL，仍未擅自补全。
@@ -27,6 +29,8 @@
 - Auto Mover 当前关闭；本轮正确笔记均位于 `Clippings/WeChat/2026`，符合当前设置。
 
 ## 下一步
+
+- 新版菜单定位已修补，需在可读取菜单截图的环境复验单篇 Copy Link 和连续扫描；不能据单元测试宣称整条收集流程恢复。
 
 - 相同时间范围再次运行时，确认一个 canonical 笔记与两个 `skipped_duplicate` 任务都直接复用，不再下载、转写或重复写笔记。
 - 4 条 unresolved 项没有可靠目标地址，除非补充真实链接，否则保持未解决状态。

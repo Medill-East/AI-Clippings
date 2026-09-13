@@ -2426,6 +2426,43 @@ describe("scanUiLinks", () => {
 });
 
 describe("extractShareCardUrl", () => {
+  it("opens the docked article menu at a fixed toolbar inset and reuses Copy Link", async () => {
+    const window = { name: "Weixin", x: 100, y: 33, width: 1470, height: 923 };
+    const context = { mode: "front_window_changed", screenRect: window, screenBounds: window, window };
+    const clicks = [];
+    let menuOpened = false;
+    let copied = false;
+    const result = await extractShareCardUrl(
+      { title: "文章", clickX: 500, clickY: 400 },
+      {},
+      {
+        clearClipboardTextFn: () => {},
+        getWeChatWindowsFn: () => [window],
+        getFrontWeChatWindowFn: () => window,
+        detectViewerContextFn: async () => context,
+        waitForViewerReadyFn: async () => context,
+        clickAtPointFn: (x, y) => {
+          clicks.push({ x, y });
+          if (x === 1538 && y === 60) menuOpened = true;
+          if (menuOpened && x === 1460 && y === 123) copied = true;
+        },
+        captureRectScreenshotFn: () => {},
+        recognizeTextFromImageFn: async () => ({
+          width: 1470, height: 923,
+          lines: menuOpened ? [{ text: "Copy Link", x: 1320, y: 80, width: 80, height: 20 }] : [],
+        }),
+        readClipboardTextFn: () => copied ? "https://mp.weixin.qq.com/s/docked-test" : "",
+        sleepMsFn: () => {},
+        closeViewerWindowFn: () => true,
+        verifyChatRecoveredFn: async () => true,
+      },
+    );
+    assert.deepEqual(clicks[1], { x: 1538, y: 60 });
+    assert.equal(result.status, "ok");
+    assert.equal(result.url, "https://mp.weixin.qq.com/s/docked-test");
+    assert.equal(result.usedBrowserFallback, false);
+  });
+
   it("returns a URL when copy-link succeeds", async () => {
     let windowsCall = 0;
     const result = await extractShareCardUrl(
