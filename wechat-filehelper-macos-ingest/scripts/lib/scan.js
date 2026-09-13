@@ -5,6 +5,7 @@ import { waitForUserReady, navigateToFileHelper, scanClipboardLinks } from "./ch
 import { mergeRecords, newRunTimestamp, readJsonlines, writeJsonlines } from "./common.js";
 import { probeWeChatStore, scanStoreLinks } from "./store.js";
 import { probeUiEnvironment, scanUiLinks } from "./ui.js";
+import { loadDockedLayout, createDockedArticleSession } from "./docked-articles.js";
 
 const FINAL_TYPE_OUTCOMES = [
   "recorded",
@@ -117,6 +118,7 @@ export async function runScan(
     scanClipboardLinksFn = scanClipboardLinks,
     scanStoreLinksFn = scanStoreLinks,
     scanUiLinksFn = scanUiLinks,
+    createDockedArticleSessionFn = createDockedArticleSession,
   } = {}
 ) {
   const indexPath = path.join(skillRoot, "local/index/links.jsonl");
@@ -144,6 +146,9 @@ export async function runScan(
   let uiProbe = { ui_probe_status: "not_checked", reasons: [] };
 
   let scanResult;
+  const dockedLayout = opts.source === "ui" || opts.source === "auto"
+    ? await loadDockedLayout(skillRoot, fsImpl) : null;
+  const dockedSession = dockedLayout ? createDockedArticleSessionFn(dockedLayout) : null;
   if (opts.source === "store") {
     console.log("Probing local WeChat store...");
     storeProbe = await probeWeChatStoreFn({ debug: opts.debug });
@@ -169,7 +174,7 @@ export async function runScan(
     if (opts.source === "auto" || opts.source === "ui") {
       console.log("Probing macOS UI scan readiness...");
       await fsImpl.mkdir(artifactDir, { recursive: true });
-      uiProbe = await probeUiEnvironmentFn({
+      uiProbe = await (dockedSession?.probe ?? probeUiEnvironmentFn)({
         requireChatReady: true,
         debug: opts.debug,
         artifactDir,
@@ -177,6 +182,9 @@ export async function runScan(
       });
     }
 
+    if (dockedSession && uiProbe.ui_probe_status !== "ready") {
+      throw new Error(`docked_articles_not_ready: ${uiProbe.reasons.join(" ")}`);
+    }
     if (opts.source === "auto") {
       if (uiProbe.ui_probe_status === "ready") {
         sourceSelected = "ui";
@@ -194,12 +202,27 @@ export async function runScan(
 
     if (sourceSelected === "ui") {
       console.log("Scanning from UI-first single-article flow...");
-      scanResult = await scanUiLinksFn(opts.since, opts.until, opts.maxScrolls, opts.debug, {
-        runDir,
-        maxCandidates: opts.maxCandidates,
-        waitForUserReadyFn: async () => {},
-        navigateToFileHelperFn: async () => {},
-      });
+      let scanError;
+      let cleanup;
+      try {
+        scanResult = await scanUiLinksFn(opts.since, opts.until, opts.maxScrolls, opts.debug, {
+          runDir,
+          maxCandidates: opts.maxCandidates,
+          waitForUserReadyFn: async () => {},
+          navigateToFileHelperFn: async () => {},
+          ...dockedSession?.scanOptions,
+        });
+      } catch (error) {
+        scanError = error;
+      } finally {
+        if (dockedSession) {
+          cleanup = await dockedSession.finish();
+          await fsImpl.writeFile(path.join(runDir, "viewer-cleanup.json"), JSON.stringify(cleanup, null, 2) + "\n", "utf8");
+          if (cleanup.status === "failed") console.error(`Article cleanup failed: ${cleanup.reason}`);
+        }
+      }
+      if (scanError) throw scanError;
+      if (cleanup) scanResult.stats.viewer_cleanup = cleanup;
     } else {
       console.log("Using clipboard fallback.");
       console.log("Scanning visible messages from clipboard fallback...");
@@ -293,6 +316,7 @@ export async function runScan(
     viewer_menu_wait_ms_total: scanResult.stats.viewer_menu_wait_ms_total ?? 0,
     viewer_copy_wait_ms_total: scanResult.stats.viewer_copy_wait_ms_total ?? 0,
     viewer_close_wait_ms_total: scanResult.stats.viewer_close_wait_ms_total ?? 0,
+    viewer_cleanup: scanResult.stats.viewer_cleanup ?? null,
     image_ocr_wait_ms_total: scanResult.stats.image_ocr_wait_ms_total ?? 0,
     skipped_by_rule: scanResult.stats.skipped_by_rule ?? {},
     ui_probe_reasons: uiProbe.reasons ?? [],
@@ -310,6 +334,9 @@ export async function runScan(
       `Type outcome invariant failed: ${typeOutcomeValidation.errors.join("; ")}. ` +
         `Manifest saved to local/runs/${runTs}/manifest.json`,
     );
+  }
+  if (manifest.viewer_cleanup?.status === "failed") {
+    throw new Error(`viewer_cleanup_failed: ${manifest.viewer_cleanup.reason}. Captured records and manifest were saved.`);
   }
   console.log("Done.");
 

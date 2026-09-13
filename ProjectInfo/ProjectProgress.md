@@ -2,11 +2,14 @@
 
 > 现状快照，覆盖写，不堆历史。历史看 `ProjectInfo/sessions/` 与 `ProjectInfo/dialogues/`。
 
-*更新于 2026-09-13 21:26 +0800 · 记录者 Codex*
+*更新于 2026-09-13 21:58 +0800 · 记录者 Codex*
 
 ## 现在在哪
 
-- 2026-09-13 微信新版文章内嵌于主窗口右侧，菜单改按右边缘 32 pt / 顶边缘 27 pt 定位；按用户要求仅改此处，后续复制/关闭流程保持原实现。UI 回归 80/80 通过，真实点击得到右上角菜单窗口；本轮截图通道无法读取该菜单内容，尚未完成真实复制链接及连续扫描验收。
+- 2026-09-13 新版微信内嵌文章流程已修补：菜单固定边距定位；本机校准左侧聊天 735 pt / 全窗 1470×923 pt；逐篇保持阅读栏，批次结束用标签自身 × 统一关闭。原 scan/collect 命令自动读取 gitignored 的 local/ui-layout.json，两处运行目录均已配置；启动前须手动打开第一篇并保持布局。
+- 实机连续提取 TRPG 与 Claude Science 两篇，得到两个不同真实 mp.weixin URL，逐篇 viewer_close_wait_ms=0。最后关闭标签的修正单独复用已打开文章验证，结果 status=closed / closed=2；after-cleanup.png 已确认文章栏消失且微信聊天主窗口保留。
+- 全量测试 206 pass / 0 fail。验证产物位于 wechat-filehelper-macos-ingest/local/docked-verification/。本轮仅验证链接采集与关闭，没有批量扫描历史或新增 Web Clipper/摘要/PKM 写入。
+
 
 - 2026-09-06 扫描 manifest 已确认时间线完整覆盖：15 页、14 次滚动、25 条唯一链接，`range_coverage=complete`、`termination_reason=reached_before_since`；其中 22 条公众号文章、3 条视频号，另有 2 条图片 OCR 和 4 条 unresolved 项。
 - 图片 OCR 的 2 条内容已由扫描器写入 Obsidian `needs_review`；4 条 unresolved 没有可靠 URL，仍未擅自补全。
@@ -30,9 +33,9 @@
 
 ## 下一步
 
-- 用户最新要求：文章批次内保留阅读栏，结束后统一关闭；此行为尚未实现。须先确认展开菜单及关闭入口，同时保持聊天截图/滚动区域不漂移。21:24 验证微信前台后仍被排除出截图（主窗口 sharingState=0），实机验收待解决。
+- 正常使用继续原 collect/scan 命令，先打开第一篇文章形成并排布局；保持大小和位置。改尺寸须重校准 local/ui-layout.json，尺寸/位置漂移、标题未确认或清理失败会显式报错。
 
-- 新版菜单定位已修补，需在可读取菜单截图的环境复验单篇 Copy Link 和连续扫描；不能据单元测试宣称整条收集流程恢复。
+
 
 - 相同时间范围再次运行时，确认一个 canonical 笔记与两个 `skipped_duplicate` 任务都直接复用，不再下载、转写或重复写笔记。
 - 4 条 unresolved 项没有可靠目标地址，除非补充真实链接，否则保持未解决状态。

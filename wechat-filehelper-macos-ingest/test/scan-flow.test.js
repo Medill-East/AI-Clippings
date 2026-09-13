@@ -428,3 +428,19 @@ https://example.com/before-range
     );
   });
 });
+
+it('runs docked cleanup after a scan failure and keeps the original error', async () => {
+  const skillRoot=await makeTempDir('wechat-docked-flow-');
+  await fs.mkdir(path.join(skillRoot,'local'),{recursive:true});
+  await fs.writeFile(path.join(skillRoot,'local/ui-layout.json'),JSON.stringify({mode:'docked_articles',windowWidth:1470,windowHeight:923,chatWidth:735,tabCloseX:905,tabCloseY:27}));
+  const events=[];
+  await assert.rejects(runScan({since:new Date('2026-09-13'),until:new Date('2026-09-14'),source:'ui',maxScrolls:1},{
+    skillRoot,waitForUserReadyFn:async()=>{},navigateToFileHelperFn:async()=>{},
+    createDockedArticleSessionFn:()=>({probe:async()=>({ui_probe_status:'ready'}),scanOptions:{keep:'marker'},finish:async()=>{events.push('cleanup');return {status:'failed',reason:'test cleanup'};}}),
+    scanUiLinksFn:async(...args)=>{assert.equal(args[4].keep,'marker');events.push('scan');throw new Error('test scan failed');},
+  }),/test scan failed/);
+  assert.deepEqual(events,['scan','cleanup']);
+  const runs=await fs.readdir(path.join(skillRoot,'local/runs'));
+  const cleanup=JSON.parse(await fs.readFile(path.join(skillRoot,'local/runs',runs[0],'viewer-cleanup.json')));
+  assert.equal(cleanup.reason,'test cleanup');
+});

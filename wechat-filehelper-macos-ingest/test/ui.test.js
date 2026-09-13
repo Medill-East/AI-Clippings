@@ -2434,7 +2434,7 @@ describe("extractShareCardUrl", () => {
     let copied = false;
     const result = await extractShareCardUrl(
       { title: "文章", clickX: 500, clickY: 400 },
-      {},
+      { keepViewerOpen: true },
       {
         clearClipboardTextFn: () => {},
         getWeChatWindowsFn: () => [window],
@@ -2453,7 +2453,7 @@ describe("extractShareCardUrl", () => {
         }),
         readClipboardTextFn: () => copied ? "https://mp.weixin.qq.com/s/docked-test" : "",
         sleepMsFn: () => {},
-        closeViewerWindowFn: () => true,
+        closeViewerWindowFn: () => assert.fail("must keep docked viewer open between articles"),
         verifyChatRecoveredFn: async () => true,
       },
     );
@@ -3702,4 +3702,26 @@ describe("extractImageContent", () => {
       "Summary Provided by yuanbao\n截图正文",
     );
   });
+});
+
+it('does not copy the previous docked article when only the left chat matches the new title', async () => {
+  const window={name:'Weixin',x:0,y:33,width:1470,height:923};
+  const context={mode:'docked_article',window,screenRect:window,screenBounds:window,articleLeft:735};
+  const result=await extractShareCardUrl({title:'新的文章标题必须确认',clickX:500,clickY:600},
+    {keepViewerOpen:true,preparedViewerContext:context}, {
+      getWeChatWindowsFn:()=>[window],getFrontWeChatWindowFn:()=>window,
+      clearClipboardTextFn:()=>{},clickAtPointFn:()=>{},sleepMsFn:()=>{},
+      detectViewerContextFn:async()=>context,captureFullScreenScreenshotFn:()=>window,
+      recognizeTextFromImageFn:async()=>{
+        await new Promise(resolve=>setTimeout(resolve,20));
+        return {width:1470,height:923,lines:[
+          {text:'新的文章标题必须确认',x:420,y:100,width:260,height:30},
+          {text:'旧的文章标题不应被复制',x:760,y:80,width:400,height:30},
+        ]};
+      },
+      openViewerMenuFn:()=>assert.fail('must not copy an unconfirmed article'),
+      closeViewerWindowFn:()=>assert.fail('must leave cleanup to the batch'),
+    });
+  assert.equal(result.status,'failed');
+  assert.equal(result.reason,'article_title_not_confirmed');
 });

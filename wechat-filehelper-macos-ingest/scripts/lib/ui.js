@@ -3048,7 +3048,12 @@ async function waitForViewerReady(
 
     const screenBounds = captureFullScreenScreenshotFn(screenshotPath);
     const ocrResult = await recognizeTextFromImageFn(screenshotPath);
-    const ocrAnalysis = analyzeViewerOcr(ocrResult, candidate);
+    const articleLeft = currentContext.articleLeft;
+    const articleOcr = Number.isFinite(articleLeft)
+      ? { ...ocrResult, lines: ocrResult.lines.filter(line =>
+          line.x >= (articleLeft - screenBounds.x) * ocrResult.width / screenBounds.width) }
+      : ocrResult;
+    const ocrAnalysis = analyzeViewerOcr(articleOcr, candidate);
     const frontWindow = getFrontWeChatWindowFn();
 
     currentContext = {
@@ -3393,7 +3398,7 @@ export async function extractImageContent(
 
 export async function extractShareCardUrl(
   candidate,
-  { debug = false, artifactDir = null, allowBrowserFallback = true } = {},
+  { debug = false, artifactDir = null, allowBrowserFallback = true, keepViewerOpen = false, preparedViewerContext = null } = {},
   {
     clearClipboardTextFn = clearClipboardText,
     clickAtPointFn = clickAtPoint,
@@ -3441,6 +3446,8 @@ export async function extractShareCardUrl(
     }
   );
 
+  viewerContext ??= preparedViewerContext;
+
   if (!viewerContext && candidate.matchReason === "cluster_fallback") {
     const retryY = Math.max(0, candidate.clickY - OCR_CLUSTER_OPEN_RETRY_OFFSET_POINTS);
     if (debug) {
@@ -3467,6 +3474,11 @@ export async function extractShareCardUrl(
     return { status: "failed", reason: "share_card_viewer_not_opened", timings };
   }
 
+  if (preparedViewerContext && /^(weixin|wechat|微信)$/i.test(String(viewerContext.window?.name ?? ""))) {
+    viewerContext = { ...viewerContext, articleLeft: preparedViewerContext.articleLeft,
+      ocrAnalysis: null };
+  }
+
   const readyStartedAt = Date.now();
   const readyViewerContext = await waitForViewerReadyFn(
     viewerContext,
@@ -3481,6 +3493,10 @@ export async function extractShareCardUrl(
   );
   timings.viewer_ready_wait_ms = Date.now() - readyStartedAt;
   const videoChannelViewer = isVideoChannelViewer(readyViewerContext);
+
+  if (Number.isFinite(readyViewerContext.articleLeft) && !readyViewerContext.ocrAnalysis?.titleLine) {
+    return { status: "failed", reason: "article_title_not_confirmed", timings };
+  }
 
   if (artifactDir != null) {
     await writeJsonArtifact(path.join(artifactDir, "viewer-context.json"), {
@@ -3562,34 +3578,36 @@ export async function extractShareCardUrl(
       }
     }
   } finally {
-    const closeStartedAt = Date.now();
-    const closeResult = normalizeCloseViewerResult(
-      closeViewerWindowFn(beforeWindows, { debug }),
-      beforeWindows,
-      getFrontWeChatWindowFn
-    );
-    const closed = closeResult.closed;
-    let recovered = false;
+    if (!(keepViewerOpen && !videoChannelViewer && /^(weixin|wechat|微信)$/i.test(String(readyViewerContext.window?.name ?? "")))) {
+      const closeStartedAt = Date.now();
+      const closeResult = normalizeCloseViewerResult(
+        closeViewerWindowFn(beforeWindows, { debug }),
+        beforeWindows,
+        getFrontWeChatWindowFn
+      );
+      const closed = closeResult.closed;
+      let recovered = false;
 
-    if (closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
-      recovered = true;
-    } else {
-      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
-    }
-
-    if (!recovered && typeof recoverChatFn === "function") {
-      if (debug) {
-        console.log("[debug] Chat recovery failed, re-opening 文件传输助手...");
+      if (closed && fastChatRecoveryLooksGood(beforeWindows, closeResult.currentWindows, closeResult.frontWindow)) {
+        recovered = true;
+      } else {
+        recovered = await verifyChatRecoveredFn({ debug, artifactDir });
       }
-      await recoverChatFn(debug);
-      recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+
+      if (!recovered && typeof recoverChatFn === "function") {
+        if (debug) {
+          console.log("[debug] Chat recovery failed, re-opening 文件传输助手...");
+        }
+        await recoverChatFn(debug);
+        recovered = await verifyChatRecoveredFn({ debug, artifactDir });
+      }
+      if (!closed || !recovered) {
+        reason = !closed ? "viewer_not_closed" : "chat_not_recovered";
+        status = "failed";
+      }
+      timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
     }
-    if (!closed || !recovered) {
-      reason = !closed ? "viewer_not_closed" : "chat_not_recovered";
-      status = "failed";
-    }
-    timings.viewer_close_wait_ms = Date.now() - closeStartedAt;
   }
 
-  return { status, reason, usedBrowserFallback, url, timings };
+  return { status, reason: status === "ok" ? null : reason, usedBrowserFallback, url, timings };
 }

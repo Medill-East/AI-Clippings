@@ -28,3 +28,19 @@ trace-user-count: 8
 - 延后关闭尚未实现，不能宣称已完成。静态追踪确认还需保持左侧聊天区域的截图与滚动定位，否则现有全窗 0.62 比例会指向文章；先确认真实布局，避免堆叠未经验证的坐标。
 
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+## 2156 完成保留阅读栏与结束清理
+
+决策：無涘（已要求批次内不关闭、结束统一关闭，并提供当前布局截图） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 新增 docked-articles.js，runScan 默认读取本机 local/ui-layout.json（无文件保留旧路径）。本机/实际运行副本都写入 1470×923、chatWidth=735、tabCloseX/Y=905/27。窗口位置/尺寸变化即拒绝继续使用旧候选坐标。
+- 左侧截图、剪贴板聚焦及滚动共用校准聊天范围；文章提取保持阅读栏，新的右侧标题未确认时返回 article_title_not_confirmed。标题捕获复用现有微信窗口截图方式，解决直接全屏捕获不可见问题；真实菜单 OCR 与 Copy Link 已验证可工作。因此此前截图阻塞已经有可行路径，不再要求用户继续截图。
+- 真实单篇首次返回 title_not_confirmed，切换为项目原有 captureWindowScreenshot 后成功；随后连续 TRPG 与 Claude Science 两篇均 status=ok、URL 不同、逐篇关闭等待均为 0。证据：local/docked-verification/two-article-result.json。
+- 首次最终清理用 Cmd+W 关闭了宿主主窗口，被 chat_window_missing 正确报告为失败。已恢复主窗口并改为标签自身 ×；复用已验证且仍打开的文章做 cleanup-only 实机测试，corrected-cleanup-result.json 为 closed / 2。after-cleanup.png 显示没有文章阅读栏，聊天主窗口完整保留。保留首次失败证据，没有将其覆盖成成功。
+- 清理失败独立写 viewer-cleanup.json；扫描成功路径将结果纳入 manifest，失败时保存索引/manifest 后再抛错。扫描异常也执行清理并保留原始异常。纯单元回归覆盖延后关闭、聊天范围、尺寸拒绝、空截图失败、标签不变化停止、异常收尾和左侧标题不能冒充右侧当前文章。
+- 最终全量测试：206 pass / 0 fail，/tmp/clippings-final-release-tests.log；未批量收集历史、未调用付费摘要、未新写 PKM。菜单修补和本次功能将提交、推送并 fast-forward 到 GitHub 运行副本。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+- 21:58 补充启动防误操作：未预开文章时 preflight 明确返回 docked_article_not_open；实机已验证当前关闭阅读栏状态能被识别，auto 不回退到错误的全窗剪贴板扫描。新增测试后全量 206/206 通过。
