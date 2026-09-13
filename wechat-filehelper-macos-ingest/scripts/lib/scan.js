@@ -148,7 +148,7 @@ export async function runScan(
   let scanResult;
   const dockedLayout = opts.source === "ui" || opts.source === "auto"
     ? await loadDockedLayout(skillRoot, fsImpl) : null;
-  const dockedSession = dockedLayout ? createDockedArticleSessionFn(dockedLayout) : null;
+  const dockedSession = dockedLayout ? createDockedArticleSessionFn(dockedLayout, { artifactDir }) : null;
   if (opts.source === "store") {
     console.log("Probing local WeChat store...");
     storeProbe = await probeWeChatStoreFn({ debug: opts.debug });

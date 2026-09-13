@@ -3023,7 +3023,9 @@ async function waitForViewerReady(
 ) {
   let currentContext = viewerContext;
   if (isVideoChannelViewer(currentContext)) {
-    return currentContext;
+    return waitForVideoViewerContent(currentContext, { artifactDir }, {
+      captureFullScreenScreenshotFn, recognizeTextFromImageFn, sleepMsFn,
+    });
   }
   const initiallyLoading = viewerLooksLoading(currentContext?.ocrResult);
   const initiallyReady = !initiallyLoading && Boolean(currentContext?.ocrAnalysis?.titleLine);
@@ -3072,6 +3074,32 @@ async function waitForViewerReady(
   }
 
   return currentContext;
+}
+
+export async function waitForVideoViewerContent(context, { artifactDir = null } = {}, {
+  captureFullScreenScreenshotFn = captureFullScreenScreenshot,
+  recognizeTextFromImageFn = recognizeTextFromImage,
+  sleepMsFn = sleepMs,
+} = {}) {
+  const loaded = result => !viewerLooksLoading(result) &&
+    (result?.lines ?? []).filter(line => line.text?.trim().length > 2 &&
+      line.y > result.height * 0.15 && line.y < result.height * 0.92).length >= 2;
+  let current = context;
+  for (let attempt = 0; attempt < 3 && !loaded(current.ocrResult); attempt++) {
+    sleepMsFn(400);
+    const screenshot = artifactDir
+      ? path.join(artifactDir, `video-ready-${Date.now()}-${attempt}.png`)
+      : path.join(os.tmpdir(), `wechat-video-ready-${process.pid}-${Date.now()}.png`);
+    try {
+      const bounds = captureFullScreenScreenshotFn(screenshot);
+      const result = await recognizeTextFromImageFn(screenshot);
+      current = { ...current, screenBounds: bounds, ocrResult: result };
+      if (artifactDir) await writeJsonArtifact(screenshot.replace(/\.png$/, ".ocr.json"), result);
+    } finally {
+      if (!artifactDir) await fs.rm(screenshot, { force: true });
+    }
+  }
+  return current;
 }
 
 function closeViewerWindow(

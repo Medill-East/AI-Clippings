@@ -3713,3 +3713,12 @@ it('returns the existing article type hint when an image candidate opens a docke
   });
   assert.equal(result.status,'type_hint');assert.equal(result.actualContentType,'article');
 });
+it('waits for video content rather than treating the channel header as loaded',async()=>{
+  const {waitForVideoViewerContent}=await import('../scripts/lib/ui.js');let reads=0;
+  const header={text:'视频号',x:20,y:10,width:100,height:20};
+  const result=await waitForVideoViewerContent({ocrResult:{width:600,height:1000,lines:[header]}},{},{
+    sleepMsFn:()=>{},captureFullScreenScreenshotFn:()=>({x:50,y:40,width:600,height:1000}),
+    recognizeTextFromImageFn:async()=>({width:600,height:1000,lines:++reads===1?[header,{text:'Loading',x:20,y:300,width:100,height:20}]:[header,{text:'视频说明文字',x:20,y:500,width:200,height:20},{text:'视频作者',x:20,y:700,width:100,height:20}]}),
+  });
+  assert.equal(reads,2);assert.ok(result.ocrResult.lines.some(x=>x.text==='视频作者'));
+});

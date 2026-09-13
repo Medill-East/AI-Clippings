@@ -75,3 +75,19 @@ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
 - 收尾失败继续保存 viewer-cleanup.json/manifest 并显示警告，不中断既有 collect 后续处理。当前没有再次整批运行，不改原数据或重新定义 19 的含义。
 
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+## 2026-09-13 22:52 +0800 慢加载和前台 viewer 目标修正
+
+决策：無涘（继续检查未处理卡片、慢视频及时间疑虑；原有只改点击的约束仍适用） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 读取最新失败 run 2026-09-13T14-33-06 manifest/candidates/OCR，备份23行 index至run/index-snapshot.jsonl。15唯一链接、8失败、8图片转公众号恢复，说明上一补丁确实接回部分旧流程；不是全量已解决。
+- 最后viewer-context为Photos and Videos独立窗口，却被判断video_channel；对应video-share截图/OCR来自背后终端。新adapter总是capture current()主窗是直接错误，现改取实际前台独立viewer；主窗阅读器capture只取右侧，避免左边聊天标题误作reader已加载。
+- detectEmbeddedArticleFn 原只读一次，现最多3帧、间隔400ms，读到匹配标题提前返回；视频号原waitForViewerReady直接return，现最多3帧等待加载正文（尚无正文时仍保留既有分享尝试，不伪造成功）。未调用视频解析/下载/ASR/摘要。
+- 标签条后期OCR已出现“一种…X”在x2389宽320，而初始关闭点固定905pt。增加明确close glyph定位；拿不到仍使用原点并明确失败，失败截图保留到run artifacts。此定位尚未实机复验，不能宣称整批cleanup已经修好。
+- 补充回归覆盖首帧Loading后转文章、独立Photos viewer截图目标、右侧文章截图范围、位移后的明确关闭glyph、慢视频正文等待。全量212/212，/tmp/clippings-loading-target-tests.log。
+- 两次只读窗口查询及一次激活后仍返回WeChat windows=[]，本轮未进一步操控或整批重跑。
+- 点击前的Gwen/Nicky Case漏检定位：两者OCR title y292/1086.7，footer y448/1242，文本均以“0 ”开头；旧固定54px把title/footer分开，两个单行簇被过滤。已向用户问是否允许最小候选修复（不改时间/去重），尚未获答复时不改该原逻辑。
+- 时间说明保持既有语义：Z是UTC显示，文章发布日期不等于消息转发时间；扫描到旧消息用于停止不等于全部旧消息都已收录。已知16:09截图被无时间占位纳入unresolved的问题在开始边界一侧，不应误称晚于23:59:59。未擅改原时间策略。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」

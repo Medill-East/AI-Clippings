@@ -66,3 +66,30 @@ it('adapts image-to-article detection and reuses the opened viewer for the origi
   await session.scanOptions.extractShareCardUrlFn(candidate,{});
   await session.scanOptions.extractShareCardUrlFn(candidate,{});
 });
+it('waits through an initial loading frame before returning the existing article type hint',async()=>{
+  const item={title:'加州 Media Lab 首届MDes开放27fall申请',clickX:526,clickY:390};let frames=0;
+  const session=createDockedArticleSession(layout,{getWindow:()=>win,capture:()=>{},sleep:()=>{},
+    ocr:async()=>({width:1470,height:923,lines:++frames===1?[{text:'Loading',x:760,y:20,width:100,height:20}]:[{text:item.title,x:760,y:100,width:550,height:30}]}),
+    extractImage:async(c,o,d)=>d.detectEmbeddedArticleFn(c),
+  });
+  assert.equal(await session.scanOptions.extractImageContentFn(item,{}),true);assert.equal(frames,2);
+});
+it('captures the actual standalone viewer rather than the chat behind it',async()=>{
+  const photo={name:'Photos and Videos',x:322,y:56,width:825,height:876};let bounds;
+  const session=createDockedArticleSession(layout,{getWindow:()=>win,getFrontWindow:()=>photo,activate:()=>{},click:()=>{},capture:r=>{bounds=r},
+    extract:async(c,o,d)=>{d.captureFullScreenScreenshotFn('/tmp/unused');return {status:'failed'}},
+  });
+  await session.scanOptions.extractShareCardUrlFn({},{});assert.deepEqual(bounds,photo);
+});
+it('captures only the article pane for a docked article readiness check',async()=>{
+  let bounds;
+  const session=createDockedArticleSession(layout,{getWindow:()=>win,getFrontWindow:()=>win,activate:()=>{},click:()=>{},capture:r=>{bounds=r},
+    extract:async(c,o,d)=>{d.captureFullScreenScreenshotFn('/tmp/unused');return {status:'ok'}},
+  });
+  await session.scanOptions.extractShareCardUrlFn({},{});assert.equal(bounds.x,835);assert.equal(bounds.width,735);
+});
+it('uses a visible tab close glyph when the tab strip has shifted',async()=>{
+  const {findVisibleTabClosePoint}=await import('../scripts/lib/docked-articles.js');
+  const point=findVisibleTabClosePoint([{text:'4 一种看起来没出息，…X',x:2389,y:30,width:320,height:28}],{width:2940,height:1846},win);
+  assert.ok(point.x>1400);assert.ok(point.y>45&&point.y<65);
+});
