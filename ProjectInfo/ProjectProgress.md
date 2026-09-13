@@ -1,34 +1,31 @@
 # ProjectProgress
 
-*更新于 2026-09-14 01:12 +0800 · 记录者 Codex*
+*更新于 2026-09-14 01:29 +0800 · 记录者 Codex*
 
 ## 现在在哪
 
-- 用户要求只补缺并合并完整链接，不再整批重跑。核对后已有18个文章URL，加上修复实测补到的Nicky Case和视频号，共19篇文章+1个视频号=20个唯一URL；无需新的抓取。
-- 完整Markdown、纯链接TXT及带来源JSON已写入两个checkout的 wechat-filehelper-macos-ingest/local/exports/2026-0914-merged-wechat-links.*。三份输出逐条核对一致，保留原18个URL；未修改原索引、未重跑微信、未下载或转写视频。
-
-- 新版微信内嵌文章/视频适配已实施；本次按用户“直接修复”的要求同时修复已证实的候选、时间与计数回归，后续 Web Clipper、视频下载/ASR/摘要管线保持原实现。
-- 单行标题与隔开的书本图标作者行会合成卡片，Nicky Case/Gwen 不再因两个单行簇被丢弃；截图最底部输入区不再生成 Send 假候选。
-- UI 历史扫描的裸 HH:mm 不会解析成扫描时刻之后的未来；前置聊天时间作用于整组消息。缺前置时间、位于下一个时间组之前的卡片暂缓到下一页；明确早于 since 的卡片在点击前排除。完全没有可见时间上下文时仍保留带来源说明的旧占位策略。
-- 一次运行按 URL 唯一计数，避免同一卡片真实时间/占位时间形成双记录。已保存旧失败运行的索引快照，未覆盖用户历史证据。
-- 视频按右侧视频区域定位分享按钮；捕获正确 viewer 并保护截图后的 Esc，悬停分享菜单在复制前恢复悬停。视频 URL 继续交原有视频分流。
-- 结束清理通过当前截图匹配真实圆形 ×，不再使用固定905pt关闭位置；明确失败仍保留截图与状态，不伪称已关闭。
+- 用户提供的合并清单包含 20 个唯一链接：19 篇公众号文章和 1 条视频号；第 19、20 项也已按用户后续确认进入正常处理，不再按“已补入”跳过。
+- 19 篇文章通过 Web Clipper 写入 `Clippings/WeChat/2026`。首轮并发 10 表面为 19/19 success，但 `clipTarget.sourceUrl` 验收发现 2 条 active-tab 错配；两条已串行重跑并纠正，首轮两份错配副本已移入可恢复隔离区。
+- 最终文章验收为 19/19：每条请求 URL 都与剪藏目标一致，19 个笔记路径互不重复，文件均存在、非空且含对应源 URL。
+- 视频号 `https://weixin.qq.com/sph/ANrIUogFTH` 已由后台管线完成；解析为 1 个唯一视频，24/24 个本地 ASR 分片完成，摘要和 8 个关键要点写入 PKM，临时媒体与逐字稿已清理。
 
 ## 已完成验证
 
-- 全量测试 222/222，通过后校准配置精简的20项定向测试也通过。新回归包含真实拥挤标签截图模板、Nicky/Gwen OCR、跨午夜、跨页开始边界、同URL双时间、视频悬停菜单与截图Esc。
-- 将失败run 2026-09-13T16-13-21 的截图/OCR按真实扫描器离线回放：14页后在9/13 16:09边界停止；Nicky/Gwen均进入候选；Send、16:09、购买记录没有进入点击。该回放只验证检测/筛选决策，没有伪造联网提链成功。
-- 实机视频完整提链入口成功：local/repair-2026-0914/video-link-final-v3.json，status=ok，真实/sph/链接，逐篇关闭等待0。
-- 实机 Nicky Case 完整提链入口成功：local/repair-2026-0914/nicky-link-result.json，URL /s/tAxkvBggHtkDzpezCIOMLw；随后实际关闭2个标签成功，cleanup-final.json为closed，微信主窗口保留。
-- 新版点击适配的早期两篇验证不足与后续整批失败保留在sessions和原run，不再把早期成功扩大为整批可靠性结论。
+- 文章运行 manifest：`obsidian-web-clipper-ingest/local/runs/2026-09-13T17-17-44-957Z/manifest.json`；两条纠正重跑 manifest：`local/runs/2026-09-13T17-24-01-430Z/manifest.json`。
+- 视频运行 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-09-13T17-25-29-601Z/manifest.json`，状态 `complete`，`selected=1 / unique_videos=1 / written=1 / failed=0`。
+- 实质验收通过：19 个文章笔记和 1 个视频笔记均有正确源链接、存在且非空；文章源链接 19/19，视频源链接 1/1；视频 manifest 不含签名媒体 URL。
+- `obsidian-web-clipper-ingest` 测试为 17 pass / 0 fail；`wechat-filehelper-macos-ingest` 测试为 222 pass / 0 fail。
 
 ## 使用方式与限制
 
-- 原 collect/scan 命令不变；从文件传输助手最新消息底部开始，先打开第一篇文章形成左右并排布局，运行时保持微信前台。
-- 本机校准 local/ui-layout.json：全窗1470×923逻辑点、左侧chatWidth=735。两个checkout均已配置；窗口移动/改尺寸会明确报布局变化。关闭点不再需要配置。
-- 本轮没有重新执行整批在线采集，也没有触发视频下载、ASR、付费摘要或PKM写入；验证范围为真实单条提链、结束清理、保存材料回放和自动测试。
-- 此前9/6成功的22篇Web Clipper和1个去重长视频仍以对应历史session/manifest为准，未在本轮改动其产物。
+- 文章剪藏使用本机已有的 Chrome for Testing headed 浏览器；当前 Google Chrome 152 不适合命令行扩展加载，配置路径已指向可用缓存。若该缓存被清理，需先恢复兼容浏览器路径。
+- 批量文章必须验收 `clipTarget.sourceUrl === requested URL`，不能只看 success、job id 或文件存在；扩展 iframe 内部仍依赖 active tab，因此当前批量运行保留串行纠正路径。
+- 本轮使用的文章输入为 `obsidian-web-clipper-ingest/local/inputs/2026-0914-merged-article-links.txt`；原始合并清单未重新扫描微信，未改变索引。
 
 ## 下一步
 
-- 按原命令正常采集，核对视频号分类、唯一URL数和viewer_cleanup。若出现新失败，直接按该run的截图/状态回归，不再盲目扩大处理规则。
+- 本轮 20 条链接无剩余处理项。后续新链接继续按文章 / 视频号分流，并分别核对各自 manifest 与实际 PKM 产物。
+
+## 阻塞 / 待定
+
+- 本轮无已知阻塞；第 20 条视频未要求重新登录即完成。

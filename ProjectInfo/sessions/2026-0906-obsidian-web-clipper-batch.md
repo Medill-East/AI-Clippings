@@ -12,3 +12,15 @@
 - 视频后台 manifest 仍为 `running`，但对应进程已消失且无结果；不把视频标为完成。若继续，需要另行确认视频批处理预算，并在必要时处理元宝登录。
 
 原始对话：`dialogues/2026-0906.md「1540 处理微信文件传输助手链接」`
+
+## 0129 2026-09-14 合并清单 20 条正常处理
+
+决策：無涘 ｜ 记录：Codex
+
+- 读取 `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/exports/2026-0914-merged-wechat-links.{md,txt}`，确认 20 个唯一链接：19 篇公众号文章、1 条视频号。用户随后明确要求第 19、20 项也正常处理并确认执行。
+- 19 篇文章首轮使用 Web Clipper 并发 10，结果表面为 19/19；对抗性核对 `clipTarget.sourceUrl` 发现 2 条 iframe active-tab 错配。两条以并发 1 串行重跑成功，首轮两个错配副本移到 `obsidian-web-clipper-ingest/local/quarantine/false-success/2026-09-14-concurrent-tab-mismatch/`，不删除。
+- 文章最终验收为 19/19：每条源 URL 精确匹配，19 个目标笔记路径唯一，文件存在、非空且包含对应源 URL。
+- 第 20 条视频号以单条 URL进入视频管线，解析为 1 个唯一视频；24/24 ASR 分片完成，产生 1555 字转写证据、526 字摘要和 8 个关键要点，写入 `/Users/haodong/Documents/GitHub/PKM/PlayWithExperiences/Clippings/2026-0805-国金项目到底有哪些硬性指标.md`。临时媒体和逐字稿已清理，manifest 未保存签名媒体 URL。
+- 最终分流结果为 19 篇文章 + 1 个视频全部完成。文章测试 17 pass / 0 fail；视频项目测试 222 pass / 0 fail。未重新扫描微信，未修改原始索引，未发生登录阻塞。
+
+原始对话：`dialogues/2026-0914.md「0129 处理合并清单 20 条」`
