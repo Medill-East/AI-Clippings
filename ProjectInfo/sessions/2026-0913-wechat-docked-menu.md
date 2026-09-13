@@ -44,3 +44,19 @@ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
 
 - 21:58 补充启动防误操作：未预开文章时 preflight 明确返回 docked_article_not_open；实机已验证当前关闭阅读栏状态能被识别，auto 不回退到错误的全窗剪贴板扫描。新增测试后全量 206/206 通过。
+
+## 2026-09-13 22:26 +0800 整批失败审计
+
+决策：無涘（要求检查漏采、时间范围和关闭错误） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 已检查运行副本 local/runs/2026-09-13T14-10-11 的 manifest、全部 candidates、27 行 index，以及 page-0/page-5/page-13 截图和各页时间 OCR；将原始 index 备份为该 run 的 index-snapshot.jsonl，不覆盖已有文件。
+- 19 是失败记录数（12 image / 7 article），包含 OCR 变体重复、Send UI 假候选；不是真实唯一文章数量。46 seen、29 attempted、10 resolved、8 unique URL、15 duplicate_skipped；失败后重复可见也被 article_already_attempted 跳过，仍保留 unresolved，但不代表已经收录。
+- 已确认文章误分类：Claude Science / UCSD / 初代 Mac 等真实卡片走 plain_text_block => image；内嵌阅读栏没有新图片窗口，故 image_viewer_not_opened。Send 在 y=921 的输入区被纳入候选。
+- page-5.png 显示 Nicky Case 行之，明也卡片，candidates.json 无此标题；OCR 按固定 54px 间隔分簇、单行短簇过滤是需复现的直接实现路径。
+- game-industry 与 PhD 两个不同标题记录同一个 _U4xaF5rHHMOLylWzwh8Lg 链接。两张 viewer-ready OCR 分别显示不同右侧实际文章标题，故存在真实 title-to-URL 错配，不是正常去重。复制旧值/菜单选择的具体成因尚未确认。
+- 输入北京时间19:00与日志11:00Z等价。8个成功链接全为截止时间占位；findNearestTimestampLine 的180px距离限制导致跨卡片时间关联丢失，16:09独立时间线未触发范围停止，最后由Yesterday21:18结束。complete不代表所有项入库，也不能证明每条都在范围内。
+- cleanup.closed=2 后 article_tab_not_closed；本轮没有清理截图留存（finish finally 删除临时截图），不能断言究竟是按钮漂移还是签名判断问题。需保留失败截图再验证。
+- 本轮只完成诊断；尚未新增修复或整批验证。此前两条样本验收后的“已修好”结论过宽，当前快照已纠正。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」

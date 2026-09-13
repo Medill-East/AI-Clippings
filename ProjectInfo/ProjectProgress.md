@@ -2,9 +2,14 @@
 
 > 现状快照，覆盖写，不堆历史。历史看 `ProjectInfo/sessions/` 与 `ProjectInfo/dialogues/`。
 
-*更新于 2026-09-13 21:58 +0800 · 记录者 Codex*
+*更新于 2026-09-13 22:26 +0800 · 记录者 Codex*
 
 ## 现在在哪
+
+- 2026-09-13 用户整批运行 2026-09-13T14-10-11 暴露尚未解决的收集缺陷：8 个唯一 URL、19 unresolved（12 image + 7 article），最后 article_tab_not_closed。此前两篇验证不能证明整批可靠，当前不应视为全部修复完成。
+- 审计确认：公众号卡片被 plain_text_block 误分图片；Send 按钮进入候选；Nicky Case 卡片在 page-5.png 可见却未生成候选；不同标题“30分钟PhD面试”与“游戏大厂老板…”被记为同 URL，后者随 URL 去重遗漏；8 个链接全部使用 range_until_fallback，无真实消息时间归属。
+- 页面 10/11 可见 19:27，页面 12 可见 16:09，但只有页面 13 的 Yesterday 21:18 关联到 block 才触发停止。北京时间转 UTC 正确，缺陷在 timestamp-to-card 关联与无时间占位收录；range_coverage=complete 仅表示扫描触及旧消息，不表示提取完整。
+- 本次 index-snapshot.jsonl 已备份进用户失败运行目录，保存原始 27 条记录；本轮只诊断，未重跑、未修复上述新发现、未覆盖历史结果。需用该次多页真实材料做回归，解决候选、时间归属、链接对应关系及整批清理。
 
 - 2026-09-13 新版微信内嵌文章流程已修补：菜单固定边距定位；本机校准左侧聊天 735 pt / 全窗 1470×923 pt；逐篇保持阅读栏，批次结束用标签自身 × 统一关闭。原 scan/collect 命令自动读取 gitignored 的 local/ui-layout.json，两处运行目录均已配置；启动前须手动打开第一篇并保持布局。
 - 实机连续提取 TRPG 与 Claude Science 两篇，得到两个不同真实 mp.weixin URL，逐篇 viewer_close_wait_ms=0。最后关闭标签的修正单独复用已打开文章验证，结果 status=closed / closed=2；after-cleanup.png 已确认文章栏消失且微信聊天主窗口保留。
