@@ -167,7 +167,7 @@ export function filterByTimeRange(records, since, until) {
  * @param {Date} [referenceDate]  Defaults to now (for testability)
  * @returns {Date|null}
  */
-export function parseWeChatTimestamp(text, referenceDate) {
+export function parseWeChatTimestamp(text, referenceDate, { notAfterReference = false } = {}) {
   if (!text) return null;
   text = text.trim();
   const ref = referenceDate ?? new Date();
@@ -238,7 +238,10 @@ export function parseWeChatTimestamp(text, referenceDate) {
   // Today: "10:30"
   m = text.match(/^(\d{1,2}):(\d{2})$/);
   if (m) {
-    return buildCstDate(refCst.year, refCst.month, refCst.day, +m[1], +m[2]);
+    const value = buildCstDate(refCst.year, refCst.month, refCst.day, +m[1], +m[2]);
+    // A bare clock in existing chat history cannot denote a future message.
+    if (notAfterReference && value > ref) value.setTime(value.getTime() - 24 * 60 * 60 * 1000);
+    return value;
   }
 
   return null;

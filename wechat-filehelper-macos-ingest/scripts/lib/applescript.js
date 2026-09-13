@@ -338,6 +338,20 @@ export function captureRectScreenshot(rect, outputPath) {
 /**
  * Capture the current front WeChat window.
  */
+export function raiseWeChatWindow(window) {
+  runJxa(`
+    const target = ${JSON.stringify({name:window.name,x:window.x,y:window.y,width:window.width,height:window.height})};
+    const p = Application("System Events").processes.byName("WeChat");
+    const win = p.windows().find(w => {
+      const xy = w.position(), wh = w.size();
+      return w.name() === target.name && Math.abs(xy[0]-target.x)<3 && Math.abs(xy[1]-target.y)<3 &&
+        Math.abs(wh[0]-target.width)<3 && Math.abs(wh[1]-target.height)<3;
+    });
+    if (!win) throw new Error("viewer_window_unavailable");
+    win.actions.byName("AXRaise").perform();
+  `);
+}
+
 export function captureWindowScreenshot(
   window,
   outputPath,
@@ -348,6 +362,10 @@ export function captureWindowScreenshot(
     sendSystemKeyCodeFn = sendSystemKeyCode,
     sleepMsFn = sleepMs,
     captureRectScreenshotFn = captureRectScreenshot,
+    preserveViewer = false,
+    getFrontWeChatWindowFn = getFrontWeChatWindow,
+    getFrontmostApplicationNameFn = getFrontmostApplicationName,
+    raiseWeChatWindowFn = raiseWeChatWindow,
   } = {}
 ) {
   if (!window) {
@@ -355,6 +373,7 @@ export function captureWindowScreenshot(
   }
 
   activateWeChatFn();
+  if (preserveViewer && window.name && !/^(weixin|wechat|微信)$/i.test(window.name)) raiseWeChatWindowFn(window);
   sleepMsFn(WECHAT_SCREENSHOT_ACTIVATE_SETTLE_MS);
   moveMouseToPointFn(window.x + 80, window.y + 80);
   sendSystemKeystrokeFn("a", ["control down", "command down"]);
@@ -363,9 +382,24 @@ export function captureWindowScreenshot(
   try {
     captureRectScreenshotFn(window, outputPath);
   } finally {
-    sendSystemKeyCodeFn(53); // First Escape closes the magnifier/selection state.
+    const dismissOverlay = () => {
+      if (preserveViewer && window.name) {
+        const front = getFrontWeChatWindowFn();
+        const app = getFrontmostApplicationNameFn();
+        // A smaller WeChat popup is the share/context menu, not the
+        // full-screen screenshot overlay. Keep it open for the next click.
+        if (/wechat|weixin/i.test(app) && front &&
+            front.width < window.width && front.height < window.height) return;
+        if (/wechat|weixin/i.test(app) && front?.name === window.name &&
+            front.x <= window.x && front.y <= window.y &&
+            front.x + front.width >= window.x + window.width &&
+            front.y + front.height >= window.y + window.height) return;
+      }
+      sendSystemKeyCodeFn(53);
+    };
+    dismissOverlay(); // Dismiss only the screenshot overlay, never its host viewer.
     sleepMsFn(WECHAT_SCREENSHOT_CLOSE_SETTLE_MS);
-    sendSystemKeyCodeFn(53); // Second Escape closes the screenshot overlay itself.
+    dismissOverlay();
     sleepMsFn(WECHAT_SCREENSHOT_FINAL_SETTLE_MS);
   }
 }

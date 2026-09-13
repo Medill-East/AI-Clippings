@@ -75,3 +75,25 @@ describe("captureWindowScreenshot", () => {
     ]);
   });
 });
+
+it('does not send a second Escape into a video viewer after the capture overlay has closed',()=>{
+  let frontApp='PixPin';const keys=[];
+  const viewer={name:'Channels',x:100,y:40,width:800,height:700};
+  captureWindowScreenshot(viewer,'/tmp/unused.png',{
+    preserveViewer:true,activateWeChatFn:()=>{},raiseWeChatWindowFn:()=>{},moveMouseToPointFn:()=>{},
+    sendSystemKeystrokeFn:()=>{},sleepMsFn:()=>{},captureRectScreenshotFn:()=>{},
+    getFrontWeChatWindowFn:()=>viewer,getFrontmostApplicationNameFn:()=>frontApp,
+    sendSystemKeyCodeFn:k=>{keys.push(k);frontApp='WeChat'},
+  });
+  assert.deepEqual(keys,[53]);
+});
+it('keeps a share popup open after dismissing the screenshot overlay',()=>{
+  let app='PixPin';const keys=[];const host={name:'Weixin',x:0,y:33,width:1470,height:923};
+  const popup={name:'',x:1200,y:730,width:200,height:120};
+  captureWindowScreenshot({...host,x:735,width:735},'/tmp/unused.png',{
+    preserveViewer:true,activateWeChatFn:()=>{},moveMouseToPointFn:()=>{},sendSystemKeystrokeFn:()=>{},
+    sleepMsFn:()=>{},captureRectScreenshotFn:()=>{},getFrontWeChatWindowFn:()=>popup,
+    getFrontmostApplicationNameFn:()=>app,sendSystemKeyCodeFn:k=>{keys.push(k);app='WeChat'},
+  });
+  assert.deepEqual(keys,[53]);
+});

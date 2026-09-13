@@ -106,3 +106,21 @@ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
 - 本轮完成诊断和留痕，无代码更改、无整批重跑、无收费调用。此前候选修复的异步范围确认尚无明确回答，未擅改原候选/时间/去重。
 
 原始对话：dialogues/2026-0913.md「1938 （未分类）」
+
+## 2026-09-14 01:04 +0800 实施并验证剩余具体修复
+
+决策：無涘（明确要求直接修复，而不是继续只诊断；协助打开失败视频号实测） ｜ 记录：Codex
+session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+- 实施候选修复：单行标题/书本图标作者行合并，输入底部排除Send；标题不混作者footer。使用真实Gwen/Nicky OCR和单行长间隔反例回归。
+- UI历史时间解析增加notAfterReference选项，保持通用日期解析默认API不变；bare21:06在9/14凌晨归9/13。前置时间不再受180px距离限制；看到下一时间组而缺前置时间的顶部卡片暂缓，下一页看到16:09则在点击前排除。保留无可见上下文时旧占位，不伪称所有消息时间精确。
+- 单次URL集合防重复，不再因visible_timestamp/fallback产生两个记录；视频URL可从疑似图片转回链路确认并最终计入video_channel。
+- 修复视频UI三个实际问题：分享坐标必须用右半阅读区；捕获目标必须保持同一viewer，不能混用Photos rect和主窗OCR；截图会移开鼠标，Copy Link前需激活/清空剪贴板/恢复悬停后再点击。视频剪贴板等待增加到2s。保护截图清理Esc不把viewer或分享popup误关。
+- 本场用户承认切换过桌面导致一次验证被干扰；保持微信前台后手动最小hover/copy得到真实/sph/，再将同样顺序接回extractShareCardUrl，最终生产提链函数实测status=ok，证据video-link-final-v3.json。没有用手工copy成功冒充管线成功。
+- 新增本机Swift图像匹配（复用既有Swift编译缓存，无npm依赖）识别圆形×；参考图只截按钮36×36，拥挤标签fixture只保留公开文章标签栏。原失败画面定位到(2082,56)像素，正确区别于固定905pt。用标题栏像素fingerprint防止相同标题被误判无变化，保留失败截图。
+- 实际Nicky提链成功，URL为https://mp.weixin.qq.com/s/tAxkvBggHtkDzpezCIOMLw；随后的session.finish实际关闭2个标签，status=closed，主窗口保留。清理前AX短时空列表增加有限等待。
+- 原失败15页OCR离线回放在第14页/9月13日16:09停下，Nicky与Gwen都进入候选，Send/16:09/购买记录无点击。回放extract返回offline_click_not_executed，报告明确offline，不写真实索引。
+- 全量222/222测试，/tmp/clippings-release-repaired-tests.log；最后去除无用固定关闭坐标校准后的定向20/20通过。主要证据在local/repair-2026-0914/，失败尝试也保留。
+- 本轮未重新在线采集全部19篇、未启动视频下载/ASR/模型摘要、未写PKM；后续处理实现保留原链路。只同步本次相关代码、测试与项目记录，不纳入其他历史/WIP改动。
+
+原始对话：dialogues/2026-0913.md「1938 （未分类）」

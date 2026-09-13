@@ -1,6 +1,14 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDockedArticleSession, loadDockedLayout } from '../scripts/lib/docked-articles.js';
+import { createDockedArticleSession as createSession, loadDockedLayout } from '../scripts/lib/docked-articles.js';
+function createDockedArticleSession(layout, deps) {
+  let lastImage;
+  return createSession(layout, { ...deps,
+    ...(deps.ocr ? {ocr:async (...args)=>(lastImage=await deps.ocr(...args))} : {}),
+    detectTabClose: deps.detectTabClose ?? (async () =>
+      lastImage?.lines.some(line=>line.x>735 && line.y<50) ? {x:905,y:27} : null),
+  });
+}
 const layout = { mode: 'docked_articles', windowWidth: 1470, windowHeight: 923, chatWidth: 735, tabCloseX: 905, tabCloseY: 27 };
 const win = { name: 'Weixin', x: 100, y: 33, width: 1470, height: 923 };
 const shot = text => ({width:1470,height:923,lines:[{text:'File Transfer',x:316,y:20,width:100,height:20},...(text?[{text,x:760,y:15,width:140,height:20}]:[])]});

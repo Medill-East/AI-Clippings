@@ -5,6 +5,7 @@ import { activateWeChat, getWeChatChatWindow, getFrontWeChatWindow, clickAtPoint
   sendKeystroke, scrollAtPoint, sleepMs, captureWindowScreenshot } from "./applescript.js";
 import { readVisibleClipboardSnapshot } from "./chat.js";
 import { recognizeTextFromImage } from "./ocr.js";
+import { detectArticleTabClose } from "./tab-controls.js";
 import { probeUiEnvironment, captureVisibleUiPage, extractShareCardUrl, extractImageContent, findViewerTitleLine } from "./ui.js";
 
 export async function loadDockedLayout(skillRoot, fsImpl = fs) {
@@ -13,9 +14,8 @@ export async function loadDockedLayout(skillRoot, fsImpl = fs) {
   catch (error) { if (error.code === "ENOENT") return null; throw error; }
   const layout = JSON.parse(text);
   if (layout.mode !== "docked_articles" ||
-      ![layout.windowWidth, layout.windowHeight, layout.chatWidth, layout.tabCloseX, layout.tabCloseY].every(n => Number.isFinite(n) && n > 0) ||
-      layout.chatWidth >= layout.windowWidth || layout.tabCloseX <= layout.chatWidth ||
-      layout.tabCloseX >= layout.windowWidth || layout.tabCloseY >= 50) {
+      ![layout.windowWidth, layout.windowHeight, layout.chatWidth].every(n => Number.isFinite(n) && n > 0) ||
+      layout.chatWidth >= layout.windowWidth) {
     throw new Error("Invalid local/ui-layout.json: expected calibrated docked article bounds.");
   }
   return layout;
@@ -40,7 +40,8 @@ export function createDockedArticleSession(layout, deps = {}) {
   const click = deps.click ?? clickAtPoint;
   const key = deps.key ?? sendKeystroke;
   const sleep = deps.sleep ?? sleepMs;
-  const capture = deps.capture ?? captureWindowScreenshot;
+  const capture = deps.capture ?? ((bounds, file, options = {}) =>
+    captureWindowScreenshot(bounds, file, { preserveViewer: true, ...options }));
   const ocr = deps.ocr ?? recognizeTextFromImage;
   const extract = deps.extract ?? extractShareCardUrl;
   let attempts = 0;
@@ -111,6 +112,7 @@ export function createDockedArticleSession(layout, deps = {}) {
       extractImageContentFn: (candidate, options, extractionDeps) =>
         (deps.extractImage ?? extractImageContent)(candidate, options, {
           ...extractionDeps,
+          captureRectScreenshotFn: (bounds, screenshot) => capture(bounds, screenshot, { preserveViewer: true }),
           detectEmbeddedArticleFn: async item => {
             const window = current();
             const screenshot = path.join(os.tmpdir(), `wechat-docked-type-${process.pid}-${Date.now()}.png`);
@@ -144,15 +146,16 @@ export function createDockedArticleSession(layout, deps = {}) {
           },
         }, {
           ...extractionDeps,
-          captureFullScreenScreenshotFn: screenshot => {
-            const front = getFrontWindow() ?? current();
+          captureFullScreenScreenshotFn: (screenshot, target = null) => {
+            const front = target ?? getFrontWindow() ?? current();
             const isChat = /^(weixin|wechat|微信)$/i.test(String(front.name ?? ""));
             const bounds = isChat
               ? { ...current(), x: front.x + layout.chatWidth, width: front.width - layout.chatWidth }
               : front;
-            capture(bounds, screenshot);
+            capture(bounds, screenshot, { preserveViewer: true });
             return bounds;
           },
+          captureVideoShareScreenshotFn: (bounds, screenshot) => capture(bounds, screenshot, { preserveViewer: true }),
         });
         focusChat();
         return result;
@@ -165,8 +168,12 @@ export function createDockedArticleSession(layout, deps = {}) {
       let closed = 0;
       let verifiedClosed = false;
       try {
-        for (let i = 0; i <= attempts + 1; i++) {
-          const window = getWindow();
+        for (let i = 0; i <= Math.min(100, attempts + 32); i++) {
+          let window = getWindow();
+          for (let retry = 0; !window && retry < 5; retry++) {
+            sleep(200);
+            window = getWindow();
+          }
           if (!window) return { status: "failed", reason: "chat_window_missing", closed };
           if (Math.abs(window.width - layout.chatWidth) <= 2) { verifiedClosed = true; return { status: "closed", closed }; }
           current();
@@ -179,15 +186,19 @@ export function createDockedArticleSession(layout, deps = {}) {
               line.x < layout.chatWidth * result.width / layout.windowWidth)) {
             return { status: "failed", reason: "cleanup_screenshot_unavailable", closed };
           }
-          if (!tabs.length) { verifiedClosed = true; return { status: "closed", closed }; }
-          const signature = JSON.stringify(tabs.map(line => [line.text, Math.round(line.x)]));
+          const control = await (deps.detectTabClose ?? detectArticleTabClose)(screenshot, layout);
+          if (!tabs.length && !control) { verifiedClosed = true; return { status: "closed", closed }; }
+          const signature = control?.fingerprint ?? JSON.stringify(tabs.map(line => [line.text, Math.round(line.x)]));
           if (signature === previous) return { status: "failed", reason: "article_tab_not_closed", closed };
           previous = signature;
           activate();
           // Cmd+W closes the host WeChat window on this build. Use the
           // calibrated close button belonging to the article tab instead.
-          const closePoint = findVisibleTabClosePoint(tabs, result, window) ??
-            { x: window.x + layout.tabCloseX, y: window.y + layout.tabCloseY };
+          const closePoint = control
+            ? { x: window.x + control.x * window.width / result.width,
+                y: window.y + control.y * window.height / result.height }
+            : findVisibleTabClosePoint(tabs, result, window);
+          if (!closePoint) return { status: "failed", reason: "article_tab_close_not_visible", closed };
           click(closePoint.x, closePoint.y);
           sleep(250);
           closed += 1;
