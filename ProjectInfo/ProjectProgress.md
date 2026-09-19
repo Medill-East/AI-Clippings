@@ -1,31 +1,32 @@
 # ProjectProgress
 
-*更新于 2026-09-14 01:29 +0800 · 记录者 Codex*
+*更新于 2026-09-19 19:31 +0800 · 记录者 Codex*
 
 ## 现在在哪
 
-- 用户提供的合并清单包含 20 个唯一链接：19 篇公众号文章和 1 条视频号；第 19、20 项也已按用户后续确认进入正常处理，不再按“已补入”跳过。
-- 19 篇文章通过 Web Clipper 写入 `Clippings/WeChat/2026`。首轮并发 10 表面为 19/19 success，但 `clipTarget.sourceUrl` 验收发现 2 条 active-tab 错配；两条已串行重跑并纠正，首轮两份错配副本已移入可恢复隔离区。
-- 最终文章验收为 19/19：每条请求 URL 都与剪藏目标一致，19 个笔记路径互不重复，文件均存在、非空且含对应源 URL。
-- 视频号 `https://weixin.qq.com/sph/ANrIUogFTH` 已由后台管线完成；解析为 1 个唯一视频，24/24 个本地 ASR 分片完成，摘要和 8 个关键要点写入 PKM，临时媒体与逐字稿已清理。
+- 2026-09-19 这批已确认链接处理完成：14 篇公众号文章和 12 个视频号分享短链；视频按内容去重后为 7 个唯一视频。
+- 文章 14/14 已进入 Web Clipper，逐条核实请求 URL 与 `clipTarget.sourceUrl` 一致，笔记文件存在且含源链接。
+- 视频 7/7 均已完成本地 ASR、摘要和 PKM 写入；逐条核实成功 manifest、笔记文件和对应源链接。重复短链没有重复生成摘要。
+- 合并清单与纯链接文件已生成，位于视频采集仓库被 Git 忽略的 `local/exports/`，不会进入公开仓库。
 
 ## 已完成验证
 
-- 文章运行 manifest：`obsidian-web-clipper-ingest/local/runs/2026-09-13T17-17-44-957Z/manifest.json`；两条纠正重跑 manifest：`local/runs/2026-09-13T17-24-01-430Z/manifest.json`。
-- 视频运行 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-09-13T17-25-29-601Z/manifest.json`，状态 `complete`，`selected=1 / unique_videos=1 / written=1 / failed=0`。
-- 实质验收通过：19 个文章笔记和 1 个视频笔记均有正确源链接、存在且非空；文章源链接 19/19，视频源链接 1/1；视频 manifest 不含签名媒体 URL。
-- `obsidian-web-clipper-ingest` 测试为 17 pass / 0 fail；`wechat-filehelper-macos-ingest` 测试为 222 pass / 0 fail。
+- 文章 manifest：`obsidian-web-clipper-ingest/local/runs/2026-09-19T10-22-02-040Z/manifest.json`；14 个 source URL 和 14 个笔记目标均通过回读。
+- 视频源 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-09-19T03-52-37-185Z/manifest.json`；12 个分享链接去重为 7 个视频。
+- 7 个视频重处理 manifest 分别位于 `local/video-channel/runs/2026-09-19T10-27-10-900Z/`、`10-59-52-593Z/`、`11-03-26-071Z/`、`11-05-31-927Z/`、`11-07-44-196Z/`、`11-10-58-934Z/` 和 `11-14-38-295Z/`，均为 `complete` 且各写入 1 条。
+- 清单文件：`wechat-filehelper-macos-ingest/local/exports/2026-0919-merged-wechat-links.md`；纯链接文件：同目录 `2026-0919-merged-wechat-links.txt`，共 21 个唯一源链接。
+- 10:30 的一次中断运行曾留下 27/36 个已完成 ASR 分片；续跑复用这些结果，完成剩余分片并成功写入。同一 task 的最终状态为 `written`。其旧 run manifest 仍保留当时的 `running` 状态，不能代表现在仍在运行。
 
-## 使用方式与限制
+## 性能观察与限制
 
-- 文章剪藏使用本机已有的 Chrome for Testing headed 浏览器；当前 Google Chrome 152 不适合命令行扩展加载，配置路径已指向可用缓存。若该缓存被清理，需先恢复兼容浏览器路径。
-- 批量文章必须验收 `clipTarget.sourceUrl === requested URL`，不能只看 success、job id 或文件存在；扩展 iframe 内部仍依赖 active tab，因此当前批量运行保留串行纠正路径。
-- 本轮使用的文章输入为 `obsidian-web-clipper-ingest/local/inputs/2026-0914-merged-article-links.txt`；原始合并清单未重新扫描微信，未改变索引。
+- 视频任务串行执行；每次只有一个 ASR 分片 worker。V2T 设置为 `auto`，本机 10 个逻辑 CPU 核对应 5 个 Sherpa 线程。观察到单 worker 瞬时约 97%–181% CPU，可能造成卡顿，但没有并行启动多个 ASR。
+- 最终检查未发现仍运行的 ASR/视频处理进程。采样时 WindowServer 与 Codex 图形进程占用也较高，内存空闲约 64%、swap 为 0；这些是时间点快照，不能单独证明卡顿的唯一原因。
+- 为降低前台影响，后续五条视频使用 nice 19 低调度优先级。临时视频与逐字稿按默认策略清理。
 
 ## 下一步
 
-- 本轮 20 条链接无剩余处理项。后续新链接继续按文章 / 视频号分流，并分别核对各自 manifest 与实际 PKM 产物。
+- 本轮已确认范围内无剩余项。未重新扫描微信，也未扩展处理输入清单之外的 unresolved 图片/卡片。
 
 ## 阻塞 / 待定
 
-- 本轮无已知阻塞；第 20 条视频未要求重新登录即完成。
+- 无。
