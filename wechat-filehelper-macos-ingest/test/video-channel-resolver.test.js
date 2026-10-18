@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 
 import {
   VideoChannelError,
+  isAuthenticatedAccountResponse,
   extractFeedProfile,
   loadPlaywright,
   parseYuanbaoPayload,
@@ -192,5 +193,17 @@ describe("resolveVideoChannel", () => {
       }),
       (error) => error instanceof VideoChannelError && error.code === "auth_required",
     );
+  });
+});
+
+describe("server-verified Yuanbao login", () => {
+  it("rejects expired authentication despite any cached UI identity", () => {
+    assert.equal(isAuthenticatedAccountResponse(401, { name: "cached account" }), false);
+    assert.equal(isAuthenticatedAccountResponse(200, { code: 1001, msg: "login required" }), false);
+    assert.equal(isAuthenticatedAccountResponse(200, null), false);
+    assert.equal(isAuthenticatedAccountResponse(200, {}), false);
+  });
+  it("accepts a successful account response", () => {
+    assert.equal(isAuthenticatedAccountResponse(200, { code: 0, data: { userId: "test" } }), true);
   });
 });

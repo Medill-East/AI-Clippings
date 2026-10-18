@@ -312,6 +312,15 @@ export async function requestYuanbaoParse(shareUrl, { profileDir }) {
   }
 }
 
+export function isAuthenticatedAccountResponse(status, payload) {
+  if (status !== 200 || !payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  if (Object.keys(payload).length === 0) return false;
+  for (const key of ["code", "errCode", "retcode"]) {
+    if (payload[key] != null && ![0, "0"].includes(payload[key])) return false;
+  }
+  return true;
+}
+
 export async function authenticateYuanbao({
   profileDir = path.join(skillRoot, "local/yuanbao-profile"),
   timeoutMs = 10 * 60_000,
@@ -325,31 +334,51 @@ export async function authenticateYuanbao({
       viewport: { width: 1180, height: 820 },
     });
     const page = context.pages()[0] ?? (await context.newPage());
+    const authCookieState = async () => JSON.stringify(
+      (await context.cookies("https://yuanbao.tencent.com"))
+        .filter((cookie) => ["hy_token", "hy_user"].includes(cookie.name))
+        .map((cookie) => [cookie.name, cookie.value])
+        .sort(),
+    );
+    let lastAuthCookies = await authCookieState();
+    let authenticated = false;
+    let accountStatus = null;
+    page.on("response", async (response) => {
+      const parsed = new URL(response.url());
+      if (parsed.origin !== "https://yuanbao.tencent.com" || parsed.pathname !== "/api/getuserinfo") return;
+      accountStatus = response.status();
+      const payload = await response.json().catch(() => null);
+      authenticated = isAuthenticatedAccountResponse(accountStatus, payload);
+    });
     await page.goto("https://yuanbao.tencent.com/", {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
     await page.bringToFront();
 
-    const loginButton = page
-      .getByRole("button", { name: /^(Log In|登录)$/i })
-      .first();
-    if (await loginButton.isVisible().catch(() => false)) {
-      await loginButton.click();
-    }
-
     const deadline = Date.now() + timeoutMs;
-    let stableChecks = 0;
+    let loginOpened = false;
     while (Date.now() < deadline) {
-      const bodyText = await page.locator("body").innerText().catch(() => "");
-      const loggedOutTextVisible =
-        /Not logged in|未登录|请登录后输入内容|登录后输入内容/i.test(bodyText);
-      const loginButtonVisible = await loginButton.isVisible().catch(() => false);
-      if (!loggedOutTextVisible && !loginButtonVisible) {
-        stableChecks += 1;
-        if (stableChecks >= 3) return { status: "authenticated" };
-      } else {
-        stableChecks = 0;
+      const currentAuthCookies = await authCookieState();
+      if (!authenticated && currentAuthCookies !== lastAuthCookies) {
+        lastAuthCookies = currentAuthCookies;
+        // Login may update cookies without reissuing the frontend account request.
+        const account = await page.evaluate(async () => {
+          const response = await fetch("/api/getuserinfo", { credentials: "include" });
+          return { status: response.status, payload: await response.json().catch(() => null) };
+        }).catch(() => null);
+        if (account) {
+          accountStatus = account.status;
+          authenticated = isAuthenticatedAccountResponse(account.status, account.payload);
+        }
+      }
+      if (authenticated) return { status: "authenticated", verifiedBy: "account-api" };
+      if (!loginOpened && accountStatus === 401) {
+        const login = page.getByText(/^(Log In|Login|登录|立即登录)$/i).first();
+        if (await login.isVisible().catch(() => false)) {
+          await login.click();
+          loginOpened = true;
+        }
       }
       await page.waitForTimeout(2_000);
     }
@@ -359,6 +388,13 @@ export async function authenticateYuanbao({
     );
   } catch (error) {
     if (error instanceof VideoChannelError) throw error;
+    if (/target.*closed|context.*closed|browser.*closed/i.test(String(error?.message ?? error))) {
+      throw new VideoChannelError(
+        "auth_window_closed",
+        "Login window closed before server verification; run video:auth again to check the saved session",
+        error,
+      );
+    }
     throw new VideoChannelError(
       "auth_window_failed",
       "Yuanbao login window failed",

@@ -149,7 +149,7 @@ node scripts/collect-links.js \
 npm run video:auth
 ```
 
-窗口出现后用微信扫码。登录信息只保存在 `local/yuanbao-profile/`，不得提交到 Git。
+窗口出现后用微信扫码，保持窗口打开直到命令确认服务端账户接口验证通过。缓存昵称、暂时没有登录按钮或 DOM 已加载均不代表登录有效；凭据变化后会重新检查账户接口。登录信息只保存在 `local/yuanbao-profile/`，不得提交到 Git。
 
 ### 单独处理或重试视频号
 

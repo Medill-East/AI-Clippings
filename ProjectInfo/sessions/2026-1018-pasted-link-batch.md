@@ -35,3 +35,22 @@ trace-source-sha256: c5adf22388373e8e5808bee596f3c5d84e502b4ff638aae1231869697f5
 
 原始对话：/Users/haodong/.codex/sessions/2026/10/18/rollout-2026-10-18T13-56-44-01a14d95-7ae4-7973-9342-339557804f08.jsonl
 <!-- trace-finalize 28d41139ecc2e25870563a2e750e058842d646d8de6a2f4efe33a6593f7e06f2 -->
+
+## 2026-10-18 14:33 元宝401根因修复与5个视频补齐
+
+记录：Codex（在场摘要）｜ session 01a14d95-7ae4-7973-9342-339557804f08
+trace-user-count: 4
+trace-source-sha256: d1f7fdd3ad26044d6b017cf142f552c6c0626c2aeaa03fb79984018b79691e45
+
+结论：元宝 401 根因为登录过期，服务端 /api/getuserinfo 与解析接口均拒绝旧会话。页面缓存昵称和尚未显示登录按钮导致旧登录辅助程序误报成功。用户重新扫码后解析恢复，5 个原始视频号均处理完成。
+
+修复：authenticateYuanbao 改为以账户接口 HTTP 状态及响应体确认登录，cookie 凭据变化后主动复核账户接口；提前关闭窗口单独报 auth_window_closed，不冒充登录成功。保留现有解析接口和媒体真实性检查。说明同步至 wechat-filehelper-macos-ingest/SKILL.md。40 项视频解析/批次/管线/运行时回归检查通过；有效会话的 auth 命令实测返回成功，实际解析、下载、ASR、摘要、写入链路通过。
+
+执行边界：沿用用户已确认的原 5 个视频及费用未知边界，本机串行 ASR、最多 5 次 Codex 摘要。首轮 3 个写入、2 个媒体网络失败；第一个失败的单次媒体复核得到 HTTP 206 video/mp4。随后只对这两项串行恢复，2/2 写入成功，没有重跑已完成的 3 个视频或文章。登录窗口首次关闭报错后重新用已保存会话验证成功，未将客户端缓存当作已登录证据。
+
+证据：视频 manifests wechat-filehelper-macos-ingest/local/video-channel/runs/2026-10-18T06-20-48-174Z/manifest.json（3 个成功）与 2026-10-18T06-29-08-537Z/manifest.json（2/2）。完整 5 条输入与笔记路径、摘要/转写长度、要点数、源链接及 SHA256 在 obsidian-web-clipper-ingest/local/intake/2026-1018/video-verification.json。逐一读取笔记，确认源链接、摘要、要点、便携文件名；任务目录的 MP4/WAV/transcript.txt 均已清理。
+
+风险/下一步：元宝为未公开接口，未来仍可能漂移或会话过期；本轮 45 个源链接全部完成，没有剩余待处理项。旧失败 manifest 保留原貌，最终核验清单覆盖成功状态。未在记录中保存 cookie、token 或签名媒体 URL。
+
+原始对话：/Users/haodong/.codex/sessions/2026/10/18/rollout-2026-10-18T13-56-44-01a14d95-7ae4-7973-9342-339557804f08.jsonl
+<!-- trace-finalize e3f01535e6e4786eb1343047f52b8f1dd5ec7a10ec25275178bc3725136dd607 -->
