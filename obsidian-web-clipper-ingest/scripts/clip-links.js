@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import { assertClipSource } from "./lib/clip-validation.js";
 import path from "node:path";
 
 import {
@@ -69,6 +71,7 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
     await page.waitForTimeout(500);
     await waitForPageBaseline(page);
     result.pageTitle = await page.title();
+    assertClipSource(page.url(), [url, page.url()]);
 
     await scrollPageFully(page, config);
     await page.bringToFront();
@@ -122,6 +125,7 @@ async function finalizeTask({
       await page.waitForTimeout(300);
 
       result.clipTarget = await readClipTarget(frame);
+      assertClipSource(result.clipTarget.sourceUrl, [result.url, page.url()]);
       const importStartedAtMs = Date.now();
       await frame.locator("#clip-btn").click();
       const uiConfirmation = await confirmPostAdd(page, frame, config.postAddTimeoutMs);
@@ -144,6 +148,12 @@ async function finalizeTask({
         );
       }
 
+      if (importedNote) {
+        const content = await fs.readFile(importedNote.filePath, "utf8");
+        if (!content.includes(result.clipTarget.sourceUrl)) {
+          throw new Error("Imported note does not contain the expected source URL");
+        }
+      }
       result.confirmation = {
         ui: uiConfirmation,
         vault: vaultInfo?.path ? "note-detected" : "skipped-no-vault-path",
