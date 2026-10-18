@@ -40,3 +40,22 @@ trace-source-sha256: 9839c2c79ea172430916d00f260e18aa3395803674602b7e822e53982fe
 
 原始对话：/Users/haodong/.codex/sessions/2026/10/18/rollout-2026-10-18T13-01-25-01a14d62-d4f4-7222-8545-901935dd29b8.jsonl
 <!-- trace-finalize 6ff4408376ec514fea121cf7d321411eec7062f2c3a42258ff43cff1794d997e -->
+
+## 2026-10-18 13:55 官方ClawBot后台转发提链实测成功
+
+记录：Codex（在场摘要）｜ session 01a14d62-d4f4-7222-8545-901935dd29b8
+trace-user-count: 9
+trace-source-sha256: cd592716540c5dab57ce3816c2a9f54954ddd50571aa4c89f1974a1fd97140de
+
+结论：用户授权试官方 ClawBot 并扫码，后台登录 confirmed。根据腾讯官方 main/package.json 2.4.10 与公开协议实现接收诊断，不依赖完整OpenClaw或模型。已实际收到公众号与视频号转发转成TEXT并附真实URL；另收到普通网页链接、文字和合并转发ZIP。用户确认手机可见链接，并明确指出可取消点开微信读取。当前可验收逐条转发→后台提链，不能宣称后续摘要/PKM完成。
+
+证据：新增 scripts/probe-clawbot.py、scripts/export-clawbot-links.js、test/clawbot-links.test.js、references/clawbot-probe.md（均在 wechat-filehelper-macos-ingest/）。local/clawbot-probe/ 下共6个 message JSON，type依次1/1/1/1/1/4，type4为聊天记录_20261018_135306.zip（1103字节），未知类型未过滤。links.json 导出 records=2、video_channels=1、attachments=1、unsupported_items=0；article-links.txt/video-links.txt 供已有管线使用。两项针对分流/去重和未展开附件的测试通过；本地检查验证凭据字段脱敏、未知类型保留、接口主机限制。凭据文件权限600、目录700，全部 local 被Git忽略。收件进程 PID14437 已SIGTERM停止（exit143），不是常驻。
+
+公开证据：https://github.com/Tencent/openclaw-weixin/issues/198 的搜索结果过时；原页作者2026-10-14回复“许愿成功”并关闭。https://github.com/Tencent/openclaw-weixin/issues/86 仍是旧需求，不能代替实测。https://github.com/cyrahs/fav/pull/63 做过文件助手转发归档后在#66撤回：当时ClawBot不能作为转发目标、文件助手24小时会话续期问题。其过往失败不能推翻本次已收到URL的证据。
+
+风险：ZIP的媒体密钥在诊断消息落盘时脱敏，未下载展开；用户转向直接提链后不再要求ZIP深入验证。普通TEXT URL可复用现有处理器，但未执行网页正文抓取/视频解析/ASR/模型摘要/PKM。官方服务端是否对所有账号相同尚未知。短时长轮询单进程最多20请求/300秒，没有常驻服务、额外模型、登录其他账号。全工作区diff-check命中旧dialogue空白问题，未改他人文件；本场新增文件另行检查。
+
+下一步：如继续产品化，优先保留主动逐条转发→持久收件队列→去重与分流，独立验证断线恢复、离线消息和持续运行；沿用现有后端管线，后续批处理/费用仍需授权。旧前台流程仅作尚未修好的回退，不继续投入坐标维护。
+
+原始对话：/Users/haodong/.codex/sessions/2026/10/18/rollout-2026-10-18T13-01-25-01a14d62-d4f4-7222-8545-901935dd29b8.jsonl
+<!-- trace-finalize 7c7933856d3d26ce295f03635218d834c71bf8381566dc52526da86b79aeeaf6 -->
