@@ -1,6 +1,16 @@
 # ProjectProgress
 
-*更新于 2026-10-18 · 记录者 Codex*
+*更新于 2026-10-25 20:54:39 +0800 · 记录者 Codex*
+
+## 2026-10-25 新链接批次（已完成）
+
+- 用户粘贴的 11 个链接全部完成：10 篇公众号文章、1 个 GitHub 仓库；处理前扫描 1523 份既有剪藏，未发现对应源链接的重复笔记。
+- Chrome / Obsidian Web Clipper 单并发处理，一轮 11/11 保存；manifest：obsidian-web-clipper-ingest/local/runs/2026-10-25T12-35-59-393Z/manifest.json。
+- 回读发现 GitHub 模板未提取 README。已从官方 GitHub API 取回完整源文件，核对 Git blob 3d46f04cebc27a6acc03b49086ff91a206221a3d，补齐正文、中文摘要与要点，将相对资源链接转绝对链接。
+- 9 份公众号笔记末尾混入扩展自己的 iframe 标签，已移除；原始保存版本留在该批 local/intake 的 notes-before-finalize/。
+- 最终逐项核对源链接、标题、非空摘要/要点、正文及 SHA-256；GitHub 正文与仅调整资源链接后的完整源文件逐字一致。入库后复查 11 个源链接各对应 1 份笔记，无失败或重复。
+- 笔记位于 PKM/PlayWithExperiences/Clippings/WeChat/2026 与 Clippings/GitHub/Repositories；详细核验：obsidian-web-clipper-ingest/local/intake/2026-1025/article-verification.json，重复复核：dedup-after.json。local/ 为忽略的本机证据。
+- 本批没有修改管线源码；仅使用既有配置与已存在的摘要服务，没有安装文章推荐的项目或技能。
 
 ## 2026-10-18 新链接批次
 
@@ -46,7 +56,7 @@
 
 ## 下一步
 
-- 本轮 45 个源链接全部完成：40 篇文章、5 个唯一视频；后续新输入按类型分别核对 manifest 与 PKM 笔记。
+- 2026-10-25 本批 11 个网页源链接已全部完成；2026-10-18 的 45 项保持已完成。后续新输入按类型分别核对 manifest 与 PKM 笔记。
 
 ## 阻塞 / 待定
 
