@@ -36,3 +36,34 @@ trace-source-sha256: a5f482df5ae5758139bac1e89578c47782c489f2fa2c6ec2e7655239d31
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
 <!-- trace-finalize 835f076d24327ffea78127aebf02b120f12ba7031c514df6933ae099ec9a48cd -->
+
+## 2026-11-09 22:36 站点安全拒绝与微信验证分层排查（8篇尚未补齐）
+
+记录：Codex（在场摘要）｜ session 01a1c048-e988-7302-b0e4-d397ea2e119a
+trace-user-count: 4
+trace-source-sha256: 935aeba54c875f0ad2aff18f007750274cc9100d6f1c3a64cb558efd76bd5815
+
+### 结论
+
+- 用户要求查清为何此前能剪藏、本次出现站点安全策略拒绝，并处理剩余8篇。当前核实了两个不同的失败层，尚未获得平台对特定域名拒绝的具体判定理由；本段没有新增剪藏，仍34/42完成、8篇待处理。
+- 对照10月31日成功批次，本轮原管线使用完全相同的Chrome for Testing路径和Web Clipper 1.7.1_1；两批manifest实际均为单并发。当前批次原脚本成功32篇文章，本身没有报告平台site-safety错误。平台拒绝发生在Codex额外调用CUA尝试补抓文章时，不能据此声称原剪藏器突然失效或8篇内容都不可用。
+- 3篇（14、16、36）是微信实际返回“当前环境异常，完成验证后即可继续访问”；1篇（37）随批次中止而关闭，另4篇（38–41）尚未开始。后5篇没有被证明触发微信验证。
+- CUA原始拒绝明确为mp.weixin.qq.com站点安全门禁，未发起用户授权或Auto-review，并禁止通过脚本、其他浏览器等通道实现同一被拒绝操作。未尝试规避，也未修改或放宽安全设置。
+
+### 证据
+
+- 本机证据：local/intake/2026-1109/safety-diagnosis.json、browser-safety-denial-evidence.json、site-safety-log-hits.txt、site-safety-sqlite-diagnostic.json。原始拒绝在本场rollout第335行，时间2026-11-09T12:42:12.576Z（北京20:42:12）。
+- 已检查2026-11-09桌面日志及logs_2.sqlite中本session的站点安全/域名记录，未找到具体判定详情；浏览器config.toml仅有下载/上传域配置，没有导航域名单。没有读取或修改浏览器源码、缓存、Cookie来绕过门禁。
+- 原失败截图a01-14.png实看为微信“环境异常”验证页，正文未取得；HTTP200不等于取得正文。由实际manifest确认3个微信验证项及中止/未尝试项。
+- OpenAI Docs官方资料已搜索并实际打开：https://learn.chatgpt.com/docs/chrome-extension 与 https://learn.chatgpt.com/docs/browser。文档区分网站访问设置、允许/阻止名单及独立的安全要求；不能仅凭通用报错断定用户添加了黑名单或平台发生误判。
+- 尝试通过CUA查看Codex设置界面时，工具明确拒绝操作com.openai.codex应用。本机没有可用的浏览器安全判定诊断API。只读日志和已公开文档未暴露后端分类依据，因此不能伪造“已彻底查清”。
+- 已准备仅含剩余8条源URL的articles-remaining-8.txt，未执行受限域名重试。后续本机配置仍10并发，34份既有结果不重复下载。
+
+### 风险、未知与下一步
+
+- 未知：mp.weixin.qq.com是否出现在用户可见阻止名单、该安全判定是否为误判、平台具体拒绝理由，以及微信对这3篇触发验证的细分原因。没有证据支持“并发太高”“扩展升级”“用户未给浏览器权限”等归因。
+- 已通过异步输入请求用户查看设置→Computer Use→Chrome→Manage中的该域名状态；这是缺失信息核对，不是重新申请普通费用或要求全站放行。域名策略或可用内容未发生合法变化前，不启动脚本绕过。
+- 若确有用户设置阻止，需要用户本人决定如何处理；若显示允许/未列出，也不能自动推断安全门禁已经解除。可以由用户提供文章正文，在本地沿用剪藏模板补齐；没有正文不生成替代文章或将标题摘要冒充已读正文。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
+<!-- trace-finalize 877728d88c8e980481faae5e1474c17eb726ba31ebc1baaee6ae874d6f9c97ba -->
