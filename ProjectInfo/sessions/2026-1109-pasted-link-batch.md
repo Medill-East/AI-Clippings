@@ -95,3 +95,32 @@ trace-source-sha256: d8c0fb39c138d7ee0bee371ade863841875711c3d3f4635a560d0ffff05
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
 <!-- trace-finalize 82ca75cb0f40a7c64c0e5f9c6c3acab0f26881881d21e92736f4207fc3582f53 -->
+
+## 2026-11-12 01:24 余下原链接交给本人查看，PWE 输入提醒增加电脑回复入口
+
+记录：Codex（在场摘要）｜ session 01a1c048-e988-7302-b0e4-d397ea2e119a
+trace-user-count: 8
+trace-source-sha256: 43a316f705d45925d4da681eafc94911eb8275e58fc879055dad1a3783fd9c9c
+
+### 结论
+
+- 用户问微信拦截的实际页面，已说明本次工具在创建标签页前拒绝，并用 Codex 面板工具排队打开11月9日真正加载的验证页截图。随后应用户要求，在聊天中发出余下6篇的原始微信链接，由用户自行点开。当前剪藏36/42，6篇仍缺可读取正文。
+- 用户确认手机收到本次 PWE 推送，并从手机提交「已在电脑回复」。同一原任务的 MCP 等候工具取回原话，Director 状态已回读为 resolved。该答复确认回复位置，未提供文章正文。
+- 按用户请求，在 PWE 的 iPhone 输入提醒中增加「已在电脑回复」。长按新发出的输入通知可调用此按钮并移除当前提醒，聊天中的实际答复仍由原任务处理。
+
+### 证据
+
+- 剪藏待处理入口为 `obsidian-web-clipper-ingest/local/intake/2026-1109/pending-links.txt`。PWE 实际答复和送达记录为同目录 `pwe-followup-2026-1112.json`。微信验证页为原运行截图 `local/runs/2026-11-09T12-32-43-241Z/screenshots/a01-14.png`。
+- PWE-Harness 在隔离 worktree 开发，主分支仅合入4个相关文件，远端回读代码 `f322f3106af0907387767196de41d2e983a1399c`。11项通知测试、模拟器与真机签名构建通过。iPhone 16 同 bundle 安装并回读 1.5.12（26），已用设备工具启动。Mac 通知服务重载后 `/api/notifications` HTTP 200、`provider=ready`。
+- 隔离模拟器实际显示注入的测试横幅，取证位于 worktree `ios/build/notification-after-push.png`。真机版安装及服务回读证据在同目录 `notification-phone-install.json`、`notification-live-server.json`。
+
+### 风险
+
+- 模拟器显示了测试通知，展开按钮与点击尚未点验。旧通知使用发送时的原有类别，新的动作适用于后续输入提醒。手机手填的真实答复与这次按钮实现分别验收。
+
+### 下一步
+
+- 用户手动查看剩余微信原链接。收到可用原文后继续补入 Obsidian 并核验来源和正文。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
+<!-- trace-finalize e4507b587198e03a20e5c82a1f0ba1769f0653f72a175d1683c778ec9a198c75 -->
