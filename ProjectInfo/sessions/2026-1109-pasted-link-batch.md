@@ -124,3 +124,30 @@ trace-source-sha256: 43a316f705d45925d4da681eafc94911eb8275e58fc879055dad1a3783f
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
 <!-- trace-finalize e4507b587198e03a20e5c82a1f0ba1769f0653f72a175d1683c778ec9a198c75 -->
+
+## 2026-11-12 01:30 核对本人打开的微信标签页与本地补录路径
+
+记录：Codex（在场摘要）｜ session 01a1c048-e988-7302-b0e4-d397ea2e119a
+trace-user-count: 9
+trace-source-sha256: f88ba8a140f70a53e39311be0f0845ed83536c7fb304b1f0d6e4e461a7d28145
+
+### 结论
+
+- 用户手动打开5篇微信文章，希望直接用这些标签页补录。浏览器清单确认存在第14、16、37、38、40篇，连接第40篇已打开的用户标签页时，工具仍在正文读取前按微信域名拒绝。整批仍36/42，未新增笔记。
+- 用户报告第36篇《一条言简意赅的 AI 设计准则》疑似被作者删除。未看到对应标签或页面提示，保留疑似状态。
+
+### 证据
+
+- 核对记录为 `obsidian-web-clipper-ingest/local/intake/2026-1109/user-opened-tabs-recheck-2026-1112.json`。原工具拒绝位于本场 rollout 第1653行。未记录标签页的验证会话参数。
+- 同目录 `pending-links.txt` 保留原6条分享链接，分别标明本人可打开的5篇和疑似删除的1篇。
+
+### 风险
+
+- 浏览器拒绝针对 `mp.weixin.qq.com` 的正文观察。用户手动打开证明本人可读取页面，但没有取得 Codex 可读取的正文。没有借其他执行通道绕过门禁，也没有把疑似删除记为已证实。
+
+### 下一步
+
+- 从用户保存的网页文件读入正文及配图，再按既有剪藏格式入库。用户已通过原 PWE 请求选择在电脑回复，后续在本聊天接收材料。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
+<!-- trace-finalize 03d6574e4c50edae6752f63fa18b6080eea5726d52cc2494eaec63b8aa6becee -->
