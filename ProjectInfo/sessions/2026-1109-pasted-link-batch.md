@@ -67,3 +67,31 @@ trace-source-sha256: 935aeba54c875f0ad2aff18f007750274cc9100d6f1c3a64cb558efd76b
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
 <!-- trace-finalize 877728d88c8e980481faae5e1474c17eb726ba31ebc1baaee6ae874d6f9c97ba -->
+
+## 2026-11-12 01:00 补齐两篇授权来源剪藏，余六篇待正文
+
+记录：Codex（在场摘要）｜ session 01a1c048-e988-7302-b0e4-d397ea2e119a
+trace-user-count: 5
+trace-source-sha256: d8c0fb39c138d7ee0bee371ade863841875711c3d3f4635a560d0ffff05af786
+
+### 结论
+
+- 用户要求补齐11月9日未完成的8篇。复核后使用发布方独立公开的同文补齐2篇，整批36/42完成，剩余14、16、36、37、38、40共6篇。
+- 第39篇采自数字生命卡兹克的搜狐作者账号。原微信链接与本批同作者另外3篇使用相同的公众号标识。第41篇采自 indienova 的搜狐账号，文章明确写明原载公众号“游戏收藏与研究”，经原作者路行己和受访者袁培笙授权转载。
+
+### 证据
+
+- Web Clipper 的实际运行记录为 `local/runs/2026-11-11T16-48-46-977Z/manifest.json` 和 `local/runs/2026-11-11T16-53-53-743Z/manifest.json`，两次只读搜狐各1篇。导入后补正发布日期、署名、文件名和来源字段，保留原分享链接。作者正文只移除搜狐导航链接。第41篇摘要中明确区分启动会给出的6个月工期与文末列出的10个月开发周期。
+- 两篇正文分别为5871与13614字符，包含13与8个配图链接。验收复核36份原链接均各对应一份笔记，内容 SHA-256 与实际文件相符。`obsidian-web-clipper-ingest/local/intake/2026-1109/final-verification.json` 为现行总表，11月9日快照保留在 `final-verification-2026-1109.json`。
+
+### 风险
+
+- 11月12日 Chrome 直开先前拒绝的原地址，浏览器工具再度明确返回微信域名站点安全拒绝。此前本机验证页和索引无法提供余下正文。独立发布的候选中，GameRes 的访谈入口跳回微信，搜狐的授权版可独立打开。其他聚合索引未被用来代替缺失的原文。
+
+### 下一步
+
+- 待补6篇的题名和原分享地址见 `obsidian-web-clipper-ingest/local/intake/2026-1109/pending-links.txt`。得到用户提供的正文或本机已保存文件后，继续逐篇入库及回读。
+- PWE 已登记输入请求，手机推送未核验。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl
+<!-- trace-finalize 82ca75cb0f40a7c64c0e5f9c6c3acab0f26881881d21e92736f4207fc3582f53 -->
