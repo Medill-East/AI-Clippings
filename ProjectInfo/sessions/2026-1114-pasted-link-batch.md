@@ -31,3 +31,33 @@ trace-source-sha256: f1312528b929853b8abe8c31b8523dce31df6b7e7a2e657faa4ac6d07c0
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
 <!-- trace-finalize 2d551b2889e8a6b716a0346fa64626bab4355e8f892690e3c6bdcabc512a4695 -->
+
+## 2026-11-14 12:05 核对原 Web Clipper 独立入口和单篇试跑边界
+
+记录：Codex（在场摘要）｜ session 01a1d7f8-3cb6-7b53-8684-5178ae1adfad
+trace-user-count: 6
+trace-source-sha256: f76cb3a0745acd067939eb5be41d330a0254c8e2e65339ae0ebe564e0c7ed5eb
+
+### 结论
+
+- 用户要求先确认原 Web Clipper 是否会自己启动 Chrome，并用 Logo 公众号原链单篇试跑；若微信要求验证，由本人接手。
+- 原脚本使用独立的 Chrome for Testing 浏览器资料，直接打开链接、滚动页面并调用已配置的 Web Clipper。它不依赖 Codex 读取已有标签页。上段使用 Codex 浏览器读标签页是额外排查，不是剪藏的必要步骤。
+- 本次没有拿 Logo 链接启动原脚本。上段对同一链接、同一正文的站点安全拒绝明确禁止改用其他浏览器通道获取正文。本次没有再次访问该链接，没有看到新的微信验证，也没有新增笔记。
+
+### 证据
+
+- `obsidian-web-clipper-ingest/scripts/lib/chrome.js` 的 `launchChromeContext` 启动带头浏览器和独立资料，`scripts/clip-links.js` 的 `stageClipTask` 自行导航并打开扩展。保存后还需核对笔记存在和来源。
+- 11 月 9 日原脚本用该 Chrome 与扩展版本入库 32 篇公众号。11 月 14 日正常网页对照由同一原脚本运行，已完成摘要并启用 Add to Obsidian；对照未保存。运行记录为 `obsidian-web-clipper-ingest/local/runs/2026-11-14T03-18-34-359Z/manifest.json`。本次复用仍有效的对照，不新增无关剪藏。
+- 本机复核 `obsidian-web-clipper-ingest/local/intake/2026-1114/direct-clipper-check.json`。站点拒绝原文见同一原始记录第 635 行；此前本人打开原文不能解除 Codex 对正文的读取限制。
+
+### 风险
+
+- 现有证据只能确认原脚本独立于 Codex 标签页，且普通网页链路可运行到保存前；无法判定 Logo 原链在原脚本运行时会取得正文、遇微信验证或出现其他错误。不要将站点安全拒绝归因为原脚本故障。
+- 按现有代码，检测到验证码地址会标失败并关闭标签页；今后若可合法重试并实际遇到微信验证，应保留当前独立 Chrome 窗口供本人接手，并在本人完成后核对原文。此次没有改动代码或浏览器设置。
+
+### 下一步
+
+- 以原链接成功写入并回读正文为验收条件。还不能做这项验收，四篇公众号继续待补；普通网页无需先用 Codex 单独读取标签页。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
+<!-- trace-finalize c39c66352087cec57ffbbd94331967c945453d673fee44340dc2887b1ea6d272 -->
