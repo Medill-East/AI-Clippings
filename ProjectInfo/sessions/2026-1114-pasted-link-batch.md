@@ -122,3 +122,31 @@ trace-source-sha256: 5ad05f03432cc2272cc258e062f7e0ee5cf58d19e6f2791e5baaa522a3f
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
 <!-- trace-finalize c1d88e0c731edd9f06b4081dc1b6916258102a7e57cc0b5673b7d75bf653fc06 -->
+
+## 2026-11-14 16:16 单条视频号剪藏完成
+
+记录：Codex（在场摘要）｜ session 01a1d7f8-3cb6-7b53-8684-5178ae1adfad
+trace-user-count: 11
+trace-source-sha256: 8f9b64d196055891cfee3f0b374fa6b3838ef982f333f071842b359bb2ee5be6
+
+### 结论
+
+- 用户发送一条视频号短链。按本项目分流到视频处理脚本，完成解析、下载、本机语音转写和 Obsidian 保存。笔记《原创是否真的存在 真正的创造力是解释力》已回读，源链接唯一。
+- 片长约 10 分 34 秒。发布者是阅读兽 ReadingCub，原片作者为 Lofi Cinema。依据片中论述和例子写入中文摘要及 6 条要点，附 YouTube 原片。引用人物、电影与观点来自转写，并按视频中的表达整理。
+
+### 证据
+
+- 本机运行清单为 `wechat-filehelper-macos-ingest/local/video-channel/runs/2026-11-14T08-08-41-945Z/manifest.json`，写入 1 份，失败 0。证据和源链接核对见本机 `obsidian-web-clipper-ingest/local/intake/2026-1114/video-Aoh4G15NXd/verification.json`。
+- 转写分 36 片，使用现有本机 ASR。原片的题名与作者从 YouTube 元数据核对，摘要依据所发视频的英文声音。验证笔记正文、摘要、6 条要点和源链接后，清理了临时视频、WAV 与逐字稿。
+- PKM 的私有远端已核对笔记提交 `8d93fbed74b4`。
+
+### 风险
+
+- 以英文自动转写整理，不把片中影视评论视为已独立核实的电影史结论。
+
+### 下一步
+
+- 本链接完成。批次与证据各留原位置。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
+<!-- trace-finalize 7b2b6046817c67a57c1e8f890547a0dae80ad7e360bb15c88966eeac9414186f -->
