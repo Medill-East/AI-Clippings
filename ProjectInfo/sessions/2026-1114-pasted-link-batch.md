@@ -61,3 +61,34 @@ trace-source-sha256: f76cb3a0745acd067939eb5be41d330a0254c8e2e65339ae0ebe564e0c7
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
 <!-- trace-finalize c39c66352087cec57ffbbd94331967c945453d673fee44340dc2887b1ea6d272 -->
+
+## 2026-11-14 12:25 按原流程复核八个链接及官网原文入库
+
+记录：Codex（在场摘要）｜ session 01a1d7f8-3cb6-7b53-8684-5178ae1adfad
+trace-user-count: 7
+trace-source-sha256: baa31eebec6df1aed59455878ec1b4c4ea6184f38d68b17fb8e112b27870db11
+
+### 结论
+
+- 用户要求按既有流程重新处理本批所有链接。最初文字含 7 次粘贴、6 个不同链接；另有截图中的两条官方短链。综合 8 个不同入口，已归档 4 个，4 篇公众号仍缺原文。
+- 两条视频笔记的来源、摘要及要点重新核对通过。视频号重走既有脚本，命中已保存任务并复用原笔记；B 站公开资料重新核对了视频 ID、原版及两个分 P。没有重复写入视频。
+- 截图两条官方短链的落点重新核对，帝国理工 DEPS 与 LISS DTP 官方页面均用原 Chrome/Web Clipper 流程完成保存并回读。两份独立剪藏归档到 PKM 的 `Clippings/Web/2026/`，原短链保留为来源别名。原博士机会核对笔记保留。
+- Logo Skill、《千高原》讲稿、《游点现实》、Harness-of-Harness 四篇公众号依然没有可核实正文。同一来源此前的站点安全拒绝仍适用；未通过别的浏览器或脚本读取相同内容，亦无新的微信验证页面可以交接。
+
+### 证据
+
+- 本机证据目录 `obsidian-web-clipper-ingest/local/intake/2026-1114/` 下的 `redo-verification.json` 保存本轮逐项结果；已剪存的四个链接各有一份独立入库记录。视频号再跑 manifest：`wechat-filehelper-macos-ingest/local/video-channel/runs/2026-11-14T04-16-47-185Z/manifest.json`；官方网页：`obsidian-web-clipper-ingest/local/runs/2026-11-14T04-21-01-140Z/manifest.json`，实存 2/2，非试跑。
+- 两份官方剪藏已纠正扩展默认模板的站点、标题和文件名；发布日期未知，用已保存的收录日期。LISS 三处 Markdown 换行仅调整等同写法，原始导入稿留本机。DEPS 记录招生年份与起读日期冲突；LISS 国际生可申请，但海外学费差额不保证覆盖。
+- 两份官方剪藏的 PKM 私有远端已核对，提交 `1ad1d0c0e651`。未修改剪藏脚本或权限。
+
+### 风险
+
+- 旧 Codex 拒绝禁止从另一自动化通道取得同一站点内容。本次没有改走脚本，也没有理由宣称原 Web Clipper 对公众号原文成功。两份普通网页归档证明原脚本和保存链路可用，不能代替四篇公众号验收。
+- 已复用原 PWE 正文待办，继续在原任务等待；先前有 Apple 接收回执，未声称本轮另发新推送。工作段检查时尚无新正文或答复。
+
+### 下一步
+
+- 本人可从可访问的 Chrome 页自行用已安装的 Web Clipper 保存，或直接提供正文。逐篇核对与原源匹配、正文、摘要和唯一性再认账。`pending-articles.txt` 保留四篇原链接。等站点限制实际解除时再自动跑原链。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
+<!-- trace-finalize a5408fa239045d335956b12941de178cbeaea967a220525045173bf57e3621ae -->
