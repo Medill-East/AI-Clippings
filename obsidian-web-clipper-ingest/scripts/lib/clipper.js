@@ -62,6 +62,39 @@ export async function waitForClipperFrame(page, timeoutMs) {
   return frame;
 }
 
+export function inferInterpreterState(state) {
+  if (!state.interpretVisible) {
+    return "missing";
+  }
+
+  const className = state.interpretClassName?.toLowerCase() ?? "";
+  const text = state.interpretText?.toLowerCase() ?? "";
+
+  if (/\berror\b/.test(className)) {
+    return "error";
+  }
+
+  if (/\bprocessing\b/.test(className)) {
+    return "processing";
+  }
+
+  if (/\bdone\b/.test(className) || text === "done") {
+    return "done";
+  }
+
+  return "idle";
+}
+
+export function isReadyToAddState(state) {
+  const interpreterState = inferInterpreterState(state);
+  return (
+    state.clipVisible &&
+    !state.clipDisabled &&
+    /add to obsidian/i.test(state.clipText) &&
+    (interpreterState === "done" || interpreterState === "missing")
+  );
+}
+
 export async function waitForReadyToAdd(frame, timeoutMs) {
   const startedAt = Date.now();
   let lastState = null;
@@ -91,6 +124,8 @@ export async function waitForReadyToAdd(frame, timeoutMs) {
         clipVisible: Boolean(clipButton),
         interpretText: interpretButton?.textContent?.trim() ?? "",
         interpretClassName: interpretButton?.className ?? "",
+        interpretDisabled: Boolean(interpretButton?.disabled),
+        interpretVisible: Boolean(interpretButton),
         errorText: firstVisibleText ?? "",
       };
     });
@@ -99,12 +134,19 @@ export async function waitForReadyToAdd(frame, timeoutMs) {
       throw new Error(`Clipper error: ${lastState.errorText}`);
     }
 
-    if (
-      lastState.clipVisible &&
-      !lastState.clipDisabled &&
-      /add to obsidian/i.test(lastState.clipText)
-    ) {
+    const interpreterState = inferInterpreterState(lastState);
+    if (interpreterState === "error") {
+      throw new Error("Clipper error: Interpreter entered an error state.");
+    }
+
+    if (isReadyToAddState(lastState)) {
       return lastState;
+    }
+
+    if (interpreterState === "idle" && lastState.interpretVisible && !lastState.interpretDisabled) {
+      await frame.locator("#interpret-btn").click({ timeout: 5000 }).catch(() => {});
+      await frame.waitForTimeout(1000);
+      continue;
     }
 
     await frame.waitForTimeout(1000);

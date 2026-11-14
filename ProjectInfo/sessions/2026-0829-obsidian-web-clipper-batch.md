@@ -19,3 +19,19 @@
 失败项为 `https://en.itu/`，三次尝试均未获得页面，最终错误为 `page.goto: net::ERR_CONNECTION_CLOSED`。该地址看起来不完整，但不能未经確認推断为同批次的 `https://en.itu.dk/...`；如需补齐，必须先提供真实完整 URL。视频号部分未在本轮重复处理。
 
 原始对话：`dialogues/2026-0829.md`「1247 obsidian-web-clipper-batch-result」
+
+## 1319 批量剪藏28条微信文章，27条成功
+
+决策：無涘 ｜ 记录：codex（自动）｜ session 019d4493-d0e8-7a43-8d99-38b8ce64d857
+
+使用obsidian web clipper skill处理28条微信文章/网页链接（排除8条视频号链接，由另一session负责）。预检确认配置正常后，以并发10启动批处理。最终结果：27条成功剪藏，逐条验收到非空Markdown笔记，位于Clippings/WeChat/2026目录（Auto Mover已关闭）；1条失败——https://en.itu/重试3次均为ERR_CONNECTION_CLOSED。manifest记录完整路径。
+
+原始对话：dialogues/2026-0910.md「1319 obsidian-web-clipper-batch」
+
+## 1938 微信升级后菜单定位修复
+
+决策：無涘 ｜ 记录：codex（自动）｜ session 01a09a8f-210e-79d0-93d2-85ee0836e9c7
+
+微信升级后公众号文章改为内嵌阅读栏打开，旧版代码依赖窗口数量判断和窗口宽度比例定位三点菜单，导致定位偏移。修复方案：新版使用固定边距（距右边缘约32像素），旧版独立窗口保留原有比例定位。同时调整策略为批次内保留阅读栏、全部处理完再统一关闭，避免窗口展开干扰左侧聊天区域卡片识别。80个测试通过，改动最小化，只改菜单定位一处。
+
+原始对话：dialogues/2026-0913.md「1938 obsidian-web-clipper-batch」

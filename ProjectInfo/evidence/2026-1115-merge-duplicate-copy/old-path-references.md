@@ -1,0 +1,866 @@
+# 旧路径引用清单
+
+扫描范围：~/Library/LaunchAgents、~/.claude、~/.codex、~/.agents、~/Documents/GitHub。
+
+使用 rg 隐藏文件/忽略文件扫描；排除 .git 和 node_modules；不扫描二进制内容。另扫描符号链接目标，不跟随目录链接递归。仅记录文件路径与行号，不抄录配置值、正文或凭据。扫描时点后自动生成的记录不在此快照内。
+
+扫描命令及返回状态见 reference-scan.json；错误输出见 old-path-reference-errors.txt（应为空）。
+
+## 直接影响后续使用
+
+- Web Clipper 安装技能符号链接仍指旧副本，实际运行仍可能使用旧实现。
+- Director/projects.json:108 仍把 Clippings 注册为旧目录；board-state.json:41,99,498 也有引用。
+- ~/.codex/config.toml:108 是旧目录的信任配置条目，不是定时执行任务。
+- ~/.codex/memories/skills/obsidian-web-clipper-batch-links/SKILL.md:17,23 是记忆技能的旧工作目录指引。
+- LaunchAgents 的可读文本中未发现该路径；不等于证明不存在通过变量或间接脚本引用。
+- 其余主要为会话、历史记录、备份、Director worktree 和生成的看板/返回数据；以下完整列出，不修改。
+
+## 符号链接
+
+- `/Users/haodong/.codex/skills/obsidian-web-clipper-ingest` → `/Users/haodong/Documents/AI/Codex/Clippings/obsidian-web-clipper-ingest`
+
+## 文本引用（843 个文件，3107 个去重文件行位置）
+
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-AI-Claude-Misc/5e966135-f2bc-4a6c-a401-bdc1103c65ce.jsonl`：270
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-Claude/27b5f7ab-2073-4fed-9fdf-b9a78c70c3dd.jsonl`：47
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/1b5a02d9-5235-4a23-8dd6-456003291eff.jsonl`：10727
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/596b321a-ec6d-46f9-8b27-ff999450c8b0.jsonl`：165
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/81ad5380-01f1-4ba7-909a-417da368b1ae.jsonl`：825, 842, 878, 893, 900, 937
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/b082d873-35be-4140-9415-17855eda9999.jsonl`：125, 131, 144, 532
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/c185ebdd-55bd-4b1a-999b-2962fbea13f2.jsonl`：154
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-AI-Life-Mentor/fd2c81fa-6216-41c9-8c33-e283838b7265.jsonl`：265, 356, 365, 367, 387, 459, 536, 543, 555, 571, 850, 866, 920
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-GameForWH/59d363b9-427b-4a26-aca9-0d6121897621.jsonl`：4577
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-PWE-Branding/4b21f6b2-c248-47dd-aa7f-7b33c2efa4c5.jsonl`：65, 1738, 1746, 1747, 1748, 1754, 1764, 1777
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-PWE-Researcher/aaaf7437-3c2c-4195-9bd3-63db6b8451ef.jsonl`：275
+- `/Users/haodong/.claude/projects/-Users-haodong-Documents-GitHub-Sisyphus/7a5a7d77-b62f-4ef5-be0d-c80facbae753.jsonl`：290
+- `/Users/haodong/.claude/relay/runs/20260618-014303-radar-exa-jina/codex.log`：57496, 57499
+- `/Users/haodong/.claude/relay/runs/20260618-021558-radar-exa-jina-2/codex.log`：605, 608, 614
+- `/Users/haodong/.claude/relay/runs/20260621-011137-codex-radar-dedup-incremental/run.log`：243, 246, 252, 341
+- `/Users/haodong/.claude/relay/runs/20260628-220410-codex-bulk-wipe-final-root-fix/run.log`：23753
+- `/Users/haodong/.claude/relay/runs/20260806-231727-codex-ia-rebuild/run.log`：196, 197, 198, 201
+- `/Users/haodong/.claude/relay/runs/20260820-223903-codex-session-ref/run.log`：2078
+- `/Users/haodong/.claude/relay/runs/20261018-144049-codex-single-surface/run.log`：1381
+- `/Users/haodong/.claude/relay/runs/20261105-021336-codex-pwe-harness-view/run.log`：1229, 3426, 4184
+- `/Users/haodong/.claude/relay/runs/20261114-153913-codex-straight-edges/run.log`：4844
+- `/Users/haodong/.claude/relay/runs/20261114-154440-codex-register-role-repos/run.log`：1507, 3263, 3992, 4045
+- `/Users/haodong/.claude/relay/runs/20261115-001145-codex-carrier-agnostic/run.log`：968
+- `/Users/haodong/.claude/relay/runs/20261115-002222-codex-director-work-orders-taxonomy/run.log`：479, 5765, 8622
+- `/Users/haodong/.claude/relay/runs/20261115-002309-codex-wechat-draft-probe/run.log`：61, 63, 64, 66, 67
+- `/Users/haodong/.claude/relay/runs/20261115-003434-codex-what-taxonomy-v2/run.log`：413, 1150, 1208, 1389, 1600, 1604, 1606, 1906
+- `/Users/haodong/.claude/relay/runs/20261115-004159-codex-what-taxonomy-v3/run.log`：222
+- `/Users/haodong/.claude/relay/runs/20261115-012644-codex-what-taxonomy-v4/run.log`：141, 333, 350
+- `/Users/haodong/.claude/relay/runs/20261115-013634-codex-merge-clippings/plan.md`：6
+- `/Users/haodong/.claude/relay/runs/20261115-013634-codex-merge-clippings/run.log`：28, 100, 101, 102, 103, 104, 117, 118, 120, 121, 122, 130, 132, 134, 140, 178, 225, 371, 379, 386, 387, 388, 389, 390, 391, 400, 410, 411, 428, 432, 438, 488, 519, 587, 594, 606, 662, 664, 770, 997, 1894, 1895, 1896, 1897, 1898, 1899, 1900, 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908, 1909, 1910, 1911, 1912, 1913, 1914, 1915, 1916, 1917, 1918, 1933, 5484, 5485, 5486, 5487, 5488, 5489, 5490, 5491, 5492, 5493, 5494, 5495, 5496, 5497, 5498, 5505, 5512, 5515
+- `/Users/haodong/.claude/relay/runs/20261115-013646-codex-apply-taxonomy-decisions/run.log`：267, 2858, 2916, 3097, 6457, 6458
+- `/Users/haodong/.claude/trace-state/requests/01a09a8f-210e-79d0-93d2-85ee0836e9c7-26.md`：2
+- `/Users/haodong/.claude/trace-state/requests/01a0b923-9e09-7c71-a850-5bc2b1448519-21.md`：2
+- `/Users/haodong/.codex/.codex-global-state.json`：1
+- `/Users/haodong/.codex/.codex-global-state.json.bak`：1
+- `/Users/haodong/.codex/ambient-suggestions/cf520d4e5fe425f6d4e6de9a0da0abda98020ff0/ambient-suggestions.json`：2, 90, 102
+- `/Users/haodong/.codex/config-backups/mac-load-20261006-170601.toml`：110
+- `/Users/haodong/.codex/config-backups/mac-load-20261014-000119.toml`：110
+- `/Users/haodong/.codex/config.toml`：108
+- `/Users/haodong/.codex/config.toml.before-capability-restore-20260926-011404`：107
+- `/Users/haodong/.codex/config.toml.before-context-budget-20260926-004515`：107
+- `/Users/haodong/.codex/config.toml.before-efficiency-20260926-010422`：107
+- `/Users/haodong/.codex/config.toml.rea-node-runtime.backup`：110
+- `/Users/haodong/.codex/config.toml.rea.backup`：110
+- `/Users/haodong/.codex/config.toml.rea.backup.94a88b5b0b111a0902fad11349cfab3935f8c8cc84c6ae6d508b41285ac79e74.recovery`：110
+- `/Users/haodong/.codex/config.toml.taptap-maker.bak.latest`：119
+- `/Users/haodong/.codex/memories/MEMORY.md`：1362, 1368, 1378, 1388, 1389, 2810, 2816, 2826, 2836, 2846, 3014, 3020, 3030
+- `/Users/haodong/.codex/memories/memory_summary.md`：246, 278
+- `/Users/haodong/.codex/memories/raw_memories.md`：7, 16, 2128, 2137, 4012, 4021, 4546, 4553, 4555, 5870, 5879
+- `/Users/haodong/.codex/memories/rollout_summaries/2026-09-06T07-15-47-gXX6-wechat_video_dedup_asr_and_portable_naming.md`：4, 9
+- `/Users/haodong/.codex/memories/rollout_summaries/2026-10-18T05-56-44-lGMU-wechat_clippings_45_link_batch_yuanbao_401_fix.md`：4, 9
+- `/Users/haodong/.codex/memories/rollout_summaries/2026-10-25T12-34-01-4VUm-obsidian_clipper_11_links_github_readme_recovery.md`：4, 9
+- `/Users/haodong/.codex/memories/rollout_summaries/2026-10-31T05-30-10-9Kri-wechat_links_obsidian_clipping_2026_10_31.md`：4
+- `/Users/haodong/.codex/memories/rollout_summaries/2026-11-09T12-29-26-Tday-clippings_42_links_batch_site_safety_investigation.md`：4, 9, 38
+- `/Users/haodong/.codex/memories/skills/obsidian-web-clipper-batch-links/SKILL.md`：17, 23
+- `/Users/haodong/.codex/memories_v2/rollout_summaries/2026-10-18T05-01-25-9Ma4-wechat_clawbot_background_link_intake_verification.md`：4, 7
+- `/Users/haodong/.codex/memories_v2/rollout_summaries/2026-10-18T05-56-44-lGMU-2026_10_18_clippings_45_links_yuanbao_401_recovery.md`：4, 7
+- `/Users/haodong/.codex/memories_v2/rollout_summaries/2026-10-31T05-30-10-9Kri-2026_10_31_batch_14_links_verified.md`：4
+- `/Users/haodong/.codex/memories_v2/rollout_summaries/2026-11-09T12-29-26-Tday-wechat_clippings_partial_recovery_pwe_desktop_reply_notifica.md`：4, 7
+- `/Users/haodong/.codex/sessions/2026/09/19/rollout-2026-09-19T20-44-41-01a0b9b2-8cc1-77a3-aee2-7d3b2cedd86f.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/09/26/rollout-2026-09-26T01-24-21-01a0d998-bf1d-7281-8e86-a70493ba59b7.jsonl`：3, 9548, 9964
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T01-01-13-01a1bc1b-5fc6-7613-be67-68c50436e0b4.jsonl`：180, 182
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T20-29-26-01a1c048-e988-7302-b0e4-d397ea2e119a.jsonl`：1, 5, 12, 13, 14, 15, 20, 22, 23, 24, 25, 31, 32, 33, 34, 43, 44, 45, 46, 48, 53, 54, 55, 57, 58, 59, 60, 65, 66, 67, 68, 69, 77, 83, 84, 85, 93, 100, 101, 103, 109, 111, 112, 117, 118, 120, 126, 128, 134, 138, 142, 144, 154, 156, 163, 170, 171, 178, 179, 180, 186, 187, 189, 231, 233, 234, 241, 243, 244, 249, 250, 256, 257, 261, 264, 265, 267, 275, 277, 278, 284, 285, 287, 288, 293, 294, 296, 302, 304, 313, 316, 317, 318, 319, 321, 327, 347, 348, 349, 371, 372, 373, 374, 375, 377, 381, 382, 383, 384, 386, 387, 393, 394, 396, 404, 405, 406, 408, 413, 414, 415, 421, 422, 424, 425, 430, 432, 433, 438, 439, 441, 442, 446, 448, 449, 456, 458, 459, 460, 461, 468, 484, 488, 494, 496, 501, 502, 505, 506, 508, 515, 516, 517, 518, 519, 528, 538, 539, 547, 548, 574, 575, 577, 606, 607, 608, 609, 610, 618, 632, 633, 634, 636, 637, 641, 642, 643, 644, 652, 653, 654, 664, 669, 679, 684, 686, 691, 707, 708, 709, 733, 734, 735, 753, 754, 761, 775, 776, 783, 880, 906, 907, 920, 922, 939, 942, 947, 948, 950, 955, 956, 968, 972, 1012, 1014, 1023, 1029, 1030, 1032, 1037, 1053, 1060, 1073, 1087, 1088, 1094, 1096, 1103, 1107, 1108, 1113, 1148, 1158, 1162, 1177, 1197, 1272, 1443, 1461, 1569, 1570, 1571, 1574, 1580, 1581, 1586, 1591, 1603, 1617, 1619, 1636, 1637, 1677, 1679, 1685, 1693
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T21-13-24-01a1c071-2aa3-7380-bc00-08b6028a352a.jsonl`：1462, 2574
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T22-12-16-01a1c0a7-1140-7393-aced-ddbdd456c0a1.jsonl`：3860, 6171, 8730, 10863, 12986, 14354, 14631
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T22-24-05-01a1c0b1-e20c-74f1-974a-c4d893b74a67.jsonl`：265, 270
+- `/Users/haodong/.codex/sessions/2026/11/09/rollout-2026-11-09T22-24-34-01a1c0b2-539c-7683-a23c-f54c4abd489a.jsonl`：1058, 1059, 2752, 4112
+- `/Users/haodong/.codex/sessions/2026/11/10/rollout-2026-11-10T01-30-20-01a1c15c-6704-7ae0-b8e9-6b837a592e2c.jsonl`：802, 803
+- `/Users/haodong/.codex/sessions/2026/11/10/rollout-2026-11-10T12-38-11-01a1c3bf-d697-7cd3-ac46-04b5462992c5.jsonl`：1292, 1293
+- `/Users/haodong/.codex/sessions/2026/11/10/rollout-2026-11-10T16-15-58-01a1c487-36da-7d61-a271-cbf0dfa58c02.jsonl`：1196, 1197
+- `/Users/haodong/.codex/sessions/2026/11/10/rollout-2026-11-10T18-59-17-01a1c51c-bca3-7202-b259-cf402985c616.jsonl`：6, 38, 40
+- `/Users/haodong/.codex/sessions/2026/11/10/rollout-2026-11-10T22-12-20-01a1c5cd-79d7-7953-8e35-738c381afa55.jsonl`：42, 44
+- `/Users/haodong/.codex/sessions/2026/11/11/rollout-2026-11-11T18-58-30-01a1ca42-61d3-78d0-85bb-5bc6cec83cf6.jsonl`：6
+- `/Users/haodong/.codex/sessions/2026/11/12/rollout-2026-11-12T01-05-32-01a1cb92-697a-7412-abc4-08e157b5ea75.jsonl`：386, 389
+- `/Users/haodong/.codex/sessions/2026/11/12/rollout-2026-11-12T14-15-38-01a1ce65-c4ed-7813-8cb0-1c1414b139af.jsonl`：747, 748
+- `/Users/haodong/.codex/sessions/2026/11/12/rollout-2026-11-12T18-56-07-01a1cf66-8fa9-7af0-aafe-99a5fd23f6e2.jsonl`：6
+- `/Users/haodong/.codex/sessions/2026/11/12/rollout-2026-11-12T23-25-12-01a1d05c-e8d5-7970-ad3b-4bc8ac02dbee.jsonl`：2712, 2732, 2738, 5306
+- `/Users/haodong/.codex/sessions/2026/11/13/rollout-2026-11-13T18-59-47-01a1d490-4632-7ba0-ad55-1a4fb41c82c1.jsonl`：6
+- `/Users/haodong/.codex/sessions/2026/11/13/rollout-2026-11-13T20-28-42-01a1d4e1-ac7d-7411-8ed1-7ab560e6c54a.jsonl`：79
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-35-43-01a1d7e9-24ec-76f0-9385-a6336e15528b.jsonl`：5
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-35-53-01a1d7e9-4df0-72b2-8b12-3e01b8dac929.jsonl`：5
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-36-06-01a1d7e9-7f0f-7541-b596-cb4753eabc7c.jsonl`：5
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl`：1, 8, 9, 10, 11, 18, 19, 20, 22, 25, 26, 35, 39, 40, 44, 52, 54, 82, 83, 96, 105, 110, 117, 123, 124, 127, 131, 137, 141, 142, 143, 147, 154, 155, 164, 166, 167, 170, 180, 186, 188, 196, 198, 208, 210, 225, 227, 244, 248, 260, 272, 304, 344, 356, 370, 401, 421, 423, 428, 438, 439, 452, 461, 466, 471, 477, 486, 495, 503, 509, 514, 521, 565, 567, 576, 577, 587, 588, 589, 592, 594, 620, 647, 648, 649, 658, 659, 661, 665, 670, 684, 686, 752, 753, 755, 759, 760, 772, 778, 785, 809, 810, 828, 870, 875, 879, 885, 889, 902, 907, 923, 928, 933, 944, 945, 952, 956, 964, 975, 976, 982, 987, 1000, 1044, 1055, 1064, 1065, 1068, 1069, 1071, 1078, 1079, 1081, 1082, 1089, 1091, 1103, 1104, 1115, 1116, 1126, 1127, 1137, 1147, 1149, 1161, 1163, 1164, 1174, 1175, 1195, 1199, 1201, 1204, 1207, 1214, 1218, 1232, 1249, 1263, 1288, 1289, 1298, 1307, 1322, 1326, 1332, 1333, 1337, 1342, 1347, 1352, 1361, 1366, 1381, 1392, 1397, 1398, 1408, 1414, 1426, 1449, 1464, 1465, 1468, 1469, 1477, 1487, 1488, 1490, 1498, 1499, 1511, 1512, 1516, 1518, 1520, 1521, 1527, 1537, 1539, 1556, 1563, 1571, 1572, 1576, 1578, 1580, 1584, 1585, 1590, 1601, 1602, 1606, 1614, 1616, 1626, 1627, 1631, 1632, 1644, 1655, 1656, 1667, 1668, 1672, 1676, 1678, 1689, 1691, 1703, 1705, 1718, 1723, 1724, 1735, 1736, 1746, 1760, 1764, 1770, 1772, 1773, 1781, 1782, 1791, 1793, 1802, 1803, 1807, 1808, 1816, 1826, 1832, 1834, 1839, 1842, 1843, 1850, 1855, 1859, 1865, 1870, 1879, 1903, 1905, 1911, 1913, 1915, 1920, 1921, 1925, 1926, 1932, 1935, 1938, 1939, 1940, 1942, 1957, 1958, 1972, 1973, 1984, 1986, 2002, 2003, 2017, 2018, 2024, 2030, 2032, 2033, 2048, 2049, 2053, 2054, 2056, 2058, 2059, 2066, 2068, 2074, 2076, 2086, 2099, 2100, 2107, 2108, 2122, 2123, 2128, 2143, 2149, 2155, 2156, 2158, 2159, 2175, 2176, 2181, 2186, 2188, 2194, 2195, 2209, 2216, 2217, 2220, 2221, 2222, 2226, 2227, 2237, 2238, 2239, 2242, 2255, 2261, 2267, 2284, 2304, 2315, 2316, 2322, 2325, 2347, 2357, 2360, 2361, 2381, 2405, 2412, 2421, 2425, 2428, 2429, 2447, 2450, 2451, 2458, 2471, 2473, 2479, 2480, 2481, 2483, 2488, 2494, 2495, 2504, 2526, 2527, 2533, 2536, 2542, 2544, 2545, 2547, 2548, 2550, 2555, 2556, 2563, 2571, 2572, 2575
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-07-26-01a1d873-f8d9-7002-921f-af24db4df6e4.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-11-33-01a1d877-cbd1-75c0-a9d1-d70f2a44d5b2.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-13-51-01a1d879-e8fe-7b51-ab1d-a75dc2938eb1.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-14-05-01a1d87a-1e0f-73b1-ac72-3514ee929e9e.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-16-27-01a1d87c-4bf8-7341-a05d-af72280887a1.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-33-30-01a1d88b-e61f-70a2-8e52-31f1f230d6f3.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T13-52-13-01a1d89d-0c7b-78a2-b007-00c750204abc.jsonl`：4
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T14-39-14-01a1d8c8-1228-7e82-af84-898a8b83ca6c.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T14-39-15-01a1d8c8-1a68-7db3-8acd-fd8d135a39b7.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-00-37-01a1d8db-a58b-7871-8b38-a8981f1b42a8.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-11-19-01a1d8e5-69cf-77b1-8f12-0b962f51f30b.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-39-12-01a1d8fe-f8c6-7991-bb7d-3fca8801eae4.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-39-13-01a1d8ff-03b8-7cf3-96cd-6e5d68392f3d.jsonl`：3, 388, 389
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-44-42-01a1d904-0165-7411-8e94-7eab05abe345.jsonl`：3, 21, 28, 31, 36, 39
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-59-00-01a1d911-18fe-7993-846e-b83880cdb1b7.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T15-59-05-01a1d911-1fe6-7eb2-84a3-8140197a0175.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T17-16-49-01a1d958-48aa-7f21-817e-618303b68cd9.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T17-19-45-01a1d95b-0704-7dc3-8d1d-5b94c72cf3ab.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T17-21-06-01a1d95c-43f5-75f3-a0f0-f5fab89753e4.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T17-31-39-01a1d965-f41c-7243-a69c-e3ff1e08dee2.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T17-43-20-01a1d970-a672-7a52-b16d-05a29c78c79e.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-01-26-01a1d9b8-23dd-7bb2-8eca-9d1dfd37085a.jsonl`：6, 10
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-09-40-01a1d9bf-a711-7a70-b001-90e923adaa37.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-26-32-01a1d9cf-1bfe-7392-881c-ee2d30380cdf.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-33-22-01a1d9d5-4ece-7443-a148-98126c139046.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-36-51-01a1d9d8-8239-7042-b9ce-875f6801cfac.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-36-51-01a1d9d8-8239-7ad0-901d-3c02da22da6c.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-36-51-01a1d9d8-8239-7e22-826e-12c3158543c4.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-36-51-01a1d9d8-823a-73c3-b3d6-bac7dbac688a.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-38-11-01a1d9d9-ca64-73a1-8be0-5f679be0a5fb.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-38-12-01a1d9d9-ce7c-7912-94f3-7163a229a020.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-38-13-01a1d9d9-d327-7aa0-837e-94658e1cab6f.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-38-13-01a1d9d9-d39b-7393-a1c3-ff6f080270de.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-38-28-01a1d9da-0ba5-7df1-b31a-b25e2423b45c.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-39-15-01a1d9da-c5c2-75a3-a42f-eb3b55018134.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-39-16-01a1d9da-c6db-7090-876a-00860922ec61.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-39-33-01a1d9db-0980-7202-bee1-149f9200e300.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-53-13-01a1d9e7-8529-72b3-8e42-86d439f291d8.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-53-13-01a1d9e7-852b-7d33-a2f4-4f514ffac1c6.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-53-13-01a1d9e7-852d-77d0-a505-3cb5c8e41372.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-53-13-01a1d9e7-852e-71c2-808e-bf12ecebb601.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-55-05-01a1d9e9-3a27-7572-9a97-b7e8ad965cf2.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-55-05-01a1d9e9-3bd1-73f2-8ed3-c1a8ca925f67.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-55-06-01a1d9e9-3c30-7c62-9b3e-417c7ad2817e.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-55-20-01a1d9e9-7dfe-77e3-9785-233f8ff38283.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-56-53-01a1d9ea-e909-7f13-bc91-269ad432101e.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-56-53-01a1d9ea-ea18-7f80-b650-d91ff0c598fd.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-56-56-01a1d9ea-f465-7383-bdc7-308e2e8e12a9.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T19-58-38-01a1d9ec-8222-70c2-8ba7-eeb98b62f74d.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-01-41-01a1d9ef-4d60-7ca2-ac24-1978207e2745.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-05-54-01a1d9f3-249e-7760-a60f-127ac0ac6a4e.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-05-55-01a1d9f3-249e-7c80-b8b1-11ca48afd4e1.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-08-15-01a1d9f5-4fbe-7260-b37d-bee8c2de04b8.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-08-15-01a1d9f5-4fc1-75d2-8de9-3a7229d58e2c.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-08-15-01a1d9f5-4fc2-7811-96d1-5480cb95c11d.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T20-08-15-01a1d9f5-4fd2-7e13-b438-c8005ac672c7.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T21-34-51-01a1da44-95fc-76f1-9a35-c8ff5282045c.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T21-55-28-01a1da57-790a-7bf1-97db-bc1ab03d2aa6.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T22-56-34-01a1da8f-5544-7870-af02-34a7caff9cbd.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T23-14-45-01a1daa0-0b01-7502-9366-70b7567848a7.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T23-29-24-01a1daad-6bf9-7320-bca3-3f3c9ad06418.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T23-47-41-01a1dabe-2f5e-73d1-90e4-8b63f3ccefff.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T23-57-20-01a1dac7-05a4-7df2-8c71-87d5c216bba3.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-04-39-01a1dacd-ba03-70e3-b6c0-72b12c37732d.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-11-47-01a1dad4-405d-7c42-8843-440c16097b52.jsonl`：3, 28, 29
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-22-24-01a1dadd-f93e-7f01-8c79-eeffdd4816a3.jsonl`：3, 15, 28, 114, 115
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-23-09-01a1dade-b020-77c1-bb20-eaca1857ed11.jsonl`：3, 16, 17
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-34-35-01a1dae9-23bc-74b2-be0c-520222645021.jsonl`：3, 21, 23, 44, 45, 53, 83, 84
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-37-22-01a1daeb-af50-7343-b2d6-cd0b94082799.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T00-41-59-01a1daef-ed69-77e0-a01e-3a5baa5b3c98.jsonl`：3, 16, 17
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-25-00-01a1db17-48a5-72d0-8dad-6d37305c8511.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-26-38-01a1db18-c240-7bb2-85bf-3ced7ac885ad.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-26-44-01a1db18-e53c-7583-86d9-f5f19caf03b8.jsonl`：3, 16, 17, 19, 22, 23
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-35-09-01a1db20-9629-7b80-8630-bb055aa917b0.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-36-34-01a1db21-e77e-7321-9c80-3c1bdfa1c67d.jsonl`：3, 9, 10, 15, 16, 20, 22, 23, 27, 29, 30, 34, 36, 43, 49, 60, 67, 77, 79, 80, 91, 93, 98, 100, 107, 108, 119, 123, 144, 145, 150, 151, 157, 158, 160
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-36-34-01a1db21-e782-7000-81c7-1ce393c519ac.jsonl`：3
+- `/Users/haodong/.codex/sessions/2026/11/15/rollout-2026-11-15T01-36-47-01a1db22-17d8-7510-a5bd-3e36e2a9c3c9.jsonl`：3, 20, 23, 30, 31, 97, 98
+- `/Users/haodong/.codex/worktrees/director-mentor-evening-20261114/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/director-mentor-evening-20261114/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/director-user-facing-plain-language-20261114/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/director-user-facing-plain-language-20261114/projects.json`：108
+- `/Users/haodong/.codex/worktrees/harness-control-20261114/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/harness-control-20261114/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/harness-role-work-20261114/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/harness-role-work-20261114/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/pwe-director-20261109/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/pwe-director-20261109/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/pwe-nlm-contract-20261110/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/pwe-nlm-contract-20261110/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/pwe-ray-official-20261110/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/pwe-ray-official-20261110/Director/projects.json`：108
+- `/Users/haodong/.codex/worktrees/role-activity-20261114/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/role-activity-20261114/projects.json`：108
+- `/Users/haodong/.codex/worktrees/role-inbox-field-read-20261114/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/.codex/worktrees/role-inbox-field-read-20261114/projects.json`：108
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Extension Rules/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Extension Scripts/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Extension State/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/GCM Store/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/IndexedDB/https_yuanbao.tencent.com_0.indexeddb.leveldb/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/IndexedDB/https_yuanbao.tencent.com_0.indexeddb.leveldb/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Local Storage/leveldb/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Local Storage/leveldb/LOG.old`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Session Storage/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Session Storage/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Site Characteristics Database/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Sync Data/LevelDB/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/shared_proto_db/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/shared_proto_db/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/shared_proto_db/metadata/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/.duplicate-merge-20261115/codex/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/shared_proto_db/metadata/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/ProjectVision.md`：26, 35, 67
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0822.md`：43, 55, 147, 154, 173, 174, 175, 176, 273, 275, 279, 280, 281, 282, 291, 292, 293, 294, 295, 296, 338, 433, 515, 689, 768, 921, 971, 975, 1003, 1007, 1062, 1114, 1116, 1118, 1147, 1148, 1240, 1241, 1280, 1282, 1412, 1413, 1600, 1741, 1742, 1871, 1872, 1873, 1938, 2064, 2065, 2069, 2070, 2075, 2076, 2088, 2199, 2200, 2203, 2204, 2212, 2324, 2510, 2519, 2520, 2695, 2697, 2927, 3765, 4000, 4233, 4346, 4383
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0823.md`：58, 59, 60, 354, 360, 365, 372, 408, 416
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0829.md`：24, 95, 99, 319, 361, 652, 790, 875, 1181, 1435, 1695, 1742, 1876, 1888, 1909, 4079, 4091, 8579, 8600, 9047, 9068, 9154, 9175, 9187, 9205, 9209, 10441, 10870
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0906.md`：187, 188, 248
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0914.md`：29, 30, 39, 256
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-0922.md`：58, 59, 60, 1298, 1304, 1309, 1316, 1352, 1360
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-1018.md`：135
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-1025.md`：87
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-1109.md`：86
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-1114.md`：143, 145, 222, 319, 383
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/dialogues/2026-1115.md`：17
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/codex-before.json`：3, 7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/dialogues/2026-0822.md`：43, 55, 147, 154, 173, 174, 175, 176, 273, 275, 279, 280, 281, 282, 291, 292, 293, 294, 295, 296, 338, 433, 515, 689, 768, 921, 971, 975, 1003, 1007, 1062, 1114, 1116, 1118, 1147, 1148, 1240, 1241, 1280, 1282, 1412, 1413, 1600, 1741, 1742, 1871, 1872, 1873, 1938, 2064, 2065, 2069, 2070, 2075, 2076, 2088, 2199, 2200, 2203, 2204, 2212, 2324, 2510, 2519, 2520, 2695, 2697, 2927, 3765, 4000
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/dialogues/2026-0829.md`：24, 95, 99, 319, 361, 652, 790
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/dialogues/2026-0906.md`：187, 188
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/dialogues/2026-0914.md`：29, 30
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/dialogues/2026-1109.md`：86
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/sessions/2026-0829-obsidian-web-clipper-batch.md`：15
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/evidence/2026-1115-merge-duplicate-copy/github-head/ProjectInfo/sessions/recovery/codex-01a1c048-e988-7302-b0e4-d397ea2e119a.md`：87
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/roadmap.md`：53
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/2026-0829-obsidian-web-clipper-batch.md`：15
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/2026-0829-wechat-macos-ingest-fix.md`：17
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/recovery/codex-01a14d62-d4f4-7222-8545-901935dd29b8.md`：150
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/recovery/codex-01a1730d-b6c8-71e1-abce-b7923245acfa.md`：86
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/recovery/codex-01a1c048-e988-7302-b0e4-d397ea2e119a.md`：87
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/recovery/codex-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.md`：140, 142, 203, 288, 348
+- `/Users/haodong/Documents/GitHub/AI-Clippings/ProjectInfo/sessions/recovery/codex-01a1db21-e77e-7321-9c80-3c1bdfa1c67d.md`：24
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/journal/2026-07-19-obsidian-web-clipper-summary.md`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/journal/2026-08-01-obsidian-web-clipper-summary.md`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/journal/2026-08-08-obsidian-web-clipper-summary.md`：6
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/journal/2026-08-08-obsidian-web-clipper-transcript.md`：19
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/superpowers/plans/2026-08-29-wechat-mixed-content-ingest.md`：7, 846, 859
+- `/Users/haodong/Documents/GitHub/AI-Clippings/docs/superpowers/specs/2026-08-29-wechat-mixed-content-ingest-design.md`：11
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Extension Rules/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Extension Scripts/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Extension State/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/GCM Store/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Local Extension Settings/cnjifjpddelmedmihgijeibhnjfabmlf/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Local Storage/leveldb/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Service Worker/Database/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Session Storage/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Site Characteristics Database/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Sync Data/LevelDB/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/Sync Extension Settings/cnjifjpddelmedmihgijeibhnjfabmlf/LOG`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/shared_proto_db/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/automation-user-data/Default/shared_proto_db/metadata/LOG`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/config.json`：4
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/exports/2026-06-14T03-30-26-301Z-pwe-comprehensive-obsidian-web-clipper-settings-notes.md`：7, 8
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/article-captcha-retry.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/articles-resumed.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/run-videos-recovery.mjs`：2, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/run-videos.mjs`：2, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/video-verification.json`：13, 57
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-after-login.log`：55
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-network-recovery.log`：29
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-recovery-result.json`：62
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-result.json`：122
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-resumed.log`：4
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1018/videos-run.log`：4
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1025/article-verification.json`：25, 47, 69, 91, 113, 135, 157, 179, 201, 223, 245
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1025/clip-run.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/article-9-manual-result.json`：6
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/article-recovery.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/article-verification.json`：27, 50, 73, 96, 119, 142, 164, 165, 188, 211, 234, 257
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/articles-run.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/final-verification.json`：34, 57, 80, 103, 126, 146, 166, 189, 211, 212, 235, 258, 281, 304, 324
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/video-verification.json`：23, 43, 63
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/video-visual.log`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/videos-result.json`：82
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1031/videos-run.log`：50
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/2026-1114-attended-single-pass/run.log`：3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/2026-1114-attended-single-pass/stop-receipt.json`：3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/2026-1114-attended-single-pass/verification.json`：3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/article-corrections.json`：8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/article-verification.json`：39, 61, 83, 105, 127, 149, 171, 193, 215, 237, 259, 281, 293, 314, 326, 347, 369, 391, 413, 435, 457, 479, 501, 523, 545, 567, 589, 611, 633, 655, 677, 699, 721, 733, 744, 793, 804, 815, 826
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/final-verification-2026-1109.json`：25, 26, 27, 65, 91, 117, 143, 169, 195, 221, 247, 273, 299, 325, 351, 367, 390, 406, 429, 455, 481, 507, 533, 559, 585, 611, 637, 663, 689, 715, 756, 782, 808, 834, 860, 886, 902, 915, 989, 1002, 1015, 1028
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/final-verification-before-parallel-recovery.json`：25, 26, 27, 65, 91, 117, 143, 169, 195, 221, 247, 273, 299, 325, 351, 367, 390, 406, 429, 455, 481, 507, 533, 559, 585, 611, 637, 663, 689, 715, 756, 782, 808, 834, 860, 886, 902, 915, 950, 986, 1016, 1029, 1042, 1055, 1082, 1097, 1114
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/final-verification.json`：25, 26, 27, 65, 91, 117, 143, 169, 195, 221, 247, 273, 299, 325, 351, 367, 390, 405, 419, 442, 468, 494, 520, 546, 572, 598, 624, 650, 676, 702, 728, 769, 795, 821, 847, 873, 899, 915, 927, 941, 967, 968, 992, 1017, 1018, 1043, 1073, 1086, 1091, 1106, 1123, 1129, 1130, 1154, 1155, 1179, 1180, 1205, 1206, 1230, 1231, 1244
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/parallel-recovery-completion.json`：25, 26, 27, 65, 91, 117, 143, 169, 195, 221, 247, 273, 299, 325, 351, 367, 390, 405, 419, 442, 468, 494, 520, 546, 572, 598, 624, 650, 676, 702, 728, 769, 795, 821, 847, 873, 899, 915, 927, 941, 967, 968, 992, 1017, 1018, 1043, 1073, 1086, 1091, 1106, 1123, 1129, 1130, 1154, 1155, 1179, 1180, 1205, 1206, 1230, 1231, 1244
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/parallel-recovery-first-run-stop.json`：2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/parallel-recovery-readable-run.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/recovery-39.json`：14
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/recovery-41.json`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/safety-diagnosis.json`：39
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/verify-articles-final.log`：16, 27, 38, 49
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/video-result.json`：42
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1109/video-run.log`：34, 37
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/browser-diagnosis.json`：34
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/clipper-control.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/complete-verification.json`：18, 24, 47, 53, 64, 70, 81, 87, 91, 105, 115, 121, 122
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/direct-clipper-check.json`：4
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/direct-wechat-run.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/final-verification.json`：63, 64
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/redo-official-archives.json`：2, 10, 20
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/redo-official-clips.log`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/redo-verification.json`：47, 61, 71, 77
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/redo-video-result.json`：42
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-Aoh4G15NXd/evidence.json`：17
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-Aoh4G15NXd/run.log`：45, 48
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-Aoh4G15NXd/verification.json`：10
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-Aoh4G15NXd/video-result.json`：42
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-result.json`：42
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/intake/2026-1114/video-run.log`：10, 13
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-03-31T15-52-13-654Z/manifest.json`：7, 117, 149, 173, 197, 221
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-03-31T15-55-38-088Z/manifest.json`：7, 56
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-03-31T15-57-32-177Z/manifest.json`：7, 456, 490, 524, 535, 571, 581, 591, 601, 613, 647, 658, 694, 728, 762, 796, 830, 864, 898, 932, 966, 1000, 1034, 1068, 1102, 1136, 1170, 1204, 1238, 1272, 1306, 1340, 1374, 1408, 1442, 1476, 1510, 1544, 1578, 1612, 1646, 1680, 1714, 1748, 1782, 1816
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-04-06T10-18-51-395Z/manifest.json`：7, 93, 127, 161, 195, 229
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-04-12T07-25-27-407Z/manifest.json`：7, 216, 250, 261, 297, 331, 365, 376, 412, 446, 480, 514, 548, 582, 616, 650, 684, 718, 752, 786
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-04-19T04-26-50-344Z/manifest.json`：7, 174, 208, 242, 276, 310, 344, 378, 412, 446, 480, 514, 548, 582, 616
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-05-10T03-58-45-133Z/manifest.json`：7, 450, 484, 518, 552, 586, 620, 654, 688, 722, 756, 790, 824, 858, 892, 926, 960, 994, 1028, 1062, 1096, 1130, 1164, 1198, 1232, 1266, 1300, 1334, 1368, 1402, 1436, 1470, 1504, 1515, 1551, 1585, 1619, 1653, 1687, 1721, 1755, 1789, 1823, 1857, 1891
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-05-17T05-10-18-405Z/manifest.json`：7, 192, 226, 260, 294, 328, 362, 396, 430, 464, 498, 532, 566, 600, 634, 668, 702
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-05-24T10-33-19-558Z/manifest.json`：7, 234, 268, 302, 313, 349, 383, 417, 451, 485, 519, 553, 587, 621, 655, 689, 723, 757, 791, 825, 859
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-05-31T08-39-14-992Z/manifest.json`：7, 390, 424, 458, 492, 526, 560, 594, 628, 662, 696, 730, 764, 798, 832, 866, 900, 934, 968, 1002, 1036, 1070, 1104, 1138, 1172, 1206, 1240, 1274, 1308, 1342, 1376, 1410, 1444, 1478, 1512, 1546, 1580, 1614, 1648
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-06-14T03-03-43-528Z/manifest.json`：7, 342, 376, 410, 444, 478, 512, 546, 580, 614, 648, 682, 716, 750, 784, 818, 852, 886, 897, 933, 967, 1001, 1035, 1069, 1103, 1137, 1171, 1205, 1239, 1273, 1307, 1341, 1375
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-06-18T17-44-16-617Z/manifest.json`：7, 393, 427, 461, 495, 529, 563, 597, 631, 665, 699, 733, 767, 801, 811, 821, 831, 843, 877, 911, 945, 979, 1013, 1023, 1034, 1045, 1057, 1067, 1078, 1088, 1100, 1134, 1168, 1202, 1236, 1270, 1304, 1338, 1372
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-06-28T03-42-34-560Z/manifest.json`：7, 246, 280, 314, 348, 382, 416, 450, 484, 518, 552, 586, 620, 654, 688, 722, 756, 790, 824, 858, 892, 926, 960
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-06-28T03-47-33-458Z/manifest.json`：7, 56
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-07-05T06-44-27-973Z/manifest.json`：7, 174, 208, 242, 276, 310, 344, 378, 412, 446, 480, 514, 548, 582, 616
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-07-11T05-20-56-155Z/manifest.json`：7, 207, 241, 275, 286, 322, 356, 390, 424, 458, 492, 526, 560, 594, 628, 662, 696, 730
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-07-11T05-24-14-150Z/manifest.json`：7, 56
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-07-19T05-17-34-086Z/manifest.json`：7, 180, 214, 248, 259, 295, 329, 363, 374, 410, 444, 478, 512, 546, 580, 614
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-01T02-47-44-536Z/manifest.json`：7, 306, 340, 374, 385, 421, 455, 489, 523, 557, 591, 625, 659, 693, 727, 761, 795, 829, 863, 897, 931, 965, 999, 1033, 1067, 1101, 1135, 1169, 1203
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-01T02-52-46-745Z/manifest.json`：7, 56
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-08T07-37-53-282Z/manifest.json`：7, 234, 268, 302, 313, 349, 383, 417, 451, 485, 519, 553, 587, 621, 655, 689, 723, 757, 791, 825, 859
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-15T05-41-45-923Z/manifest.json`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-15T05-42-36-765Z/manifest.json`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-15T05-45-40-968Z/manifest.json`：7, 252, 286, 320, 331, 367, 401, 435, 469, 503, 537, 571, 605, 639, 673, 707, 741, 775, 809, 843, 877, 911, 945
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-22T05-07-00-690Z/manifest.json`：7, 351, 385, 419, 430, 466, 500, 534, 568, 602, 636, 670, 704, 738, 772, 806, 840, 874, 908, 942, 976, 1010, 1044, 1078, 1112, 1146, 1180, 1214, 1248, 1282, 1316, 1350, 1384, 1418
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-08-29T04-38-54-188Z/manifest.json`：7, 348, 382, 416, 450, 484, 518, 552, 586, 620, 654, 688, 722, 756, 790, 824, 858, 892, 926, 960, 970, 980, 990, 1002, 1036, 1070, 1104, 1138, 1172, 1206, 1240, 1274
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-06T07-06-31-399Z/manifest.json`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-06T07-09-03-570Z/manifest.json`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-06T07-18-18-140Z/manifest.json`：7
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-06T07-26-52-414Z/manifest.json`：7, 288, 322, 333, 369, 403, 414, 450, 484, 518, 552, 586, 620, 654, 665, 701, 735, 769, 803, 837, 871, 905, 939, 973, 1007, 1041, 1075, 1109, 1143
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-06T07-36-22-423Z/manifest.json`：7, 92, 126, 160, 194, 228
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-13T17-17-44-957Z/manifest.json`：7, 252, 286, 320, 331, 367, 401, 435, 469, 503, 514, 550, 584, 618, 652, 686, 720, 754, 788, 822, 856, 890, 924, 958
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-13T17-24-01-430Z/manifest.json`：7, 65, 99
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-09-19T10-22-02-040Z/manifest.json`：7, 216, 250, 284, 295, 331, 365, 399, 433, 467, 501, 535, 546, 582, 616, 627, 663, 697, 731, 765, 799
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-18T06-00-07-690Z/manifest.json`：7, 259, 293, 327, 361, 395, 429, 463, 497, 531, 565, 599, 633, 667, 701, 735, 769, 803, 837, 871, 905, 939, 973
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-18T06-07-30-799Z/manifest.json`：7, 236, 270, 304, 338, 372, 406, 440, 474, 508, 542, 576, 610, 644, 678, 712, 746, 780, 814, 848, 882, 916
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-18T06-16-03-117Z/manifest.json`：7, 56
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-25T12-35-59-393Z/manifest.json`：7, 170, 204, 238, 272, 306, 340, 374, 408, 442, 476, 510, 544, 555
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-31T05-31-33-093Z/manifest.json`：7, 170, 204, 238, 272, 306, 340, 374, 385, 396, 409, 443, 477, 511
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-10-31T05-35-40-874Z/manifest.json`：7, 80, 91, 102
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-09T12-32-43-241Z/manifest.json`：7, 369, 403, 437, 471, 505, 539, 573, 607, 641, 675, 709, 743, 777, 811, 822, 856, 867, 901, 935, 969, 1003, 1037, 1071, 1105, 1139, 1173, 1207, 1241, 1275, 1309, 1343, 1377, 1411, 1445, 1479, 1490
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-11T16-48-46-977Z/manifest.json`：7, 57
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-11T16-53-53-743Z/manifest.json`：7, 57
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T03-18-34-359Z/manifest.json`：7, 54
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T04-21-01-140Z/manifest.json`：7, 66, 100
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T05-17-27-069Z/manifest.json`：8, 84, 118, 152, 186
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T05-37-48-272Z/manifest.json`：8, 115, 126, 137, 171, 205, 216
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T05-42-30-734Z/manifest.json`：8, 67, 101
+- `/Users/haodong/Documents/GitHub/AI-Clippings/obsidian-web-clipper-ingest/local/runs/2026-11-14T08-18-12-447Z/manifest.json`：8, 66, 77
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/exports/2026-0914-merged-wechat-links.json`：121, 127
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/inputs/2026-09-19-processing-scope.json`：3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/0df8c9a35746b49b/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/2fbc1747c360c5a9/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/3abcba39fafeb19e/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/63bb1a11223ad674/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/6eefbf3e5937f819/task.json`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/88fc53620212a456/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/9330a8849200b5cc/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/93d7e7718d8b8d72/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/959ed6f25a08fe35/task.json`：1
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/9fde4b94e5feda51/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/b5423b0d572d1939/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/d668d2b62fb0438e/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/video-channel/tasks/ee3a3b1d2e94d687/task.json`：3, 37, 38
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Extension State/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/GCM Store/LOG.old`：1, 2
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Site Characteristics Database/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Clippings/wechat-filehelper-macos-ingest/local/yuanbao-profile/Default/Sync Data/LevelDB/LOG.old`：1, 3
+- `/Users/haodong/Documents/GitHub/AI-Life-Mentor/.claude/transcript-backups/596b321a-ec6d-46f9-8b27-ff999450c8b0.jsonl`：165
+- `/Users/haodong/Documents/GitHub/AI-Life-Mentor/ProjectInfo/dialogues/2026-0918.md`：3202
+- `/Users/haodong/Documents/GitHub/Director/.harness-ibsx000e`：75985, 79882, 81024, 82234, 83379, 84525, 85672, 86820, 87969, 89119, 90270, 91422, 92575, 93729, 94951, 96107, 97264, 98422, 99581, 100741, 101902, 103142, 104498, 105669, 106841, 108014, 109188, 110363, 111539, 112716, 113894, 115073, 116253, 117434, 118616, 119799, 120983, 122168, 123354, 124541, 125729, 126918
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/evidence/2026-1109-role-worker/project-insights.json`：438
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/evidence/2026-1110-wave15-19-runtime-readback.json`：5174
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/evidence/2026-1110-wave20-api-readback.json`：5327, 7509, 8651, 9860, 11005, 12151, 13298, 14446
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0000c66ef9014ebdb338fd60014c88c6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/01307c3920b049b6877e67872408aa9b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0188ee542f7f4c8e8eb33d516c753060.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/01ab1aa5e2454756b764dd4175fc918f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/021ddbc2db9e40e9abb31696b62c51d3.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/02698403c6e648a99249da2d6b2f9fb0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/027899db51e145999cd307fe8debb993.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/02f6e06347164dca915ad0f203ffb2b4.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/036831523dba43fd83a6da3e15934b16.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/038d2ffce9ac4494825fab0ca9d87500.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/03a49ce0589141fd92f973249b284f06.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/04435d62897244d7904b80bc0b3e76dd.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/052fe005dcbd4a56b29c078148dcab8f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0584263bf4074ac4a4fd3307414125b5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/05a42451bba74ea683d50f221b28aecd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/06cbeb8e46a24b61b7e11d8eb0d36b17.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/06db346c3f4a48938042dd28984f722b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/06e756447fe64a9a8fe68faf203596dc.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/071f67408440476a986bbb4a8f454d4b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/077a7e1ba7e142a88bc4b2d451f71915.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/080fda1b2aa24087923dee8ef3663448.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/081c2253eecf4e22bc80d17c8d7672e9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/085f20d670c446a58ec5bcbc0f4dadca.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/08e1b022f3c046bca2c02d211e827b3c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/09210d3514e54c919435df7d5d3bc95f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/09701cb387bc496bb2d08cbfc16e2e84.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/09bac2b04d01496bb1a1d62a68e393bd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/09c854a6852e4dbb8b1c407ec1c4d69d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0ac3a370ec59497eb6dce550cd23f855.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0af18c274994406488c083629c63dcae.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0b2719f71e584757886f20f3894bce12.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0b59997deb0d440e91650444f2447686.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0c87d68685f44566b12f5d451b159800.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0ccfa4e7759f4fb9af505225bd8f95db.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0d24304aa9454799803bd8034b58a16b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0e5a5cf5d8f442fd98b7d1375cc6c713.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0fd2129b24ef47e0a4e1d49919f706d2.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/0fd98d7150c0493b9607b74c467d18d3.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/117eaa5215f749d0a32c884b550273a4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1182332c5bca4d34b06d4a2e655c4b18.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/11b4919944cd4741a8dc2cb9a4c01040.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/11cb3a850e63480cb4398dc60a701eda.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1236b148cd8b4488a707a9a561b84642.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/12cb0aee89ff4fe8938afea96c07dc1b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/12e9735b054a4c6eb999dd03e5803ee5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/13294e1994a8434abdcb2d716eced422.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/15081bd2f0184cada3c2348bc714df8c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1566478ef3a44e18914ae18bc36b3898.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/15a10961ff1546ba8da521001faaec6f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/15c1d2ec587542ab8c6d714c010d9143.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/164cce1e3ee54b5d8d5a28f2343a45e0.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/16cea071e43e4673a805ba75687230b8.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/178d9d6f7c5241908c539d36debd91cd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/17a76e398f4746a284721d662b9c790d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/17b6fab9a22c4eaabd76abcc690c4bd7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/17e1e2bb8cdb40a6a4619eb95dd489fa.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1822633337d045d6a7090175e2769f11.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/18afe911f4b944189e92dea0af180cff.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/18f1fa371b7844bb852abee1890b10d5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1945601ea8b24cfa9fc620848d85902c.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/195f27168cf6496aa8537e130b7ebeb3.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1972d1fb047c4b11a89744281338b71a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/199abaacae074ae7bf577fc9d2c84541.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1a3eb4e5a63e4fe08fbf47d1f15b1fc9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1bb70792c9a547e3b485c2d95689130a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1c0b4d7b029f41e19d3a3ec5e9322f8c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1c10115ec4124193bb9ddca67a56d712.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1c27b356f5a4481e9ed83debd35aae18.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1d6448edeb354da080ad36f658ba37d4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1d8479df0d0642c0bf91667262e9cfae.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1f2bd4f15296435aac001b744f1f1a42.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/1fe903bdd7304c5db75d85323db1f211.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/206dbda7d53f45cead115cad760e62a1.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/21a726691aee4daa9217c489cd6e6a58.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/221677af766742138b54f903edefc703.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/228b51c313c34456af63ac1393c1e595.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/22916b967dcb455e9844b5df03ac1f2a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/22d554a8ffe0454a9cb28992d318b558.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/249b60e6f62f499f8b7105fde7ea4b32.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/24b94fe16d4943ba8fd5148346fd5c30.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/24c212cc38f84ef69a5cbef1a186d072.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/251db0e842b148dc935bc2d537470d67.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2521b7523a3b4b25a452f23d13db3c78.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/257174a0dced4ac0a7b9bf0effe1f5a4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/259f3cf9a0d8433b997d28252afd848a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/260ead61e5674aa2823ba63274b9dce9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/265bed7a57424ad89261c695013bff51.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/26bf6c1d1f3c4c41b76c68f64ebfe637.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/270d406807e84cfba1d624d5c7d3fc0d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/27967a79e3c84094828d2996363ddcf8.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2888a368a83f45368ef45c8247832f63.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/28f04c9fcaae47c298c2d0135f543d0d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2a540ce1b48841f2bbc04cb115484d2e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2c04d6e4af0b41c6aebd0e66486fc94c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2ca16983924d433098f41a8eeb734cf6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2caaa3b1df49461fb89692d9e55d3dcc.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2cab77b7058e47b2968f91af6ee230cb.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2ce5aeb13fbe4a95b7d8466500d669fc.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2e06318adbf344688bd47b0711ef93a6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2e846b4fb00046e2a73646d1b1347f06.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2e8a38bd2e7d43b79f02dd0e3c1d8349.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2f0b48ea6fba4d3facb0f900aa5603e8.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2f787411d4f44e97a7bed10279cca17f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/2fc03624db3f46e699f91fb21673ca33.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/30463e9e5744419ab4e3ac7d145c4de1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/306e4a1c5f31431f9c7b57fbcd7647ca.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/30f4aff4345c4d989a096e7cb6ecbf2b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3166275972164120a03a60aaba13db40.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/320f71a06ea2450e81e27c4ffee35515.json`：438
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/32b2429c49164567b31b2c671eda048f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/33a740a9d88443e9942c1275c223047d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/33be7616c3fc466b893e637b5a5e3b80.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/35834331229647bebf1b59b01bdb983e.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3737ca235fb249b4949065a5390b8976.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3738e4ce2dcf4e5189888fe74bbee8af.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/378257c9e4064c1ebbef3ef9e2e1d826.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/37ff8c2f913b40198c8074b6589f6944.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/38a479ed243043d3a0888bcc71060d76.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/38f87519aedb45d7ab8e48355c2371a6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/39b1721fc27c413c81fe10b7fd48ca34.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3ad00973c414466481adc652615b2581.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3af3e55611da4b4ca9c081bc334d126b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3b22f3d6c58b49b7b31fcffa04eed191.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3b59b472a3564b20802ebb2913a536a7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3b69897ff1494ddea14c2818e3e2a089.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3c467ee5bed54d62a28ff07b3e7202f6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3c53d08c97304bffaa0759c69fa7e369.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3c637e67e2214f5688572e7c96ba19d0.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3e5c0a82a98d45b387fe7343f9edf551.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3fa71b49cbd9419ab63d263dcb6c9219.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3fac3e41a88b49a7bd0aca6ab3990a6f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/3fcb1204967c42fdaca8c38550bc9138.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/40566ede1f144c1a9372de2fb6733fd7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4141288ea46d48df98b7624c1a769784.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4159504978a84ee58c15105de2205b3f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/43d8eeaff991413fb6eddfc073fa5136.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/43d9f7188b234b749c9944cf95e3f1ae.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4422cb0cd9d2429396e6dfb483f22948.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/445485076ddc4a33b4b732aed663563c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4478f753360e44a4aa8d89a204b9edbe.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/44f00386a5ca4eaf8972917e2740692d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4721963dc57341d2b49057740c64ea88.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/472a780bf1854b7d873262a7fda16fe6.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/47708a573b4346dc8ec62833cc6f0bb3.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/481555ff20af43fb95b5e07e235f0d84.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/48c9f97c28fb45409e947ade5ab314fa.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/48fbc60ac7d34fb8b2b2a1ffbee58f72.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/49a68cdb92ea404983145dcf6ec24110.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/49cf256d6aef48eea3ed1e0c6b7caa64.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/49f2800ac7eb41768ad94c02865c45fe.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4ad6dab0586f4c58856b813c51525fc9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4beee214ad3d4361ab016ce534c5be7c.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4bf39e15b1714263814cdab0ca26c9c2.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4c3c8efa33b04d619ad6dd0a21366720.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4c97d9abb27940acbc9dcd41ecfb64ab.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4df689ddac0645fa872851c15968ca20.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4e122d45914f426b8471f329fc91ec4b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4f047e855009423093f8528cde78a3e1.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4f4f766600e241d68cb0a74ec0ef5ea6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/4fd579dcb85743c6a2c290d116373d58.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/501c8e212bc24b8eb511c5a2c37cc25e.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/50453645f7494029979043af31f8046e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/504baaafe80a457997524d45f04bbcba.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/504fb29234ed494283f157ac6523edb8.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/50547760132948d6b13771bb98035180.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/50bcf47a3c8a401685ac132429008d9f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/51858e8a5db34f0abd449ceaa16ca46c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/51f83782abeb47b2b654fc463004bea4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/52128728ecb04202af2016c2c31c5e9a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/52e1878dc92d472ea9fa796cd8b57c84.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/53dc49d2399347be84dca5055e6ad8cf.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/541e501204204fd4ab04002d316275c4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/54214b2d5c9441fe853160472c55541c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/550d2898f76c4979be7548f9506c240f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5577ca9f092547bfabc9d7f26a09fb58.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/55f8e63f68834d0ea859c16929a367ca.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/56aea87564644be4b5043ceea5e1c9bd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/572bf67189144c3f990d5798dfa65553.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/573ceeb592644703a1f684bd82ba6800.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/57a18b5e326a428eab3976967c9e3bd0.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/593e742c72fd447e8ddd140d00d0ed50.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5a1371b10d804ee3a0c4322a9f7d44aa.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5b46c71711224fd1952414cf685099ac.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5c7e033ba46f42d0b7297cc4fc59943a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5c865d9be1df4cf5a47f60cf4000032b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5c8687a1a0a34364a4fe1c85752e3559.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5caefb2a30ba4fd68edd5635db5bb437.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5cb36812d9524994910a9b86266cdc84.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5d21c8d3bcd946f59a2c8d7b62a6b174.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5d593dc0cfaf4c71a448f5b36557ddda.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5e4b208945ed477197e925a338ce8d73.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5e797ca72b36489e9ea229cce3acce8c.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5e8c0806b5e34135949b0d82321a757c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5eea43708aa44e848cbabc487e0dc4ea.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5f0b4213c7c1400f9afedfaefdf603b9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5f56bbee7dc54796b670e8f879a5cf4a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/5f5c05b9af284a4e8728248a515f28cd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/613772de82394333a9b46ea6644b694f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6166b291e6684868ab972ac3cf7612e5.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/62024eb6517e4754a15d14f6d1fe7927.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6264110d74a844db928b7b016439ffae.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/627bb3ae0894419991d8e245131c6c12.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/634ea07b1a7b483da3921bd0e577272a.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/654b26fbe8be4e2e9642c1d535e62431.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6628004fdaf94274a76859c22816d882.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/66c6df2e63cb4c08aa9557fa7dd326d0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/66d23d2257a54c30b40691d73cde4d6b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/66e196f0959a44e08e268a8162849a8d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/670f7033ab7e4c21b1a98fd0709ccdec.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/673798473c2f46c18cd60d22265a6bce.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/67555c78f4994b86bc06f637366a5f08.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/67ad02a28cfe425c806b497b333bb861.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/688d548887d4437fb1b026c8470c2753.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/69f6b3c2263946d385f1362599c6a986.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6b3938e7fbf64605b5be3994e5e9ccd9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6b5d50534b8e47a383ea782fbc797766.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6befb210825b48d4b2b85a02654f21f1.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6c00ebbcc2294c7e90df320e7ff9e658.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6c3d2f5d30ee422dba2b8cc5bc175c03.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6cf1fcdbfb9646f29f6c13e212c6988f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6d70d1de3cf140baa5a5e0f197403379.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6f22875cd84a47758222c3b5b1d2ffe9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6f387ea31c53447a93fb5d44b65981a4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6fb549083173406697995d46e0ffaaac.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/6fbc7857e2b84adaa4f2a902b819057e.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7062078529844648b8e594388e7e91b0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7064b2cc82884ceba4d55c9a3eac0a2d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/709896bafb45471ca2e51bdb39784358.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/711552d88a7c48c49decce7470841f7f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/722aab314ed3436ca7b5b8e3cf0dfe1c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/72c71bbf153f44eca9b51750acb6913a.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/72d620ffaecf4e15835a010da281aa97.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/72fb7673b5f742c3a6362678f04dfe2f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/73df9380fe8e49dabcff044cc0bac0ef.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/73eee5ee5dcd4ce88dfacc8b4c78cbfe.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/74365bf092e34813a181a3fa1ccea191.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/747e820f742146bc9b0f0e921229e169.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/756d21a9993b459a903eba7a232b83aa.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/75cc819362b646f98b41f3c7cd9ff26a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/75d823a772a64edfa1857c83bb6f62ac.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7648fd39917349bc9ac6f438a7529f15.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/767df913b8b0406a9344cc137091d45d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/768c0d1f071846c5bb5cd17204094748.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/77ff111ae1104912aa06c3c2b3dc430d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/798702916e09405da8481101dcb9adc1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7a56623eb7b54805a4ce1baf849737b2.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7aa8bbe66e644b0bbb62a4d38140cae2.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7b7cfb45cd3c4ae2bdbc903a8fb2713b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7ce21ee88343480189bbb3151398c9d9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7d0ad64524524284813fc1dcfbcb336f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7ee41cc42616411782a477343e486429.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7f666d0778624441a6d47dc1599ecab4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7f75df4fcb5c40358b2c4a2bbb93887d.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/7fcdef6c5966432f96d6c77f8e52b487.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8052e158ca884566bddaf7958553044f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/818e897a4a734ce98afde89ccd759619.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/81a8cfbdfbce441083cb37b028e74d99.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8268d004d9ae4698a4775066462338f8.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/82d1b2999e1d44c58207b227ac6cbe27.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/830b99e995614dc59f29e422d1e3b11c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/83692d57d670425c89b47222e875a7b5.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/841583474f1d4bacb222c7c26950d489.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/853019b9f38541edb64d0574c230ffcd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/861d9d0046c14e34a4842e8042133402.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/862fce8790134ab8b059c89a97fd4383.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/86e832f03b74425696d888750ba1e4e8.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8707887213074d978f9dbd6e2ef9f745.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/87c5dc4fec494bfdbaacf60f43b0b04f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/881fd19a0b7a4695acbb284a0f4cc00f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8849076f08b3489693a0540c09fd1dfa.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8954954cec654e309c4597ceaf76d65b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8a1ed1342d3d4cceb5247239b82ff9be.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8a779623f84a41c9a38652393a5742d2.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8a94e0f362b24f71860f25424dec7471.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8b1b83cb5de44046a8b8159e3f5237ca.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8b7dde84413846859bc796162c649a89.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8c2726e9efa04f899091dfee4b484306.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8d2e3725f9a44f45b6c8c4ce34f6dbe5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8d6df0a61a474eafba94ff2d503d1c2b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8e0a998543544da6accba7aa6ee2a8fd.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8e1b656065fa40a8a338b56ee02c9ec4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8ef8788dd82c470aa4cd1c99243ee25d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/8f5dc04adc6e4507a4a6fc33da4a5670.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/908da790623a401dbc15195d7a730f2e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/919c9064a85e4208ba0f315f43a76b74.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/93734575977a4a1c87cf4fc66ebc4451.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/93a82786536048c8920bbfdf0a0c9162.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/93af56bd4c524c5d9a4696c0f38bf4c7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/93c1bb46ea494966a45835fdbd8ed0ec.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/93f55103b26a4f34949a5a2a6c9f7f6a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/940fa42c23ac4abfa5af51bbfd466ceb.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/964377eae7a7409eacecc3ed08da31e9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/965dbaf4468a44a49bf207c4a8715fcb.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/96717373edb3428c9ec06eb3c5aef7cb.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/967ffa59939c42548ec1f22d0ac02746.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/972a2efbc40b4a3eb0a09e6e96b2f5db.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/97b63749d47041fbac2af5240c9f497e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/97e8ddfe37fb42778da8055826f4aa1e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/980cdca8d1ca4c4e93f9a0236836df7c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/980d7df03b624340b1e3113f27ef32e4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/99cf6222f43b455e881b6567018e4fdf.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9a84bd36fdbd4ce98c806f78c337b2a9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9adee3871ea24358aef3e2253bbdb402.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9ae92f174de64777b055d9c25864f171.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9b6a25ac455f4e3193c095b92dc0b365.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9bb11d42ba7b427f8b46ac337be36ec1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9c340cb1c94d4a238674c39ecc29f0e4.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9c54a5d9e222407e906739aea2df0e7e.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9d4a6423109942c49099eae309518506.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9e128388c9914f5ca5e9be6e289d9cdf.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9e9cd396a65143e19c08b3b041294721.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9ec79bd4462c475eaad4637ac22ee678.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/9f7f463080fd4ad283fea7bcdf15a56d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a154f773a8394926a068a09ebb82d420.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a1f8efcd54ae4abb84c7494abb4a5414.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a32edcfd9db24fcaa2258aebd88b6bf8.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a45902cb75284edd9b2d934be9599295.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a45aabb417e64d3486423cd5a4c26698.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a4d142413eb74baa89d833ae91109239.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a5659079b26c416aa45d0731a7b51570.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a5aa1a8d48174ed4a205fafa6bbf6250.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a5abb422016e48dcb24a28c391e09e24.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a61b97d5c6874d098cce80b44c34c1c8.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a7b941f10af240408f98b1dde8efa9c1.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a7bfa41f5f7546f1aef2a5bb68fe1b30.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a8c4baa5998a4655abe32c14dd8b77c4.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/a9719fc61d2046b29bd25784cfd5e397.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/abde4cd92c2b4c2d833becdf25555d36.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ac1bc7bdb2dc4df292776309a06a8b4f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/acc3dfd0dc13447ca552aa9e743b8365.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ad309c62478449dfb986a6da90dcbcd6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ae09ceff710b402d8de7302a0d4b9dfc.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ae392c9ce0714161a4944a243a63cd0c.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ae5d7310634f4f9898666aa9d9b61826.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/aead41b520b74088bb7f381e4ff5e36a.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/aeda47d9fb774400a23ae4d23b02db54.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/af25b1af67fb469195fe4a691c618840.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/af323533ede1417485dde1a311c38433.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/af95f478dec74be6b31fe7858fc8d19d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b0f3eabc7f9e468aa78b8346a1572e0e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b1082dfae0474cc7a6f8908c86a4500c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b2ee2d79770c479290b3f99d644b7fdd.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b679dc68928d41b5b2d6ce31016883e1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b6c6604a29094cce9b1b6a5d78809afe.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b78af375960d4c5cbd3ca23056936aea.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b7c3e8d8656240bfbf6a0c70614f8ea5.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b84ebd7e6cb14310a1b2a9521cf8c4db.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b874ee97d06c483fb23a60ef21d1349e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b9d4485201f941fd8b2c5a9ec2a2cb96.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b9d887e553ac4b128ecf5768eb39f31f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b9ee0a62e2f54ca0bbee93068595eb7b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/b9f05b19f2ad4e0a9992f7a9b76813f4.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ba773c30f69d4b70beb27f51ff9d2f36.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/bc176e23e5b24a44ba5d12b03c470bc7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/bc89fa7a41c8414ba0624cd4cf686d40.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/bf74f64aad0e40e794e2749fbdbb9896.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/bf7774e0ac014f52be0b39202f7bf423.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c02edabfeff4433c8f3dbec42a310b59.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c08a3df807d84389a07a97141a456af7.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c0cf1c9cbe2d422ba46b631e522f8732.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c187ae0db0f54fb694b2bcc90d4069e3.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c198827ae7e545f5bb79988060822e4d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c1bb2e8e54c24f4eabbf45a22c782f38.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c1e95c945a8b44f4a10d850ef58fde49.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c45af4fd1b514d58a7ac84a6a7ba3873.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c5d15b24331d4642a24cfda1e22a8cc9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c5d1a922f74441a09e5ced201b0e3b5b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c6c5cfcd9e9d4687944d4871652b0a44.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c70b983b5c49405f9e4844787614dd88.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c7d7793d30bc4a378b2626e7a5f62d30.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c8390ccd1ac549ceab0a3f3c78f028c0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c845be6007bd44d18e05454ea912087a.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/c91bd9f2c9584ea2ab15d8411aeeed94.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ca09d64f58394cce965f5fabbde5327b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/caf2bb94791a4366bce7c6c4da3bc22a.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cb18af356f3e47868404cbeb09bd8abd.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cbde7f6a4845407cadb8116ee7420705.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cbef605d01824fb482de19b3ea32e573.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cc150e6d322c4916b11ea0fa18015135.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cd1129140c7545d6b7091b051923a9ea.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cd2b61898a294395a74945e59233738c.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cdce1dbdd3d74494af11d01882352eaa.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cde07362831e475bba9de3f93ded9621.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ce8533daf1ce47f99a69f50276afc3ce.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/cf4f7e0ec4a5401ba8a8e47ae51548bf.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d0bb8b79537a4aa8b239d02efe4c8d53.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d10803b13b1c4d6da12881f5491834ed.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d160d45d98564639a55879b3e6cabe94.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d247ab5394874445932d6c5ddea6ec08.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d2aa669ca72648119f1d4197b3e07537.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d31094a82c10427c93dd6180afdfce83.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d3752e501b494d76a88b81cbc3960730.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d459e4e791914530957d2095df5eb48b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d4ef9a0531074493b3750f6a102e0ce0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d5396acd8fa541888f5dfba80bdd2b6e.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d558ecf6a9db40ef981f491a2b0d316f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d5906c092988424ba01e094ba1cd5af0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d7415652fb4947e7859d45a8dbd4d28f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d77f90a2ce5e446fb479bf764c9a420f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d7da0b5941064330bd4604efa258e9d3.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d87dd6b84a9f4e058ba47d1f8761dd37.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d8e0a15512f245ae8f2c665bc622a3bd.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d8fef2958bd74c4f8596ad8c322cab4a.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d9660a6e11c44deba8d1717c4be8784b.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d98254f5f6de4a1bbe625f08489827d6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d9c263012ed4444481a02d1dff44e9ba.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/d9db3ed49c7842f8a05ece1b1b72a922.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/dafd16d637b1493d8aa8d8f73ca7eb04.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/db4e52b7a0504e6c8f3daae285900bb6.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/db65da8dee584890a1a3c296b4f0fd13.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/dc74f4100b8e4c278420d5c9fef82900.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/dcbe5e6ce1d14eb58063fe0b9849bb37.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/de089f1ba7314c748d9e9c42cfbd35aa.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/df951a08c49946fbab8f963e60a8ada0.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e0a5a1ea2e2f42d6b2f8e739c8ea5203.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e14b6120d1dc478bb46954de2eb5a7a7.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e213d23bb1b541c88a8c0926b48a3e57.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e2f80d36ef7f4b26a0143f15139eef60.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e3894ccafc21478ab103876aec2080b0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e40092eecaa646089f398b7e9083ea84.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e427ed59ee7a4deda48f2c524d5e31c0.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e491437c44c84427a275e304ff58510d.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e4d73c0f0bf141efaf7d2c9707f056a9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e6a49c2174d2465581a94c4f5b42e3d9.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e72c857448ee45b799dbfbfebcf0a5f8.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e764f14b678d4a09bca17a97f76dd251.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e770e21b6e894cc9b5fa8c7981a50c34.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e8d356cfd4d84d6897ffd7a7c2950c8f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e96bc12deb654495a8d29630e8b68b31.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/e9cc7f2e458b45b19184371589eee2c9.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ea38fd0b94284afdbbb874e85bdf8c10.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ea3bc956a0214ec9b2fcbe515b5c41f6.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/eb4f87249065491e9d283051dcdd8157.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ebe2221f3f6847dc9b286967a692a3b2.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ede1d444f54746dfb151fe85f5816bcc.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ee3f1e4d12194b3ead58e77d40ea28fa.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ee47b31080f141568db508c5aad80db5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/eea971c2dffb44b290875cf4887739d3.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/eea9aeb083984462b26bf0ca1426c848.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ef50a1ee2b134b0b8f8c7bdee978dabe.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/efa5b470921c4af8a11fa919773f07e1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f003ff82f74548f4bb0a5a3c2bdeb45f.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f0520a45dc994bca95fa196c2d12a821.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f36b85b2abbf4394aaa40c15fdc6d5dc.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f3d2534351f24195bc9e01064593cd0c.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f5c4e0c4de474135a43d92bb92399f79.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f623484b393d4c519e82798611ef3d1b.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f62d554825214bf293cc9983ba5d1bd5.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f6cfba6d3cb240719651e23b3f6b3506.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f7138b35d57c46539c0b0a7a424672ae.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f79f01728ba646669346e998dd0c3ec4.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f7e9c4d8dc9f41e98c939262e74420b3.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f8166266f33547d7b23f5a5a6c219cd1.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f8c71a81c1b8421f9b163985589182ae.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f96958d45a2c4e4b82dad4d2800cb19f.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/f986295d99694f6299a52df16b2eed6e.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/fb360609184147cc9a0d72f0dd483d91.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/fb5fca0bc30849389de2c7baf6acd8c8.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/fb64eea4f4004a0885e8b35cddd750ab.json`：86
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/fc9885dbdee04601a5f0833db74a7473.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/ff680926a25b47d689f700ce64417121.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/harness/returns/fff8eb3eb1ad4948b72ccc050f67b146.json`：90
+- `/Users/haodong/Documents/GitHub/Director/ProjectInfo/proposals/2026-1115-what-taxonomy.md`：108
+- `/Users/haodong/Documents/GitHub/Director/board-state.json`：41, 99, 498
+- `/Users/haodong/Documents/GitHub/Director/board.html`：439
+- `/Users/haodong/Documents/GitHub/Director/data/backups/apply-taxonomy-20261115-013953/board-state.after.json`：41, 99, 498
+- `/Users/haodong/Documents/GitHub/Director/data/backups/apply-taxonomy-20261115-013953/board-state.before.json`：41, 99, 280
+- `/Users/haodong/Documents/GitHub/Director/data/backups/apply-taxonomy-20261115-013953/projects.before.json`：108
+- `/Users/haodong/Documents/GitHub/Director/data/backups/apply-taxonomy-20261115-013953/receipt.json`：47
+- `/Users/haodong/Documents/GitHub/Director/projects.json`：108
+- `/Users/haodong/Documents/GitHub/PKM/PlayWithExperiences/AI/AI-Life-Mentor/RawChat/2026-0918-1606.md`：75

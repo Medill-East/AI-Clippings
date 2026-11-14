@@ -1,0 +1,11 @@
+{
+  "verified": true,
+  "counts": {
+    "source_original_files_checked": 4426,
+    "source_copies_verified": 3686,
+    "github_untracked_backup_verified": 11,
+    "github_tracked_backup_verified": 138,
+    "github_ignored_files_unchanged": 14069
+  },
+  "failures": []
+}

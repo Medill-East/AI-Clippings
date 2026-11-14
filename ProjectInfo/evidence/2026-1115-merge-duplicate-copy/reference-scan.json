@@ -1,0 +1,33 @@
+{
+  "args": [
+    "rg",
+    "--no-config",
+    "--with-filename",
+    "--no-heading",
+    "--color",
+    "never",
+    "--hidden",
+    "--no-ignore",
+    "-n",
+    "-o",
+    "-F",
+    "-e",
+    "/Users/haodong/Documents/AI/Codex/Clippings",
+    "-e",
+    "~/Documents/AI/Codex/Clippings",
+    "-e",
+    "Documents/AI/Codex/Clippings",
+    "-g",
+    "!.git/**",
+    "-g",
+    "!**/.git/**",
+    "-g",
+    "!**/node_modules/**",
+    "/Users/haodong/Library/LaunchAgents",
+    "/Users/haodong/.claude",
+    "/Users/haodong/.codex",
+    "/Users/haodong/.agents",
+    "/Users/haodong/Documents/GitHub"
+  ],
+  "exit_code": 0
+}
