@@ -30,6 +30,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 - Scroll the page from top to bottom before opening the clipper iframe so lazy content loads on long articles.
 - Open and scroll each page, and confirm that the extension shows its source before starting the next one. Let summaries run concurrently up to `maxConcurrentSummaries`.
 - Retry recoverable failures at concurrency `2`, then `1`. A page waiting for WeChat verification needs user input before another attempt.
+- Set `OBSIDIAN_CLIPPER_NO_RETRY=1` when the user wants a single pass. The script can still save notes and wait for manual verification in that pass.
 - Before saving, pre-authorize the automation profile for the `obsidian://` protocol and force the extension's automation profile to use `silentOpen: true` so the run is not blocked by external-app prompts.
 - Treat a clip as truly successful only when the expected note is detected in the target Obsidian vault after clicking `Add to Obsidian`.
 

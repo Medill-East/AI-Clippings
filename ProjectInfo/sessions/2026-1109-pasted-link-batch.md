@@ -181,3 +181,31 @@ trace-source-sha256: 33acfe6414bf1b4ec399ed08daaf481cc829f21210716fb22b79cba950a
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
 <!-- trace-finalize 48d3c324fb71f17b4ff3343b993512ae2fdee591d24d530e949b0560c65ee51b -->
+
+## 2026-11-14 16:20 两篇公众号单轮验证仍未通过
+
+记录：Codex（在场摘要）｜ session 01a1d7f8-3cb6-7b53-8684-5178ae1adfad
+trace-user-count: 13
+trace-source-sha256: cb5b9caa7d8c70eb744a0c5de7ea73e8dcf7bad0404ae78841a6f430808b015a
+
+### 结论
+
+- 本人明确要求对 11 月 9 日待补的两篇各再试一次。按原 Web Clipper 脚本启动独立 Chrome，开启本人验证交接，并关闭自动重试。
+- Karpathy 和《一条言简意赅的 AI 设计准则》均进入微信验证页。即时提示和 PWE 输入请求已发起。本人在原聊天反馈「还是不行」。随即结束等待，两篇均未取得正文或入库。整批仍为 40/42。
+
+### 证据
+
+- 本机运行清单 `obsidian-web-clipper-ingest/local/runs/2026-11-14T08-18-12-447Z/manifest.json` 记录一轮，两篇验证未完成，写入 0。清单的自动重试为关闭。库内按两条来源核对，均无新增笔记。
+- 本轮运行日志、停止回执、PWE 请求结束记录与核对结果同在本机 `obsidian-web-clipper-ingest/local/intake/2026-1109/2026-1114-attended-single-pass/`。PWE 等候在聊天反馈后关闭，未登记成通过验证或已批准。
+- 原脚本加入 `OBSIDIAN_CLIPPER_NO_RETRY=1` 选项。本轮以该选项正常运行，保留人工验证与保存路径。语法检查及原重试测试通过。
+
+### 风险
+
+- 未获得微信验证失败的更细原因。两篇内容是否已删除未经核实。
+
+### 下一步
+
+- 两篇保留在原批次待补清单。本轮结束。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
+<!-- trace-finalize e7b5e1c308b478d753d428fd405abf5c50f89e56e079281729593a7fb6af8efd -->

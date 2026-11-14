@@ -396,6 +396,9 @@ async function main() {
     throw new Error(`Missing or invalid config. Run \`node ./scripts/setup.js\` first. Expected: ${configPath}`);
   });
   const urls = await parseInputUrls(process.argv.slice(2));
+  const retries = dryRun || process.env.OBSIDIAN_CLIPPER_NO_RETRY === "1"
+    ? []
+    : getRetryConcurrencyPlan(config.maxConcurrentSummaries);
   const { extensionVersion } = await preflight(config);
   const artifacts = await createRunArtifacts();
   const manifest = {
@@ -415,15 +418,7 @@ async function main() {
       scrollStepPx: config.scrollStepPx,
       scrollPauseMs: config.scrollPauseMs,
     },
-    retryPolicy: dryRun
-      ? {
-          enabled: false,
-          retries: [],
-        }
-      : {
-          enabled: true,
-          retries: getRetryConcurrencyPlan(config.maxConcurrentSummaries),
-        },
+    retryPolicy: { enabled: retries.length > 0, retries },
     passes: [],
     results: [],
   };
@@ -463,28 +458,26 @@ async function main() {
       resultsByUrl,
     });
 
-    if (!dryRun) {
-      for (const retryConcurrency of getRetryConcurrencyPlan(config.maxConcurrentSummaries)) {
-        if (pendingUrls.length === 0) {
-          break;
-        }
-
-        attempt += 1;
-        passConcurrency = retryConcurrency;
-        pendingUrls = await runPass({
-          artifacts,
-          attempt,
-          config,
-          context,
-          dryRunEnabled: dryRun,
-          manifest,
-          urls: pendingUrls,
-          vaultInfo,
-          worker,
-          passConcurrency,
-          resultsByUrl,
-        });
+    for (const retryConcurrency of retries) {
+      if (pendingUrls.length === 0) {
+        break;
       }
+
+      attempt += 1;
+      passConcurrency = retryConcurrency;
+      pendingUrls = await runPass({
+        artifacts,
+        attempt,
+        config,
+        context,
+        dryRunEnabled: dryRun,
+        manifest,
+        urls: pendingUrls,
+        vaultInfo,
+        worker,
+        passConcurrency,
+        resultsByUrl,
+      });
     }
   } finally {
     manifest.finishedAt = new Date().toISOString();
