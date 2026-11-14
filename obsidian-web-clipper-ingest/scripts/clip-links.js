@@ -38,38 +38,57 @@ import { parseInputUrls } from "./lib/urls.js";
 const dryRun = process.env.OBSIDIAN_CLIPPER_DRY_RUN === "1";
 const allowWeChatHandoff = process.env.OBSIDIAN_CLIPPER_WECHAT_HANDOFF === "1";
 const verificationTimeoutMs = 20 * 60_000;
+const clipperSourceTimeoutMs = 20_000;
 
-async function waitForWeChatVerification(page, url, result) {
-  if (!allowWeChatHandoff) return;
-
-  const requested = new URL(url);
-  if (requested.hostname !== "mp.weixin.qq.com") return;
-
-  const current = new URL(page.url());
-  const verificationRequired = isWeChatVerificationRedirect(current, requested);
-
-  if (verificationRequired) {
-    result.verification = "waiting";
-    console.log(JSON.stringify({
-      event: "wechat_verification_required",
-      url,
-      timeoutMs: verificationTimeoutMs,
-    }));
+function assertArticleSource(pageUrl, requestedUrl) {
+  const requested = new URL(requestedUrl);
+  if (allowWeChatHandoff && requested.hostname === "mp.weixin.qq.com" &&
+      !matchesWeChatArticle(new URL(pageUrl), requested)) {
+    throw new Error("Browser left the requested WeChat article");
   }
+}
+
+async function waitForClipperSource(frame, page, requestedUrl) {
+  const expected = [requestedUrl, page.url()];
+  await frame.waitForFunction((sources) => {
+    const source = document.querySelector("#source")?.value?.trim().split("#")[0];
+    const error = [...document.querySelectorAll(".error-message")].some((node) =>
+      node.getClientRects().length && node.textContent?.trim());
+    return error || (source && sources.includes(source));
+  }, expected.map((value) => value.split("#")[0]), { timeout: clipperSourceTimeoutMs });
+  const target = await readClipTarget(frame);
+  if (!target.sourceUrl) throw new Error("Web Clipper did not bind to the requested tab");
+  assertClipSource(target.sourceUrl, expected);
+}
+
+async function waitForWeChatArticle(page, requested, timeout) {
+  await page.waitForURL((next) => matchesWeChatArticle(next, requested), {
+    waitUntil: "domcontentloaded",
+    timeout,
+  });
+  await page.locator("#js_content").waitFor({ state: "attached", timeout: 15000 });
+}
+
+async function waitForWeChatVerification(task, requested) {
+  const { page, result } = task;
+  result.verification = "waiting";
+  console.log(JSON.stringify({
+    event: "wechat_verification_required",
+    url: result.url,
+    timeoutMs: verificationTimeoutMs,
+  }));
   try {
-    await page.waitForURL((next) => matchesWeChatArticle(next, requested), {
-      waitUntil: "domcontentloaded",
-      timeout: verificationRequired ? verificationTimeoutMs : 15000,
-    });
-    await page.locator("#js_content").waitFor({ state: "attached", timeout: 15000 });
+    await waitForWeChatArticle(page, requested, verificationTimeoutMs);
   } catch (error) {
-    if (verificationRequired) result.verification = "incomplete";
-    throw error;
+    result.verification = "incomplete";
+    const message = page.isClosed()
+      ? "WeChat verification tab was closed before the article loaded"
+      : "WeChat verification did not return to the requested article";
+    return { ok: false, error: new Error(message, { cause: error }) };
   }
-  if (verificationRequired) {
-    result.verification = "article_loaded";
-    console.log(JSON.stringify({ event: "wechat_article_loaded", url }));
-  }
+  result.verification = "article_loaded";
+  console.log(JSON.stringify({ event: "wechat_article_loaded", url: result.url }));
+  return { ok: true, resume: true };
 }
 
 async function preflight(config) {
@@ -103,24 +122,51 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
     startedAt: new Date().toISOString(),
     screenshotPath,
   };
+  const task = { page, result, screenshotPath };
 
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
-    await page.bringToFront();
     await page.waitForTimeout(500);
     await waitForPageBaseline(page);
-    await waitForWeChatVerification(page, url, result);
+    const requested = new URL(url);
+    if (isWeChatVerificationRedirect(new URL(page.url()), requested)) {
+      if (allowWeChatHandoff) {
+        return { ...task, readyPromise: waitForWeChatVerification(task, requested) };
+      }
+      result.verification = "required";
+      throw new Error("WeChat verification requires the user");
+    }
+    if (allowWeChatHandoff && requested.hostname === "mp.weixin.qq.com") {
+      await waitForWeChatArticle(page, requested, 15000);
+    }
+  } catch (error) {
+    return failStaging(task, error);
+  }
+  return stageArticle(task, { config, worker });
+}
+
+async function failStaging(task, error) {
+  const { page, result, screenshotPath } = task;
+  result.status = "failed";
+  result.error = error instanceof Error ? error.message : String(error);
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  await page.close().catch(() => {});
+  return { completed: true, result };
+}
+
+async function stageArticle(task, { config, worker }) {
+  const { page, result } = task;
+  const { url } = result;
+  try {
     result.pageTitle = await page.title();
     assertClipSource(page.url(), [url, page.url()]);
 
     await scrollPageFully(page, config);
+    // The extension chooses its source from the active tab during initialization.
     await page.bringToFront();
     await page.waitForTimeout(300);
 
-    if (allowWeChatHandoff && new URL(url).hostname === "mp.weixin.qq.com" &&
-        !matchesWeChatArticle(new URL(page.url()), new URL(url))) {
-      throw new Error("Browser left the requested WeChat article");
-    }
+    assertArticleSource(page.url(), url);
     const tabId = await getTabIdForUrl(worker, page.url());
     if (!tabId) {
       throw new Error(`Could not determine the tab ID for Web Clipper page: ${page.url()}`);
@@ -128,23 +174,18 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
 
     await toggleClipperIframe(worker, tabId);
     const frame = await waitForClipperFrame(page, 20000);
+    await waitForClipperSource(frame, page, url);
 
     return {
+      ...task,
       frame,
-      page,
       readyPromise: waitForReadyToAdd(frame, config.summaryTimeoutMs)
         .then((readyState) => ({ ok: true, readyState }))
         .catch((error) => ({ ok: false, error })),
-      result,
-      screenshotPath,
       tabId,
     };
   } catch (error) {
-    result.status = "failed";
-    result.error = error instanceof Error ? error.message : String(error);
-    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
-    await page.close().catch(() => {});
-    return { completed: true, result };
+    return failStaging(task, error);
   }
 }
 
@@ -165,10 +206,12 @@ async function finalizeTask({
       result.status = "dry-run";
       result.confirmation = "skipped-by-dry-run";
     } else {
+      // The extension uses the active tab to hand the note to Obsidian.
       await page.bringToFront();
       await page.waitForTimeout(300);
 
       result.clipTarget = await readClipTarget(frame);
+      assertArticleSource(page.url(), result.url);
       assertClipSource(result.clipTarget.sourceUrl, [result.url, page.url()]);
       const importStartedAtMs = Date.now();
       await frame.locator("#clip-btn").click();
@@ -313,12 +356,13 @@ async function runPass({
     }
 
     if (!readiness.ok) {
-      task.result.status = "failed";
-      task.result.error = readiness.error instanceof Error ? readiness.error.message : String(readiness.error);
-      await task.page.screenshot({ path: task.screenshotPath, fullPage: true }).catch(() => {});
-      await closeClipperIframe(worker, task.tabId).catch(() => {});
-      await task.page.close().catch(() => {});
-      await persistResult(task.result);
+      if (task.tabId) await closeClipperIframe(worker, task.tabId).catch(() => {});
+      const failed = await failStaging(task, readiness.error);
+      await persistResult(failed.result);
+    } else if (readiness.resume) {
+      const resumed = await stageArticle(task, { config, worker });
+      if (resumed.completed) await persistResult(resumed.result);
+      else activeTasks.push(resumed);
     } else {
       await finalizeTask({
         config,
@@ -328,17 +372,7 @@ async function runPass({
         waitOutcome: readiness.readyState,
         worker,
       });
-      pass.results.push({
-        url: task.result.url,
-        status: task.result.status,
-        attempt: task.result.attempt,
-        attemptConcurrency: task.result.attemptConcurrency,
-        startedAt: task.result.startedAt,
-        finishedAt: task.result.finishedAt,
-        error: task.result.error,
-        verification: task.result.verification,
-      });
-      await recordResult(manifest, artifacts.manifestPath, resultsByUrl, task.result);
+      await persistResult(task.result);
     }
 
     await stageNextTasks();
@@ -349,7 +383,10 @@ async function runPass({
   await writeManifest(artifacts.manifestPath, manifest);
 
   return pass.results
-    .filter((result) => result.status === "failed" && result.verification !== "incomplete")
+    .filter((result) =>
+      result.status === "failed" &&
+      result.verification !== "required" &&
+      result.verification !== "incomplete")
     .map((result) => result.url);
 }
 

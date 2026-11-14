@@ -11,7 +11,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 
 1. Run `node ./scripts/setup.js` once to create `local/config.json` and validate Chrome, profile, and extension paths.
 2. The automation starts its own isolated browser profile, so it does not need to take over your live Chrome session.
-3. Run one of:
+3. Run one of the commands below. Set `OBSIDIAN_CLIPPER_WECHAT_HANDOFF=1` when the user is available to verify WeChat pages.
    - `node ./scripts/clip-links.js "<url>"`
    - `node ./scripts/clip-links.js "<url1>" "<url2>" ...`
    - `node ./scripts/clip-links.js --input <file>`
@@ -22,13 +22,14 @@ Use this skill when the user provides one or more links and wants them clipped i
 
 - This skill handles article/web URLs only. Do not send `https://weixin.qq.com/sph/...` Video Channels links through the Web Clipper; route them to `wechat-filehelper-macos-ingest`'s background video processor instead.
 - Keep Chrome headed. The installed extension and Obsidian deep link flow rely on a real interactive browser.
+- Run the existing script directly. It launches its own Chrome and uses the configured summary concurrency for article batches.
 - Reuse the existing Chrome user data directory and `Default` profile from `local/config.json`.
 - Start from a clean automation profile and copy only the Obsidian Web Clipper storage needed to preserve your template and vault settings.
 - Do not ask the user to click the extension UI manually. The automation uses the extension's embedded iframe path instead of the browser side panel because browser chrome is not reliably scriptable.
 - Treat the clip as ready only when the iframe shows `Add to Obsidian` and the button is enabled.
 - Scroll the page from top to bottom before opening the clipper iframe so lazy content loads on long articles.
-- Stage multiple pages in parallel for AI summarization. Open, scroll, and start clipping each page one by one, then let the summary phase overlap across up to `maxConcurrentSummaries` pages.
-- If a URL fails in the main batch, automatically retry only the failed URLs in narrower follow-up passes. The built-in fallback sequence is: original batch concurrency, then retry with concurrency `2`, then a final single-page retry.
+- Open and scroll each page, and confirm that the extension shows its source before starting the next one. Let summaries run concurrently up to `maxConcurrentSummaries`.
+- Retry recoverable failures at concurrency `2`, then `1`. A page waiting for WeChat verification needs user input before another attempt.
 - Before saving, pre-authorize the automation profile for the `obsidian://` protocol and force the extension's automation profile to use `silentOpen: true` so the run is not blocked by external-app prompts.
 - Treat a clip as truly successful only when the expected note is detected in the target Obsidian vault after clicking `Add to Obsidian`.
 
@@ -48,7 +49,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 
 ## Recovery
 
-- For an attended WeChat run, set `OBSIDIAN_CLIPPER_WECHAT_HANDOFF=1` with `OBSIDIAN_CLIPPER_MAX_CONCURRENCY=1`. If the script reports `wechat_verification_required`, ask the user to complete WeChat verification in the Chrome window the script opened. The script waits up to 20 minutes and resumes when the requested article body loads in that tab.
+- For an attended WeChat run, set `OBSIDIAN_CLIPPER_WECHAT_HANDOFF=1`. If the script reports `wechat_verification_required`, ask the user to complete WeChat verification in the Chrome window the script opened. Each affected tab waits up to 20 minutes and resumes when the requested article loads. Other tabs continue within the configured concurrency.
 - If the run times out waiting for `Add to Obsidian`, open the recorded screenshot and check whether the page failed to load, the interpreter is still running, or the extension showed an error.
 - If the extension iframe never appears, re-run `node ./scripts/setup.js` and confirm the extension ID and Chrome profile are still correct.
 - If Obsidian does not receive the clip, inspect the manifest first. A `success` result now requires an actual vault file match; if the run fails after clicking `Add to Obsidian`, the protocol permission or vault target still needs attention.
