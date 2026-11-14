@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
-import { assertClipSource } from "./lib/clip-validation.js";
+import {
+  assertClipSource,
+  isWeChatVerificationRedirect,
+  matchesWeChatArticle,
+} from "./lib/clip-validation.js";
 import path from "node:path";
 
 import {
@@ -32,6 +36,41 @@ import { createRunArtifacts, writeManifest } from "./lib/run-log.js";
 import { parseInputUrls } from "./lib/urls.js";
 
 const dryRun = process.env.OBSIDIAN_CLIPPER_DRY_RUN === "1";
+const allowWeChatHandoff = process.env.OBSIDIAN_CLIPPER_WECHAT_HANDOFF === "1";
+const verificationTimeoutMs = 20 * 60_000;
+
+async function waitForWeChatVerification(page, url, result) {
+  if (!allowWeChatHandoff) return;
+
+  const requested = new URL(url);
+  if (requested.hostname !== "mp.weixin.qq.com") return;
+
+  const current = new URL(page.url());
+  const verificationRequired = isWeChatVerificationRedirect(current, requested);
+
+  if (verificationRequired) {
+    result.verification = "waiting";
+    console.log(JSON.stringify({
+      event: "wechat_verification_required",
+      url,
+      timeoutMs: verificationTimeoutMs,
+    }));
+  }
+  try {
+    await page.waitForURL((next) => matchesWeChatArticle(next, requested), {
+      waitUntil: "domcontentloaded",
+      timeout: verificationRequired ? verificationTimeoutMs : 15000,
+    });
+    await page.locator("#js_content").waitFor({ state: "attached", timeout: 15000 });
+  } catch (error) {
+    if (verificationRequired) result.verification = "incomplete";
+    throw error;
+  }
+  if (verificationRequired) {
+    result.verification = "article_loaded";
+    console.log(JSON.stringify({ event: "wechat_article_loaded", url }));
+  }
+}
 
 async function preflight(config) {
   if (!(await pathExists(config.chromePath))) {
@@ -70,6 +109,7 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
     await page.bringToFront();
     await page.waitForTimeout(500);
     await waitForPageBaseline(page);
+    await waitForWeChatVerification(page, url, result);
     result.pageTitle = await page.title();
     assertClipSource(page.url(), [url, page.url()]);
 
@@ -77,6 +117,10 @@ async function stageClipTask({ artifacts, attempt, config, context, passConcurre
     await page.bringToFront();
     await page.waitForTimeout(300);
 
+    if (allowWeChatHandoff && new URL(url).hostname === "mp.weixin.qq.com" &&
+        !matchesWeChatArticle(new URL(page.url()), new URL(url))) {
+      throw new Error("Browser left the requested WeChat article");
+    }
     const tabId = await getTabIdForUrl(worker, page.url());
     if (!tabId) {
       throw new Error(`Could not determine the tab ID for Web Clipper page: ${page.url()}`);
@@ -227,6 +271,7 @@ async function runPass({
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
       error: result.error,
+      verification: result.verification,
     });
     await recordResult(manifest, artifacts.manifestPath, resultsByUrl, result);
   }
@@ -291,6 +336,7 @@ async function runPass({
         startedAt: task.result.startedAt,
         finishedAt: task.result.finishedAt,
         error: task.result.error,
+        verification: task.result.verification,
       });
       await recordResult(manifest, artifacts.manifestPath, resultsByUrl, task.result);
     }
@@ -302,7 +348,9 @@ async function runPass({
   pass.summary = summarizeResults(pass.results);
   await writeManifest(artifacts.manifestPath, manifest);
 
-  return pass.results.filter((result) => result.status === "failed").map((result) => result.url);
+  return pass.results
+    .filter((result) => result.status === "failed" && result.verification !== "incomplete")
+    .map((result) => result.url);
 }
 
 async function main() {
@@ -316,6 +364,7 @@ async function main() {
   const manifest = {
     startedAt: new Date().toISOString(),
     dryRun,
+    wechatHandoff: allowWeChatHandoff,
     config: {
       chromePath: config.chromePath,
       userDataDir: config.userDataDir,

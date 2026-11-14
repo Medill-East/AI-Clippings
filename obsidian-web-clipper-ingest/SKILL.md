@@ -48,6 +48,7 @@ Use this skill when the user provides one or more links and wants them clipped i
 
 ## Recovery
 
+- For an attended WeChat run, set `OBSIDIAN_CLIPPER_WECHAT_HANDOFF=1` with `OBSIDIAN_CLIPPER_MAX_CONCURRENCY=1`. If the script reports `wechat_verification_required`, ask the user to complete WeChat verification in the Chrome window the script opened. The script waits up to 20 minutes and resumes when the requested article body loads in that tab.
 - If the run times out waiting for `Add to Obsidian`, open the recorded screenshot and check whether the page failed to load, the interpreter is still running, or the extension showed an error.
 - If the extension iframe never appears, re-run `node ./scripts/setup.js` and confirm the extension ID and Chrome profile are still correct.
 - If Obsidian does not receive the clip, inspect the manifest first. A `success` result now requires an actual vault file match; if the run fails after clicking `Add to Obsidian`, the protocol permission or vault target still needs attention.

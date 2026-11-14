@@ -92,3 +92,33 @@ trace-source-sha256: baa31eebec6df1aed59455878ec1b4c4ea6184f38d68b17fb8e112b2787
 
 原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
 <!-- trace-finalize a5408fa239045d335956b12941de178cbeaea967a220525045173bf57e3621ae -->
+
+## 2026-11-14 13:28 原 Web Clipper 完成剩余四篇公众号
+
+记录：Codex（在场摘要）｜ session 01a1d7f8-3cb6-7b53-8684-5178ae1adfad
+trace-user-count: 8
+trace-source-sha256: 5ad05f03432cc2272cc258e062f7e0ee5cf58d19e6f2791e5baaa522a3fff5bf
+
+### 结论
+
+- 本人明确要求原 Web Clipper 脚本自行启动 Chrome，处理剩余四篇。出现微信验证时由本人操作，随后继续剪藏。
+- 原脚本在独立 Chrome 里完成四篇，全部为首轮成功，实际保存到 Obsidian。未出现微信验证，未要求本人操作。Logo Skill、《千高原》讲稿、《游点现实》和 Harness-of-Harness 公众号报道均已回读。连同原有两条视频和两份官网归档，本批共 8 个唯一来源全部完成。
+- 前几轮把 Codex 浏览器读取标签页的拦截误用于判断独立剪藏脚本会否运行。此次使用本人指定的原入口，并用四篇实跑纠正此判断。
+
+### 证据
+
+- 原运行清单为 `obsidian-web-clipper-ingest/local/runs/2026-11-14T05-17-27-069Z/manifest.json`，首轮 4 成功，失败 0。汇总在本机 `obsidian-web-clipper-ingest/local/intake/2026-1114/complete-verification.json`。八个来源各对应一份笔记。四篇均有原文、摘要和要点。
+- 四篇文件保存至 PKM 的 `Clippings/WeChat/2026/`，按原命名规则调整文件名并去掉末尾误收录的扩展 iframe。原始稿留在本机 `direct-wechat-original-notes/`。已核对 PKM 私有存储远端 `4077857d5193`。
+- 脚本增加可选的微信验证交接。识别到验证跳转时打印提示、保留当前窗口，并等原文章地址及正文回来后继续。Web Clipper 现有测试和新增原文匹配用例共 21 项通过。本批未触发实际验证，现场交接待真实验证页复核。
+- 本任务发起的原 PWE 补正文请求已用原会话撤回。没有登记成用户回复或批准。四篇待补清单已标记清零。
+
+### 风险
+
+- 此次四篇均直接打开，尚无线上验证页由本人完成后继续的实跑证据。此前 Codex 浏览器对该站点的提示对应当时的浏览器读取动作。
+
+### 下一步
+
+- 本批结案。日后的人工协同剪藏用原脚本的验证交接模式，出现对应提示后再请本人操作。11 月 9 日的历史待补项保留。
+
+原始对话：/Users/haodong/.codex/sessions/2026/11/14/rollout-2026-11-14T10-52-12-01a1d7f8-3cb6-7b53-8684-5178ae1adfad.jsonl
+<!-- trace-finalize c1d88e0c731edd9f06b4081dc1b6916258102a7e57cc0b5673b7d75bf653fc06 -->
