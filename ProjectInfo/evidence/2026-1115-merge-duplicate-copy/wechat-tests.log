@@ -1,0 +1,431 @@
+
+> wechat-filehelper-macos-ingest@0.1.0 test
+> node --test test/*.test.js
+
+▶ selectWeChatChatWindow
+  ✔ ignores screenshot overlay windows and selects the named WeChat chat window (4.348417ms)
+✔ selectWeChatChatWindow (45.769333ms)
+▶ captureWindowScreenshot
+  ✔ captures WeChat through its own screenshot overlay (4.274458ms)
+  ✔ always closes the screenshot overlay when capture fails (2.526834ms)
+✔ captureWindowScreenshot (7.160042ms)
+✔ does not send a second Escape into a video viewer after the capture overlay has closed (0.391834ms)
+✔ keeps a share popup open after dismissing the screenshot overlay (0.222375ms)
+▶ chat helpers
+  ✔ retries focus until WeChat is frontmost (13.605709ms)
+  ✔ accepts an unknown frontmost app name without retrying forever (0.286875ms)
+  ✔ scrolls upward in small steps at the chat area instead of using Page Up (1.037792ms)
+  ✔ falls back to small up-arrow nudges when the chat click point is unavailable (1.024542ms)
+✔ chat helpers (18.05225ms)
+▶ parseClipboardText
+  ✔ groups a share-card label and direct URL into one resolved block (9.564333ms)
+  ✔ keeps arbitrary H5 links on the same message block as a direct URL path (2.214875ms)
+  ✔ classifies Bilibili video-style share cards before opening the viewer (0.869667ms)
+✔ parseClipboardText (14.951083ms)
+▶ readVisibleClipboardSnapshot
+  ✔ retries once when the clipboard is empty after copying visible messages (1.5235ms)
+✔ readVisibleClipboardSnapshot (1.726209ms)
+✔ routes forwarded article and video links separately and deduplicates article tracking URLs (21.065416ms)
+✔ does not mistake a merged-forward ZIP or unknown card for parsed links (0.2435ms)
+✔ buildPortableClippingStem uses the Shanghai publication date and whitelist (243.898625ms)
+✔ buildPortableClippingStem falls back explicitly and rejects missing dates (5.050459ms)
+✔ choosePortableNotePath reuses the same source and suffixes conflicts (117.236084ms)
+▶ canonicalizeUrl
+  ✔ lowercases host (3.286917ms)
+  ✔ removes fragment (0.952041ms)
+  ✔ removes trailing slash from path (0.208834ms)
+  ✔ keeps bare origin trailing slash (0.726792ms)
+  ✔ strips query params from WeChat article shortlinks (0.845208ms)
+  ✔ returns raw string for invalid URLs (0.165292ms)
+✔ canonicalizeUrl (10.927083ms)
+▶ shouldSkipUrl
+  ✔ skips channels.weixin.qq.com (视频号) (1.032375ms)
+  ✔ skips bilibili.com/video/ paths (0.989833ms)
+  ✔ skips b23.tv shortlinks (0.217917ms)
+  ✔ skips wx.qq.com internal pages (0.157ms)
+  ✔ keeps bilibili column/article links (0.111542ms)
+  ✔ keeps WeChat article links (0.762375ms)
+  ✔ keeps arbitrary HTTPS links (0.484542ms)
+  ✔ keeps YouTube watch links (0.081833ms)
+  ✔ keeps arbitrary H5 payment links (0.076125ms)
+✔ shouldSkipUrl (4.782542ms)
+▶ classifySkipReason
+  ✔ classifies wx.qq.com login pages as wechat_internal_login (0.113917ms)
+  ✔ classifies b23 shortlinks separately (0.103458ms)
+✔ classifySkipReason (0.295625ms)
+▶ dedupeKey
+  ✔ is deterministic (1.717833ms)
+  ✔ differs when URL differs (0.123916ms)
+  ✔ is a 64-char hex string (SHA256) (0.179042ms)
+✔ dedupeKey (2.129125ms)
+▶ parseWeChatTimestamp
+  ✔ parses "HH:MM" as today in CST (1.244042ms)
+  ✔ parses "昨天 HH:MM" (0.434959ms)
+  ✔ parses "今天 HH:MM" (0.136875ms)
+  ✔ parses "Yesterday HH:MM" (0.166208ms)
+  ✔ parses "Today HH:MM" (0.429875ms)
+  ✔ parses "Sunday HH:MM" as the previous matching weekday (0.699167ms)
+  ✔ parses "M月D日 HH:MM" (0.40175ms)
+  ✔ parses "YYYY年M月D日 HH:MM" (0.121958ms)
+  ✔ returns null for empty string (0.057083ms)
+  ✔ returns null for unrecognized format (0.122875ms)
+✔ parseWeChatTimestamp (4.1865ms)
+▶ mergeRecords
+  ✔ deduplicates by dedupe_key (0.185167ms)
+  ✔ preserves existing records first (0.2755ms)
+✔ mergeRecords (0.664875ms)
+▶ filterByTimeRange
+  ✔ returns records within range (inclusive) (0.300958ms)
+  ✔ excludes records outside range (0.070041ms)
+✔ filterByTimeRange (0.472875ms)
+✔ defers closure across two extractions, then closes tabs at the end (90.540459ms)
+✔ scrolls within the calibrated chat pane rather than the article (1.155958ms)
+✔ rejects resized windows before opening a candidate (4.405541ms)
+✔ does not report a blank screenshot as successful cleanup (8.249167ms)
+✔ stops closing when the tab does not change (14.938709ms)
+✔ distinguishes absent calibration from corrupt calibration (2.352041ms)
+✔ requires the first article to be open rather than treating an empty right pane as ready (6.513708ms)
+✔ adapts image-to-article detection and reuses the opened viewer for the original reroute (10.857917ms)
+✔ waits through an initial loading frame before returning the existing article type hint (5.322542ms)
+✔ captures the actual standalone viewer rather than the chat behind it (8.574833ms)
+✔ captures only the article pane for a docked article readiness check (0.452208ms)
+✔ uses a visible tab close glyph when the tab strip has shifted (0.49325ms)
+▶ createImageContentRecord
+  ✔ creates a deterministic image OCR record with a confidence decision (41.14225ms)
+  ✔ keeps low-confidence OCR as needs_review (0.785208ms)
+  ✔ distinguishes empty OCR from a valid empty result (2.43275ms)
+  ✔ preserves fallback timestamp provenance in the image record and note (0.930583ms)
+✔ createImageContentRecord (52.563416ms)
+▶ renderImageContentNote
+  ✔ renders deterministic Markdown with the complete OCR text (6.254875ms)
+  ✔ makes low-confidence content visibly reviewable (0.410666ms)
+✔ renderImageContentNote (6.916959ms)
+▶ publishImageContentRecord
+  ✔ atomically writes and verifies a high-confidence note (150.206583ms)
+  ✔ writes low-confidence OCR but preserves needs_review (21.424917ms)
+  ✔ treats a legacy note without timestamp provenance as the same image content (27.030375ms)
+  ✔ still rejects a legacy note whose OCR body differs (63.690125ms)
+✔ publishImageContentRecord (264.4375ms)
+▶ ensureVisionHelperBinary
+  ✔ compiles the Swift helper once and reuses the current binary (363.406083ms)
+✔ ensureVisionHelperBinary (364.998042ms)
+▶ probeWeChatStore
+  ✔ reports a complete readable store (665.537ms)
+  ✔ marks extracted database times with explicit provenance (541.655917ms)
+  ✔ reports missing when the account store is incomplete (101.704417ms)
+  ✔ reports encrypted_unreadable when db files exist but are not directly readable (333.591791ms)
+✔ probeWeChatStore (1645.076834ms)
+▶ query-links.js
+  ✔ routes SPH links to the background video group instead of article records (18.3735ms)
+  ✔ keeps the new source field in JSON output (753.588667ms)
+  ✔ labels range-boundary fallback timestamps in Markdown output (5.696791ms)
+  ✔ labels timestamps from legacy records as having unknown provenance (4.984291ms)
+  ✔ filters historical skipped URLs from query results (421.81925ms)
+  ✔ shows skipped cards in query output as a separate group (378.144333ms)
+  ✔ shows uncertain OCR links separately from confirmed links (960.064834ms)
+  ✔ shows image OCR content and unresolved items as separate result groups (27.612583ms)
+✔ query-links.js (2573.3095ms)
+✔ recovers single-line Gwen and Nicky titles with their separated publisher footers (9.686083ms)
+✔ uses the preceding chat time across a tall card, not a following message time (0.567042ms)
+✔ resolves 21:06 seen at 00:13 to the previous day, without changing explicit Today (3.418333ms)
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: complete (reached_before_since; oldest visible: 2026-09-13T08:09:00.000Z).
+✔ does not extract old cards when the start-boundary timestamp is separate from a card (157.549792ms)
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_candidates_reached; oldest visible: 2026-09-13T13:06:00.000Z).
+✔ counts one URL when a card reappears with a different time association (59.223ms)
+✔ locates the actual close icon in the saved crowded tab strip (6746.168ms)
+Scrolled 1 time(s), found 0 unique link(s).
+Timeline coverage: complete (reached_before_since; oldest visible: 2026-09-13T08:09:00.000Z).
+✔ defers a clipped previous time group until its preceding timestamp is visible (11.505917ms)
+✔ copies a docked video link after restoring hover lost during screenshot capture (9.514959ms)
+WeChat FileHelper macOS Ingest — Scan
+Since : 2026-03-28T07:00:00.000Z
+Until : 2026-03-28T08:00:00.000Z
+Source: auto
+Max scrolls: 5
+--------------------------------------------------
+Activating WeChat window...
+Probing macOS UI scan readiness...
+Scanning from UI-first single-article flow...
+Collected 1 link(s) from this scan.
+Recorded 1 uncertain external link(s).
+Recorded 1 unresolved item(s).
+Recorded 1 image OCR content item(s).
+Added 4 new record(s) to index (4 total).
+
+Run manifest saved to: local/runs/2026-11-14T17-41-04/manifest.json
+Done.
+▶ scan flow
+  ✔ auto selects ui when the UI probe is ready (64.542333ms)
+  ✔ rejects type outcomes whose seen count has no final disposition (18.050542ms)
+WeChat FileHelper macOS Ingest — Scan
+Since : 2026-03-28T07:00:00.000Z
+Until : 2026-03-28T08:00:00.000Z
+Source: auto
+Max scrolls: 5
+--------------------------------------------------
+Activating WeChat window...
+Probing macOS UI scan readiness...
+Using clipboard fallback.
+Scanning visible messages from clipboard fallback...
+Collected 1 link(s) from this scan.
+Added 1 new record(s) to index (1 total).
+
+Run manifest saved to: local/runs/2026-11-14T17-41-04/manifest.json
+Done.
+  ✔ auto falls back to clipboard when the UI probe is not ready (21.275125ms)
+WeChat FileHelper macOS Ingest — Scan
+Since : 2026-03-28T07:00:00.000Z
+Until : 2026-03-28T08:00:00.000Z
+Source: store
+Max scrolls: 5
+--------------------------------------------------
+Probing local WeChat store...
+Scanning from local WeChat store...
+Collected 2 link(s) from this scan.
+Added 2 new record(s) to index (2 total).
+
+Run manifest saved to: local/runs/2026-11-14T17-41-04/manifest.json
+Done.
+Scrolled 5 time(s), found 1 unique link(s).
+Scrolled 1 time(s), found 1 unique link(s).
+Scrolled 1 time(s), found 1 unique link(s).
+  ✔ store scanning only runs when store is explicitly requested (843.626167ms)
+  ✔ clipboard scanning keeps text URLs and records unresolved share cards (10.926792ms)
+  ✔ anchors clipboard relative timestamps to scan time instead of the requested until bound (2.6095ms)
+  ✔ keeps an untimed clipboard item in range and marks its timestamp fallback (0.8745ms)
+WeChat FileHelper macOS Ingest — Scan
+Since : 2026-03-28T07:00:00.000Z
+Until : 2026-03-28T08:00:00.000Z
+Source: store
+Max scrolls: 5
+--------------------------------------------------
+Probing local WeChat store...
+  ✔ store source errors when the store is unreadable (316.876125ms)
+✔ scan flow (1286.214542ms)
+WeChat FileHelper macOS Ingest — Scan
+Since : 2026-09-13T00:00:00.000Z
+Until : 2026-09-14T00:00:00.000Z
+Source: ui
+Max scrolls: 1
+--------------------------------------------------
+Activating WeChat window...
+Probing macOS UI scan readiness...
+Scanning from UI-first single-article flow...
+Article cleanup failed: test cleanup
+✔ runs docked cleanup after a scan failure and keeps the original error (18.266125ms)
+▶ ui helpers
+  ✔ finds 文件传输助手 in the title area (92.681709ms)
+  ✔ aligns clipboard share-card candidates to OCR lines in order (11.251583ms)
+  ✔ treats video-channel share cards as actionable candidates (7.286334ms)
+  ✔ falls back to OCR-only share-card discovery when clipboard has no share cards (5.375125ms)
+  ✔ keeps an OCR-only card attached to its own right-pane cluster (1.185125ms)
+  ✔ does not turn URL-like OCR text into fallback share cards when clipboard already has a direct URL block (2.625ms)
+  ✔ promotes OCR-only broken external URL fragments into direct URL blocks (4.037708ms)
+  ✔ promotes a single OCR URL line before the old right-pane boundary (10.005209ms)
+  ✔ reconstructs a wrapped OCR URL beginning before the old right-pane boundary (18.042666ms)
+  ✔ marks a standalone OCR URL ending in a period as truncated instead of confirmed (6.39725ms)
+  ✔ keeps only the most complete OCR direct URL when fragments also produce truncated prefixes (7.0035ms)
+  ✔ keeps true OCR-only share cards even when the same page also has direct URL blocks (0.749208ms)
+  ✔ classifies screenshot-like OCR paragraphs as image candidates beside a direct URL (0.561416ms)
+  ✔ promotes clipboard image classifications instead of losing them during OCR dedupe (0.524916ms)
+  ✔ keeps screenshot text beginning just left of the old card boundary (0.32675ms)
+  ✔ keeps an explicit one-line image marker as an actionable image candidate (0.168167ms)
+  ✔ keeps an unrelated OCR image when clipboard already contains a share card (0.302ms)
+  ✔ marks bilibili-style OCR fallback cards as skipped before viewer extraction (0.497917ms)
+  ✔ marks bilibili brand-typo OCR cards as skipped before viewer extraction (0.163583ms)
+  ✔ finds copy-link menu actions from OCR output (0.153ms)
+  ✔ maps OCR coordinates back to screen coordinates on Retina-sized screenshots (0.272041ms)
+  ✔ scales candidate click points when OCR image dimensions exceed window bounds (0.429625ms)
+  ✔ reuses a prefetched clipboard snapshot for the first visible page capture (140.544542ms)
+  ✔ uses OCR-only sampling for share-card pages that do not show direct URLs (3.427583ms)
+  ✔ reads clipboard on demand when OCR shows URL-like content (13.683625ms)
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (candidate_generation_failed; oldest visible: 2026-03-29T11:31:00.000Z).
+  ✔ reads clipboard when OCR only exposes a broken external URL fragment (3.209875ms)
+  ✔ forces a clipboard resample once and stops early when actionable OCR blocks still have no candidates (24.997542ms)
+  ✔ skips repeated clipboard reads when the next page has the same URL-like OCR signature (17.16575ms)
+Scrolled 1 time(s), found 1 unique link(s).
+Timeline coverage: complete (reached_before_since; oldest visible: 2026-08-28T14:59:00.000Z).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: unknown).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: unknown).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (viewer_recovery_failed; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: unverified (unknown; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 2 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:04:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (candidate_generation_failed; oldest visible: 2026-03-29T10:04:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 0 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 1 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T10:05:00.000Z).
+Scrolled 1 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T01:51:00.000Z).
+Scrolled 1 time(s), found 2 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T01:40:00.000Z).
+Scrolled 1 time(s), found 2 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T01:51:00.000Z).
+Scrolled 1 time(s), found 2 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T01:51:00.000Z).
+Scrolled 1 time(s), found 0 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: 2026-03-29T01:51:00.000Z).
+Scrolled 1 time(s), found 1 unique link(s).
+Timeline coverage: incomplete (max_scrolls_reached; oldest visible: unknown).
+  ✔ keeps the initial UI probe on OCR-only sampling for pure share-card pages (68.540458ms)
+✔ ui helpers (454.948917ms)
+▶ scanUiLinks
+  ✔ anchors relative timestamps to scan time instead of the requested until bound (3.5185ms)
+  ✔ marks timeline coverage incomplete when the scroll limit is exhausted (0.906417ms)
+  ✔ keeps an untimed visible item in range and marks its timestamp as a boundary fallback (0.580583ms)
+  ✔ keeps share-like blocks with direct URLs on the fast path without opening the viewer (0.629125ms)
+  ✔ records OCR-only low-confidence external URLs as uncertain links without opening the viewer (0.593458ms)
+  ✔ routes image candidates through OCR and preserves the content record (0.939958ms)
+  ✔ reroutes an OCR image candidate only after article Copy Link confirms its type (1.034584ms)
+  ✔ keeps a hinted candidate as image OCR when article Copy Link cannot confirm it (1.944167ms)
+  ✔ keeps a confirmed article URL and exposes viewer recovery failure without publishing OCR (65.843792ms)
+  ✔ does not publish OCR or keep scanning when an article probe cannot close its viewer (2.296292ms)
+  ✔ only opens the viewer for blocks that lack a direct URL (0.823792ms)
+  ✔ records an actionable card when OCR cannot produce a click target (0.350583ms)
+  ✔ skips bilibili video-style cards before opening the viewer (0.580209ms)
+  ✔ opens video-channel cards with the existing viewer flow and records the share URL (0.491208ms)
+  ✔ records a failed video-channel Copy Link attempt as an unresolved item (0.722ms)
+  ✔ does not reopen or re-record the same skipped bilibili card across pages (1.730333ms)
+  ✔ deduplicates the same article across pages even when OCR raw text drifts (2.936125ms)
+  ✔ does not deduplicate different timestamps that share a similar title (1.216625ms)
+  ✔ does not deduplicate distinct cards with a long shared title prefix (1.585666ms)
+  ✔ does not deduplicate different cards that share only a source footer (2.807208ms)
+  ✔ does not retry the same article after a failed extraction in the same run (1.2155ms)
+  ✔ rechecks untimed OCR title drift but records the resolved URL only once (0.835875ms)
+✔ scanUiLinks (105.923125ms)
+▶ extractShareCardUrl
+  ✔ opens the docked article menu at a fixed toolbar inset and reuses Copy Link (33.481167ms)
+  ✔ returns a URL when copy-link succeeds (434.088958ms)
+  ✔ returns a video-channel share URL when copy-link succeeds (426.550125ms)
+  ✔ uses the video-channel share panel instead of the article menu (4.475375ms)
+  ✔ retries above an OCR cluster when its text-center click misses the viewer (0.588791ms)
+  ✔ skips OCR recovery verification when fast close returns to a known pre-view window (426.012916ms)
+  ✔ falls back to OCR recovery verification when the fast close state is uncertain (477.032958ms)
+  ✔ targets the newly opened viewer window even when it appears first in the window list (439.767417ms)
+  ✔ detects a front-window viewer transition without requiring a new window (428.978833ms)
+  ✔ detects an article viewer from full-screen OCR when no new window is created (14.125041ms)
+  ✔ falls back to the browser URL when copy-link is unavailable (470.628542ms)
+  ✔ fails if the viewer cannot be closed or the chat does not recover (619.866583ms)
+  ✔ retries chat recovery by navigating back to 文件传输助手 before failing (426.660291ms)
+  ✔ captures the article menu inside the viewer before mapping the Copy Link click (8.4675ms)
+  ✔ keeps article-menu probes in the viewer top-right on a multi-display capture (4.0355ms)
+  ✔ waits for the viewer to finish loading before opening the menu (39.871125ms)
+  ✔ still tries Copy Link when a rich-media viewer never exposes the full OCR title (422.512083ms)
+  ✔ retries the first viewer-menu point before shifting to safer nearby offsets (465.428875ms)
+  ✔ fails fast when the share-card viewer never opens (916.550834ms)
+  ✔ stops menu probing early when the viewer window closes after the first miss (23.215375ms)
+✔ extractShareCardUrl (6100.804125ms)
+▶ extractImageContent
+  ✔ confirms the image viewer, runs local OCR, and publishes the record (7.28775ms)
+  ✔ waits for image-viewer content instead of publishing the loading toolbar (2.773458ms)
+  ✔ removes image-viewer toolbar OCR before creating the content record (2.451375ms)
+  ✔ returns an explicit OCR failure after closing an empty image viewer (1.138167ms)
+  ✔ keeps OCR content when PKM publication fails (4.976542ms)
+  ✔ does not claim OCR success when no image viewer opens (0.994625ms)
+  ✔ returns an article type hint without publishing viewer chrome as image OCR (5.576542ms)
+  ✔ preserves meaningful OCR from a top-aligned yuanbao screenshot until type confirmation (3.064167ms)
+  ✔ does not reroute an image merely because its body contains the article chrome phrase (4.378625ms)
+✔ extractImageContent (35.389708ms)
+✔ returns the existing article type hint when an image candidate opens a docked article (0.505708ms)
+✔ waits for video content rather than treating the channel header as loaded (11.94ms)
+▶ selectVideoChannelRecords
+  ✔ selects unique SPH links inside the requested time range (11.313125ms)
+  ✔ can select one explicit share URL without a time range (0.313375ms)
+  ✔ selects a valid explicit share URL even when it is not in the local index (1.4765ms)
+✔ selectVideoChannelRecords (17.110583ms)
+▶ runVideoBatch
+  ✔ writes a redacted manifest with independently countable outcomes (189.251417ms)
+  ✔ counts a content duplicate as skipped and records its canonical task (106.731333ms)
+  ✔ resolves share-link aliases before starting one unique video job (426.086541ms)
+  ✔ finishes the manifest with explicit failures when the Obsidian target is unavailable (57.023042ms)
+  ✔ stops the batch after the first auth failure and marks remaining videos as not attempted (29.656792ms)
+✔ runVideoBatch (817.196083ms)
+▶ runVideoChannelTask
+  ✔ persists every stage and removes temporary media after a written note (414.644584ms)
+  ✔ skips a second share URL that resolves to an already written video (119.471791ms)
+  ✔ records a transcribe failure with a non-empty code and failure log (54.417166ms)
+  ✔ uses the published Shanghai date and portable title in the note filename (97.41375ms)
+✔ runVideoChannelTask (694.796833ms)
+▶ renderVideoNote
+  ✔ contains the original link, summary, and concrete key points without transcript (7.645791ms)
+✔ renderVideoNote (7.880833ms)
+▶ conciseVideoTitle
+  ✔ uses the most specific bracketed work name for a long description (0.674125ms)
+✔ conciseVideoTitle (0.908667ms)
+▶ video browser runtime
+  ✔ declares Playwright as this package's own runtime dependency (7.602167ms)
+  ✔ does not hide a broken local install behind a sibling package (2.562708ms)
+✔ video browser runtime (13.288083ms)
+▶ validateSphUrl
+  ✔ accepts public WeChat Channels share links (0.355791ms)
+  ✔ rejects unrelated URLs with an explicit code (0.182292ms)
+✔ validateSphUrl (0.779ms)
+▶ parseYuanbaoPayload
+  ✔ extracts the temporary token and export id (1.081792ms)
+  ✔ distinguishes an expired login from a parser rejection (0.391209ms)
+✔ parseYuanbaoPayload (1.694958ms)
+▶ extractFeedProfile
+  ✔ selects a playable media candidate and keeps public metadata (0.491833ms)
+  ✔ reports media_missing instead of returning an empty URL (0.361167ms)
+✔ extractFeedProfile (1.065ms)
+▶ resolveVideoChannel
+  ✔ verifies parser, feed, and ranged MP4 responses (569.919583ms)
+  ✔ reports HTTP login rejection as auth_required (0.280541ms)
+✔ resolveVideoChannel (570.316125ms)
+▶ server-verified Yuanbao login
+  ✔ rejects expired authentication despite any cached UI identity (0.138125ms)
+  ✔ accepts a successful account response (0.058833ms)
+✔ server-verified Yuanbao login (0.317792ms)
+▶ downloadVideoMedia
+  ✔ streams to a part file, probes duration, and atomically promotes the MP4 (355.171167ms)
+  ✔ rejects an image response with media_invalid (9.112042ms)
+✔ downloadVideoMedia (414.466ms)
+▶ transcribeWithV2T
+  ✔ finds V2T in the Director workspace when the checkout sibling is absent (67.323542ms)
+  ✔ runs local ASR through V2T's recoverable per-chunk worker path (89.682542ms)
+  ✔ reuses an existing V2T recovery job without resetting partial chunks (20.591375ms)
+  ✔ extracts ordered frame text and removes recurring visual watermarks (138.966541ms)
+  ✔ reuses the configured local V2T model and writes a temporary transcript (39.641167ms)
+  ✔ falls back to frame OCR when local ASR contains no usable video content (52.1265ms)
+✔ transcribeWithV2T (414.3635ms)
+▶ summarizeWithCodex
+  ✔ accepts only the structured summary contract (18.455584ms)
+  ✔ reports malformed model output instead of returning an empty summary (12.579458ms)
+✔ summarizeWithCodex (31.654625ms)
+▶ resolveObsidianClippingsDir
+  ✔ reuses the directory proven by a successful Web Clipper manifest (40.346709ms)
+  ✔ resolves the active macOS Obsidian vault without importing browser automation (7.958666ms)
+  ✔ does not accept a regular file as an Obsidian vault (8.068959ms)
+  ✔ preserves vault permission errors instead of silently choosing another vault (2.24625ms)
+✔ resolveObsidianClippingsDir (59.317041ms)
+ℹ tests 226
+ℹ suites 38
+ℹ pass 226
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9049.882167

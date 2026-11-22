@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyEnvOverrides, makeDefaultConfig, validateConfig } from "../scripts/lib/config.js";
+import {
+  applyEnvOverrides,
+  getPlatformDefaults,
+  makeDefaultConfig,
+  validateConfig,
+} from "../scripts/lib/config.js";
 
 test("makeDefaultConfig returns a valid config shape", () => {
   const config = makeDefaultConfig();
@@ -29,4 +34,17 @@ test("applyEnvOverrides updates max concurrent summaries from env", () => {
       process.env.OBSIDIAN_CLIPPER_MAX_CONCURRENCY = previous;
     }
   }
+});
+
+test("getPlatformDefaults returns macOS Chrome defaults", () => {
+  const defaults = getPlatformDefaults({
+    platform: "darwin",
+    homeDir: "/Users/tester",
+  });
+
+  assert.deepEqual(defaults, {
+    chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    userDataDir: "/Users/tester/Library/Application Support/Google/Chrome",
+    openShortcut: "Meta+Shift+O",
+  });
 });

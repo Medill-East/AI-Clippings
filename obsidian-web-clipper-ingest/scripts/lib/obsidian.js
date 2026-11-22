@@ -1,14 +1,36 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { pathExists } from "./chrome.js";
 
-const OBSIDIAN_CONFIG_PATHS = [
-  "C:/Users/haodo/AppData/Roaming/obsidian/obsidian.json",
-  "C:/Users/haodo/AppData/Roaming/Obsidian/obsidian.json",
-];
-
 const IGNORED_DIRECTORIES = new Set([".git", ".obsidian", "node_modules"]);
+
+export function getObsidianConfigPaths({
+  env = process.env,
+  homeDir = os.homedir(),
+  platform = process.platform,
+} = {}) {
+  if (platform === "darwin") {
+    return [
+      path.join(homeDir, "Library", "Application Support", "obsidian", "obsidian.json"),
+      path.join(homeDir, "Library", "Application Support", "Obsidian", "obsidian.json"),
+    ];
+  }
+
+  if (platform === "win32") {
+    const appData = env.APPDATA ?? "C:/Users/haodo/AppData/Roaming";
+    return [
+      path.join(appData, "obsidian", "obsidian.json").replace(/\\/g, "/"),
+      path.join(appData, "Obsidian", "obsidian.json").replace(/\\/g, "/"),
+    ];
+  }
+
+  return [
+    path.join(homeDir, ".config", "obsidian", "obsidian.json"),
+    path.join(homeDir, ".config", "Obsidian", "obsidian.json"),
+  ];
+}
 
 export function normalizeNoteStem(value) {
   return value
@@ -38,7 +60,7 @@ export function chooseVaultCandidate(candidates, preferredVaultNames = []) {
 export async function resolveObsidianVault(preferredVaultNames = []) {
   const candidates = [];
 
-  for (const configPath of OBSIDIAN_CONFIG_PATHS) {
+  for (const configPath of getObsidianConfigPaths()) {
     if (!(await pathExists(configPath))) {
       continue;
     }

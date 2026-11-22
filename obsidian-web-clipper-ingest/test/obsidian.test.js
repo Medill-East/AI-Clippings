@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { chooseVaultCandidate, normalizeNoteStem } from "../scripts/lib/obsidian.js";
+import {
+  chooseVaultCandidate,
+  getObsidianConfigPaths,
+  normalizeNoteStem,
+} from "../scripts/lib/obsidian.js";
 
 test("normalizeNoteStem normalizes Windows-illegal characters and spacing", () => {
   assert.equal(
@@ -21,4 +25,16 @@ test("chooseVaultCandidate prefers the open vault among matching names", () => {
   );
 
   assert.equal(selected?.path, "D:/B/PlayWithExperiences");
+});
+
+test("getObsidianConfigPaths returns macOS config locations", () => {
+  const paths = getObsidianConfigPaths({
+    platform: "darwin",
+    homeDir: "/Users/tester",
+  });
+
+  assert.deepEqual(paths, [
+    "/Users/tester/Library/Application Support/obsidian/obsidian.json",
+    "/Users/tester/Library/Application Support/Obsidian/obsidian.json",
+  ]);
 });

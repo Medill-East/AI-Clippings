@@ -78,3 +78,11 @@ session 01a1730d-b6c8-71e1-abce-b7923245acfa
 ### 助手
 
 > 最终核验已通过 11/11：源链接、正文、AI 摘要和要点均已保存，处理前未发现重复项。GitHub 的完整 README 已补齐并比对通过；现在更新记录，备份本批文件。
+
+### 助手
+
+> 已完成 **11/11**：10 篇公众号文章、1 个 GitHub 项目，均已保存到 Obsidian，含正文、AI 摘要和要点。
+>
+> GitHub 完整 README 已补齐；逐项回读通过，无重复或失败项。[查看本批清单](/Users/haodong/Documents/AI/Codex/Clippings/ProjectInfo/sessions/2026-1025-pasted-link-batch.md)。
+>
+> 本地留痕完成（覆盖已核验），远端备份已核对：PKM `f2babf0d`、Clippings `d3643cd`。

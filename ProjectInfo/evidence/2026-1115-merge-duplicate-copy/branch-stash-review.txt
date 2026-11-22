@@ -1,0 +1,40 @@
+backup/codex-20261115/codex/clippings-portable-filenames
+ .../2026-08-22-clippings-portable-filenames.md     | 1017 +++++++++++++
+ obsidian-web-clipper-ingest/scripts/clip-links.js  |   49 +-
+ .../scripts/lib/clip-target-naming.js              |  241 +++
+ .../test/clip-target-naming.test.js                |  338 +++++
+ .../test/clippings-naming.test.js                  |  245 ++++
+ scripts/migrate-clipping-note.mjs                  |   80 +
+ shared/clippings-migration.mjs                     |  863 +++++++++++
+ shared/clippings-migration.test.mjs                | 1536 ++++++++++++++++++++
+ shared/clippings-naming.mjs                        |  150 ++
+ .../scripts/lib/video-channel-pipeline.js          |  292 +++-
+ .../test/video-channel-pipeline.test.js            |  583 +++++++-
+ 11 files changed, 5345 insertions(+), 49 deletions(-)
+
+backup/codex-20261115/stash-0
+ ProjectInfo/dialogues/2026-0822.md                 | 499 ++++++++++++++++++++
+ ProjectInfo/dialogues/2026-0829.md                 | 522 +++++++++++++++++++++
+ .../sessions/2026-0822-obsidian-web-clipper.md     |  24 +
+ .../2026-0822-wechat-video-channel-processing.md   |  35 +-
+ ...026-0822-wechat-video-channel-skip-diagnosis.md |   8 -
+ obsidian-web-clipper-ingest/scripts/lib/clipper.js |  52 +-
+ obsidian-web-clipper-ingest/scripts/lib/config.js  |  38 +-
+ .../scripts/lib/obsidian.js                        |  34 +-
+ obsidian-web-clipper-ingest/test/config.test.js    |  20 +-
+ obsidian-web-clipper-ingest/test/obsidian.test.js  |  18 +-
+ 10 files changed, 1206 insertions(+), 44 deletions(-)
+
+backup/codex-20261115/stash-1
+ ProjectInfo/dialogues/2026-0822.md                 | 499 +++++++++++++++++++++
+ ProjectInfo/dialogues/2026-0829.md                 | 301 +++++++++++++
+ .../sessions/2026-0822-obsidian-web-clipper.md     |  24 +
+ .../2026-0822-wechat-video-channel-processing.md   |  35 +-
+ ...026-0822-wechat-video-channel-skip-diagnosis.md |   8 -
+ ...026-0828-wechat-mixed-content-scan-diagnosis.md |  61 ---
+ obsidian-web-clipper-ingest/scripts/lib/clipper.js |  52 ++-
+ obsidian-web-clipper-ingest/scripts/lib/config.js  |  38 +-
+ .../scripts/lib/obsidian.js                        |  34 +-
+ obsidian-web-clipper-ingest/test/config.test.js    |  20 +-
+ obsidian-web-clipper-ingest/test/obsidian.test.js  |  18 +-
+ 11 files changed, 985 insertions(+), 105 deletions(-)

@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { ensureDir, fileExists, readJson, writeJson } from "./fs-utils.js";
@@ -12,16 +13,45 @@ export const configPath = path.join(localDir, "config.json");
 export const runsDir = path.join(localDir, "runs");
 export const automationUserDataDir = path.join(localDir, "automation-user-data");
 
-export function makeDefaultConfig() {
-  const localAppData = process.env.LOCALAPPDATA ?? "C:/Users/haodo/AppData/Local";
+export function getPlatformDefaults({
+  env = process.env,
+  homeDir = os.homedir(),
+  platform = process.platform,
+} = {}) {
+  if (platform === "darwin") {
+    return {
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      userDataDir: path.join(homeDir, "Library", "Application Support", "Google", "Chrome"),
+      openShortcut: "Meta+Shift+O",
+    };
+  }
+
+  if (platform === "win32") {
+    const localAppData = env.LOCALAPPDATA ?? "C:/Users/haodo/AppData/Local";
+    return {
+      chromePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      userDataDir: path.join(localAppData, "Google", "Chrome", "User Data").replace(/\\/g, "/"),
+      openShortcut: "Ctrl+Shift+O",
+    };
+  }
 
   return {
-    chromePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    userDataDir: path.join(localAppData, "Google", "Chrome", "User Data").replace(/\\/g, "/"),
+    chromePath: "/usr/bin/google-chrome",
+    userDataDir: path.join(homeDir, ".config", "google-chrome"),
+    openShortcut: "Ctrl+Shift+O",
+  };
+}
+
+export function makeDefaultConfig() {
+  const defaults = getPlatformDefaults();
+
+  return {
+    chromePath: defaults.chromePath,
+    userDataDir: defaults.userDataDir.replace(/\\/g, "/"),
     automationUserDataDir: automationUserDataDir.replace(/\\/g, "/"),
     profileDirectory: "Default",
     extensionId: "cnjifjpddelmedmihgijeibhnjfabmlf",
-    openShortcut: "Ctrl+Shift+O",
+    openShortcut: defaults.openShortcut,
     summaryTimeoutMs: 240000,
     postAddTimeoutMs: 7000,
     maxConcurrentSummaries: 18,

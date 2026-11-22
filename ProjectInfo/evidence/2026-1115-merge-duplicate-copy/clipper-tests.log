@@ -1,0 +1,33 @@
+
+> obsidian-web-clipper-ingest@0.1.0 test
+> node --test test/*.test.js
+
+✔ selectTabIdForUrl binds a page URL to its own tab (1.862333ms)
+✔ launchChromeContext launches the configured Chrome executable (6418.230375ms)
+✔ launchChromeContext exposes the configured Web Clipper worker (5439.166375ms)
+✔ rejects stale clipper state from a different article before saving (3.679625ms)
+✔ accepts the requested or redirected source, ignoring only fragments (0.565834ms)
+✔ rejects a captcha redirect even when it matches the current browser URL (0.314ms)
+✔ resumes a WeChat handoff only for the requested article (1.520875ms)
+✔ inferInterpreterState detects done state from class or text (1.880292ms)
+✔ inferInterpreterState distinguishes idle from processing (0.447834ms)
+✔ isReadyToAddState requires interpreter completion when present (0.431666ms)
+✔ makeDefaultConfig returns a valid config shape (3.07375ms)
+✔ validateConfig rejects missing required string fields (0.553875ms)
+✔ applyEnvOverrides updates max concurrent summaries from env (0.191333ms)
+✔ getPlatformDefaults returns macOS Chrome defaults (1.743917ms)
+✔ normalizeNoteStem normalizes Windows-illegal characters and spacing (2.829417ms)
+✔ chooseVaultCandidate prefers the open vault among matching names (1.215834ms)
+✔ getObsidianConfigPaths returns macOS config locations (2.404834ms)
+✔ getRetryConcurrencyPlan falls back from batch retry to single retry (4.415083ms)
+✔ mergeAttemptResult keeps attempt history and latest outcome (1.347375ms)
+✔ parseInputUrls accepts direct URLs (5.192583ms)
+✔ parseInputUrls accepts --input files (13.296958ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13753.958708
